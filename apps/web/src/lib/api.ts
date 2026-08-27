@@ -129,6 +129,85 @@ export interface HealthResponse {
   services: Record<string, string>;
 }
 
+export interface ChainInfo {
+  chain_id: number;
+  name: string;
+  symbol: string;
+  explorer: string;
+  rpc_env: string;
+}
+
+export interface ValidateAddressResponse {
+  valid: boolean;
+  address?: string;
+  original_address?: string;
+  chain_id?: number;
+  chain_name?: string;
+  chain_symbol?: string;
+  explorer_url?: string;
+  detected_chain?: number;
+  error?: string;
+}
+
+export interface WalletAnalyzeRequest {
+  address: string;
+  chain_id?: number;
+  label?: string;
+  trace_depth?: number;
+  max_transactions?: number;
+}
+
+export interface WalletAnalyzeResponse {
+  wallet: Wallet;
+  investigation: InvestigationRun;
+}
+
+export interface TraceRequest {
+  max_hops?: number;
+  min_value_eth?: number;
+}
+
+export interface TraceResponse {
+  root_address: string;
+  wallets_traced: number;
+  edges: Array<{
+    from: string;
+    to: string;
+    value: string;
+    value_eth: number;
+    tx_hash: string;
+    block: number;
+    timestamp: string;
+    hop: number;
+  }>;
+  paths: Array<{
+    path: string[];
+    length: number;
+    total_value_eth: number;
+  }>;
+  max_hops_reached: number;
+}
+
+export interface WalletTransactionsResponse {
+  items: Array<{
+    tx_hash: string;
+    block_number: number;
+    timestamp: string;
+    from_address: string;
+    to_address: string;
+    value: string;
+    value_usd?: number;
+    token_address?: string;
+    token_symbol?: string;
+    method?: string;
+    is_suspicious: boolean;
+  }>;
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 export const casesApi = {
   list: (params?: { page?: number; page_size?: number; status?: string; crime_type?: string }) =>
     api.get<PaginatedResponse<Case>>("/cases", params),
@@ -168,4 +247,16 @@ export const healthApi = {
   check: () => api.get<HealthResponse>("/health"),
   ready: () => api.get<{ status: string }>("/health/ready"),
   live: () => api.get<{ status: string }>("/health/live"),
+};
+
+export const analysisApi = {
+  validateAddress: (address: string, chain_id?: number) =>
+    api.get<ValidateAddressResponse>("/analysis/wallets/validate", { address, chain_id }),
+  listChains: () => api.get<{ chains: ChainInfo[] }>("/analysis/chains"),
+  analyzeWallet: (caseId: string, data: WalletAnalyzeRequest) =>
+    api.post<WalletAnalyzeResponse>(`/analysis/cases/${caseId}/wallets/analyze`, data),
+  traceFundFlow: (walletId: string, data: TraceRequest) =>
+    api.post<TraceResponse>(`/analysis/wallets/${walletId}/trace`, data),
+  getWalletTransactions: (walletId: string, params?: { page?: number; page_size?: number }) =>
+    api.get<WalletTransactionsResponse>(`/analysis/wallets/${walletId}/transactions`, params),
 };

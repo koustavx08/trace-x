@@ -19,6 +19,8 @@ dependencies = [
     "tenacity>=8.2.0",
     "redis>=5.0.0",
     "neo4j>=5.14.0",
+    "web3>=6.11.0",
+    "eth-utils>=2.2.0",
 ]
 
 [project.optional-dependencies]

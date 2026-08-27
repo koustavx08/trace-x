@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from "@/components/ui/table";
 import { formatAddress, formatCurrency, formatRelativeTime, getRiskColor, getRiskBg } from "@/lib/utils";
+import { analysisApi } from "@/lib/api";
 import {
   Search,
   ChevronRight,
@@ -20,40 +21,192 @@ import {
   Filter,
   Download,
   Share2,
+  XCircle,
+  CheckCircle2,
 } from "lucide-react";
 
-const chains = [
-  { id: "ethereum", name: "Ethereum", symbol: "ETH" },
-  { id: "polygon", name: "Polygon", symbol: "MATIC" },
-];
+interface ChainInfo {
+  chain_id: number;
+  name: string;
+  symbol: string;
+  explorer: string;
+  rpc_env: string;
+}
 
-const mockTransactions = [
-  { hash: "0xabc123...def456", block: 19234567, timestamp: "2024-01-15T10:30:00Z", from: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb", to: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984", value: "150.5", valueUsd: 450000, token: "ETH", method: "transfer", suspicious: true },
-  { hash: "0xdef456...ghi789", block: 19234580, timestamp: "2024-01-15T10:32:00Z", from: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984", to: "0xA0b86a33E6441b8C4C8C8C8C8C8C8C8C8C8C8C", value: "149.8", valueUsd: 448000, token: "ETH", method: "swap", suspicious: true },
-  { hash: "0xghi789...jkl012", block: 19234595, timestamp: "2024-01-15T10:35:00Z", from: "0xA0b86a33E6441b8C4C8C8C8C8C8C8C8C8C8C8C", to: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", value: "148.2", valueUsd: 443000, token: "ETH", method: "transfer", suspicious: false },
-  { hash: "0xjkl012...mno345", block: 45678901, timestamp: "2024-01-15T10:38:00Z", from: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", to: "0x6B175474E89094C44Da98b954EedeAC495271d0F", value: "148.0", valueUsd: 442500, token: "ETH", method: "deposit", suspicious: false },
-];
+interface Transaction {
+  tx_hash: string;
+  block_number: number;
+  timestamp: string;
+  from_address: string;
+  to_address: string;
+  value: string;
+  value_usd?: number;
+  token_address?: string;
+  token_symbol?: string;
+  method?: string;
+  is_suspicious: boolean;
+}
 
-const mockPatterns = [
-  { type: "Peel Chain", severity: "High", description: "Funds split across multiple addresses in rapid succession", wallets: 5 },
-  { type: "Round Amounts", severity: "Medium", description: "Multiple transactions with round ETH amounts detected", wallets: 3 },
-  { type: "Mixer Interaction", severity: "High", description: "Funds traced through Tornado Cash deposit", wallets: 1 },
-  { type: "Rapid Movement", severity: "Medium", description: "Funds moved through 4 hops in under 10 minutes", wallets: 4 },
-];
+interface Pattern {
+  type: string;
+  severity: "High" | "Medium" | "Low";
+  description: string;
+  wallets: number;
+}
 
 export default function AnalyzePage() {
   const [address, setAddress] = useState("");
-  const [chain, setChain] = useState("ethereum");
+  const [chainId, setChainId] = useState<number | undefined>(undefined);
   const [depth, setDepth] = useState(5);
   const [analyzing, setAnalyzing] = useState(false);
-  const [results, setResults] = useState<typeof mockTransactions | null>(null);
+  const [validating, setValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState<{ valid: boolean; error?: string } | null>(null);
+  const [results, setResults] = useState<Transaction[] | null>(null);
+  const [patterns, setPatterns] = useState<Pattern[]>([]);
+  const [traceResult, setTraceResult] = useState<any>(null);
+  const [chains, setChains] = useState<ChainInfo[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("transactions");
+
+  useEffect(() => {
+    loadChains();
+  }, []);
+
+  const loadChains = async () => {
+    try {
+      const response = await analysisApi.listChains();
+      setChains(response.chains);
+    } catch (err) {
+      console.error("Failed to load chains:", err);
+    }
+  };
+
+  const validateAddress = async () => {
+    if (!address || address.length < 42) {
+      setValidationResult({ valid: false, error: "Address too short" });
+      return;
+    }
+
+    setValidating(true);
+    setError(null);
+    try {
+      const result = await analysisApi.validateAddress(address, chainId);
+      setValidationResult(result);
+      if (result.valid && result.chain_id && !chainId) {
+        setChainId(result.chain_id);
+      }
+    } catch (err) {
+      setValidationResult({ valid: false, error: "Validation failed" });
+    } finally {
+      setValidating(false);
+    }
+  };
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!address || !validationResult?.valid) return;
+
     setAnalyzing(true);
-    await new Promise((r) => setTimeout(r, 2000));
-    setResults(mockTransactions);
-    setAnalyzing(false);
+    setError(null);
+    setResults(null);
+    setPatterns([]);
+    setTraceResult(null);
+
+    try {
+      const caseId = new URLSearchParams(window.location.search).get("case");
+      if (!caseId) {
+        throw new Error("No case selected. Please select a case first.");
+      }
+
+      const response = await analysisApi.analyzeWallet(caseId, {
+        address,
+        chain_id: chainId,
+        trace_depth: depth,
+        max_transactions: 1000,
+      });
+
+      if (response.investigation.status === "completed" && response.investigation.result_summary) {
+        const txResponse = await analysisApi.getWalletTransactions(response.wallet.id);
+        setResults(txResponse.items);
+
+        const detectedPatterns = detectPatterns(txResponse.items);
+        setPatterns(detectedPatterns);
+      } else if (response.investigation.status === "failed") {
+        throw new Error(response.investigation.error_message || "Analysis failed");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Analysis failed");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleTrace = async () => {
+    if (!results || results.length === 0) return;
+
+    try {
+      const walletId = new URLSearchParams(window.location.search).get("wallet");
+      if (!walletId) return;
+
+      const result = await analysisApi.traceFundFlow(walletId, {
+        max_hops: depth,
+        min_value_eth: 0.001,
+      });
+      setTraceResult(result);
+      setActiveTab("graph");
+    } catch (err) {
+      setError("Failed to trace fund flow");
+    }
+  };
+
+  const detectPatterns = (txs: Transaction[]): Pattern[] => {
+    const patterns: Pattern[] = [];
+    const addresses = new Map<string, number>();
+
+    txs.forEach(tx => {
+      addresses.set(tx.from_address, (addresses.get(tx.from_address) || 0) + 1);
+      addresses.set(tx.to_address, (addresses.get(tx.to_address) || 0) + 1);
+    });
+
+    const multiHop = Array.from(addresses.entries()).filter(([, count]) => count > 2).length;
+    if (multiHop > 0) {
+      patterns.push({
+        type: "Peel Chain",
+        severity: "High",
+        description: `${multiHop} addresses with 3+ transactions - potential peel chain`,
+        wallets: multiHop,
+      });
+    }
+
+    const roundAmounts = txs.filter(tx => {
+      const val = parseFloat(tx.value);
+      return val > 0 && val === Math.floor(val) && val % 1 === 0;
+    }).length;
+    if (roundAmounts > 2) {
+      patterns.push({
+        type: "Round Amounts",
+        severity: "Medium",
+        description: `${roundAmounts} transactions with round ETH amounts`,
+        wallets: roundAmounts,
+      });
+    }
+
+    const rapidTxs = txs.filter((tx, i) => {
+      if (i === 0) return false;
+      const prev = new Date(txs[i - 1].timestamp).getTime();
+      const curr = new Date(tx.timestamp).getTime();
+      return (curr - prev) < 60000;
+    }).length;
+    if (rapidTxs > 2) {
+      patterns.push({
+        type: "Rapid Movement",
+        severity: "Medium",
+        description: `${rapidTxs} transactions within 1 minute of previous`,
+        wallets: rapidTxs,
+      });
+    }
+
+    return patterns;
   };
 
   return (
@@ -79,22 +232,33 @@ export default function AnalyzePage() {
                     id="address"
                     placeholder="0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
                     value={address}
-                    onChange={(e) => setAddress(e.target.value)}
+                    onChange={(e) => {
+                      setAddress(e.target.value);
+                      setValidationResult(null);
+                    }}
+                    onBlur={validateAddress}
                     required
+                    disabled={analyzing}
                   />
-                  <Select value={chain} onValueChange={setChain} className="w-[160px]">
+                  <Select value={chainId?.toString() || ""} onValueChange={(v) => setChainId(v ? parseInt(v) : undefined)} className="w-[160px]">
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Auto-detect" />
                     </SelectTrigger>
                     <SelectContent>
                       {chains.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
+                        <SelectItem key={c.chain_id} value={c.chain_id.toString()}>
                           {c.name} ({c.symbol})
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {validating && <Activity className="w-5 h-5 mt-10 animate-spin text-muted-foreground" />}
+                  {validationResult?.valid && !validating && <CheckCircle2 className="w-5 h-5 mt-10 text-green-400" />}
+                  {validationResult?.error && !validating && <XCircle className="w-5 h-5 mt-10 text-destructive" />}
                 </div>
+                {validationResult?.error && !validating && (
+                  <p className="text-sm text-destructive mt-1">{validationResult.error}</p>
+                )}
               </div>
               <div>
                 <Label htmlFor="depth">Trace Depth</Label>
@@ -113,8 +277,14 @@ export default function AnalyzePage() {
               </div>
             </div>
 
+            {error && (
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+                {error}
+              </div>
+            )}
+
             <div className="flex items-center gap-4">
-              <Button type="submit" disabled={analyzing || !address} className="w-full sm:w-auto">
+              <Button type="submit" disabled={analyzing || !address || !validationResult?.valid} className="w-full sm:w-auto">
                 {analyzing ? (
                   <>
                     <Activity className="w-4 h-4 mr-2 animate-spin" />
@@ -127,7 +297,11 @@ export default function AnalyzePage() {
                   </>
                 )}
               </Button>
-              <Button type="button" variant="outline">
+              <Button type="button" variant="outline" onClick={handleTrace} disabled={!results || results.length === 0}>
+                <Activity className="w-4 h-4 mr-2" />
+                Trace Fund Flow
+              </Button>
+              <Button type="button" variant="outline" disabled={!results}>
                 <Download className="w-4 h-4 mr-2" />
                 Export Results
               </Button>
@@ -137,10 +311,10 @@ export default function AnalyzePage() {
       </Card>
 
       {results && (
-        <Tabs defaultValue="transactions" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList>
             <TabsTrigger value="transactions">Transactions ({results.length})</TabsTrigger>
-            <TabsTrigger value="patterns">Patterns ({mockPatterns.length})</TabsTrigger>
+            <TabsTrigger value="patterns">Patterns ({patterns.length})</TabsTrigger>
             <TabsTrigger value="graph">Graph View</TabsTrigger>
           </TabsList>
 
@@ -164,29 +338,29 @@ export default function AnalyzePage() {
                     </TableHeader>
                     <TableBody>
                       {results.map((tx) => (
-                        <TableRow key={tx.hash}>
+                        <TableRow key={tx.tx_hash}>
                           <TableCell>
-                            <code className="font-mono text-sm">{tx.hash}</code>
+                            <code className="font-mono text-sm">{formatAddress(tx.tx_hash)}</code>
                           </TableCell>
-                          <TableCell className="font-mono text-sm">#{tx.block.toLocaleString()}</TableCell>
+                          <TableCell className="font-mono text-sm">#{tx.block_number.toLocaleString()}</TableCell>
                           <TableCell className="text-muted-foreground">{formatRelativeTime(tx.timestamp)}</TableCell>
                           <TableCell>
-                            <code className="font-mono text-sm">{formatAddress(tx.from)}</code>
+                            <code className="font-mono text-sm">{formatAddress(tx.from_address)}</code>
                           </TableCell>
                           <TableCell>
-                            <code className="font-mono text-sm">{formatAddress(tx.to)}</code>
+                            <code className="font-mono text-sm">{formatAddress(tx.to_address)}</code>
                           </TableCell>
                           <TableCell className="font-mono tabular-nums">
-                            {formatCurrency(tx.valueUsd || 0)}
+                            {formatCurrency(tx.value_usd || 0)}
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline">{tx.token}</Badge>
+                            <Badge variant="outline">{tx.token_symbol || "ETH"}</Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline">{tx.method}</Badge>
+                            <Badge variant="outline">{tx.method || "transfer"}</Badge>
                           </TableCell>
                           <TableCell>
-                            {tx.suspicious && (
+                            {tx.is_suspicious && (
                               <Badge variant="destructive" className="gap-1">
                                 <AlertTriangle className="w-3 h-3" />
                                 Suspicious
@@ -208,32 +382,40 @@ export default function AnalyzePage() {
                 <CardTitle>Detected Patterns</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {mockPatterns.map((pattern) => (
-                    <div
-                      key={pattern.type}
-                      className="p-4 rounded-lg border border-tracex-border bg-tracex-surface-hover/50"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-semibold">{pattern.type}</span>
-                            <Badge variant={pattern.severity === "High" ? "destructive" : "warning"}>
-                              {pattern.severity}
-                            </Badge>
+                {patterns.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <CheckCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium">No suspicious patterns detected</p>
+                    <p className="text-sm mt-1">Analysis found no obvious red flags in transaction history</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {patterns.map((pattern) => (
+                      <div
+                        key={pattern.type}
+                        className="p-4 rounded-lg border border-tracex-border bg-tracex-surface-hover/50"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-semibold">{pattern.type}</span>
+                              <Badge variant={pattern.severity === "High" ? "destructive" : pattern.severity === "Medium" ? "warning" : "success"}>
+                                {pattern.severity}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{pattern.description}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Affected wallets: {pattern.wallets}
+                            </p>
                           </div>
-                          <p className="text-sm text-muted-foreground">{pattern.description}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Affected wallets: {pattern.wallets}
-                          </p>
+                          <Button variant="ghost" size="icon">
+                            <ChevronRight className="w-4 h-4" />
+                          </Button>
                         </div>
-                        <Button variant="ghost" size="icon">
-                          <ChevronRight className="w-4 h-4" />
-                        </Button>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -241,17 +423,56 @@ export default function AnalyzePage() {
           <TabsContent value="graph">
             <Card>
               <CardHeader>
-                <CardTitle>Transaction Graph</CardTitle>
+                <CardTitle>Fund Flow Trace</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-[500px] flex items-center justify-center bg-tracex-darker rounded-lg border border-tracex-border">
-                  <div className="text-center text-muted-foreground">
-                    <Activity className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p className="text-lg font-medium">Graph Visualization</p>
-                    <p className="text-sm mt-1">Interactive fund flow graph (React Flow)</p>
-                    <p className="text-xs mt-2">Coming in Phase 10</p>
+                {traceResult ? (
+                  <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-4">
+                      <Card>
+                        <CardContent className="p-4">
+                          <p className="text-sm text-muted-foreground">Wallets Traced</p>
+                          <p className="text-2xl font-bold">{traceResult.wallets_traced}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-4">
+                          <p className="text-sm text-muted-foreground">Edges Found</p>
+                          <p className="text-2xl font-bold">{traceResult.edges.length}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-4">
+                          <p className="text-sm text-muted-foreground">Paths Found</p>
+                          <p className="text-2xl font-bold">{traceResult.paths.length}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-4">
+                          <p className="text-sm text-muted-foreground">Max Hops</p>
+                          <p className="text-2xl font-bold">{traceResult.max_hops_reached}</p>
+                        </CardContent>
+                      </Card>
+                    </div>
+                    <div className="h-[400px] flex items-center justify-center bg-tracex-darker rounded-lg border border-tracex-border">
+                      <div className="text-center text-muted-foreground">
+                        <Activity className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                        <p className="text-lg font-medium">Graph Visualization</p>
+                        <p className="text-sm mt-1">Interactive fund flow graph (React Flow)</p>
+                        <p className="text-xs mt-2">Coming in Phase 10</p>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="h-[500px] flex items-center justify-center bg-tracex-darker rounded-lg border border-tracex-border">
+                    <div className="text-center text-muted-foreground">
+                      <Activity className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium">Graph Visualization</p>
+                      <p className="text-sm mt-1">Click "Trace Fund Flow" to build the graph</p>
+                      <p className="text-xs mt-2">Full interactive graph coming in Phase 10</p>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

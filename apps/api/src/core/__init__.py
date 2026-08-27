@@ -11,6 +11,16 @@ from .exceptions import (
     APIErrorCode,
     register_exception_handlers,
 )
+from .validation import (
+    is_valid_evm_address,
+    to_checksum,
+    detect_chain_from_address,
+    get_supported_chains,
+    get_chain_info,
+    validate_and_normalize_address,
+    is_contract_address,
+    CHAIN_CONFIGS,
+)
 
 __all__ = [
     "Settings",
@@ -31,4 +41,12 @@ __all__ = [
     "ExternalServiceError",
     "APIErrorCode",
     "register_exception_handlers",
+    "is_valid_evm_address",
+    "to_checksum",
+    "detect_chain_from_address",
+    "get_supported_chains",
+    "get_chain_info",
+    "validate_and_normalize_address",
+    "is_contract_address",
+    "CHAIN_CONFIGS",
 ]

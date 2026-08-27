@@ -1,10 +1,12 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from "@/components/ui/table";
-import { formatRelativeTime, formatAddress, getRiskColor, getRiskBg, getConfidenceColor } from "@/lib/utils";
+import { formatRelativeTime, formatAddress } from "@/lib/utils";
+import { casesApi, walletsApi, investigationsApi, healthApi } from "@/lib/api";
 import {
   Activity,
   FolderOpen,
@@ -15,43 +17,58 @@ import {
   Clock,
   TrendingUp,
   Plus,
+  Shield,
 } from "lucide-react";
+import Link from "next/link";
 
-const stats = [
-  { name: "Active Cases", value: "12", change: "+2", icon: FolderOpen, color: "text-blue-400" },
-  { name: "Wallets Tracked", value: "347", change: "+23", icon: Search, color: "text-green-400" },
-  { name: "Investigations Running", value: "3", change: "0", icon: Activity, color: "text-amber-400" },
-  { name: "Reports Generated", value: "28", change: "+5", icon: FileText, color: "text-purple-400" },
-];
-
-const recentCases = [
-  { id: "1", case_number: "TRX-20240115-0042", title: "DeFi Protocol Exploit", crime_type: "fraud", status: "in_progress", wallets: 15, updated: "2024-01-15T10:30:00Z" },
-  { id: "2", case_number: "TRX-20240114-0038", title: "Ransomware Payment Tracing", crime_type: "ransomware", status: "open", wallets: 8, updated: "2024-01-14T16:45:00Z" },
-  { id: "3", case_number: "TRX-20240113-0029", title: "Money Laundering Ring", crime_type: "money_laundering", status: "closed", wallets: 42, updated: "2024-01-13T09:15:00Z" },
-  { id: "4", case_number: "TRX-20240112-0017", title: "Darknet Market Seizure", crime_type: "darknet_market", status: "archived", wallets: 23, updated: "2024-01-12T14:20:00Z" },
-];
-
-const recentInvestigations = [
-  { id: "1", case_id: "TRX-20240115-0042", wallet: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb", chain: "Ethereum", status: "running", progress: 65 },
-  { id: "2", case_id: "TRX-20240114-0038", wallet: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984", chain: "Ethereum", status: "completed", progress: 100 },
-  { id: "3", case_id: "TRX-20240115-0042", wallet: "0xA0b86a33E6441b8C4C8C8C8C8C8C8C8C8C8C8C8C", chain: "Polygon", status: "pending", progress: 0 },
-];
-
-const statusBadges: Record<string, React.ReactNode> = {
-  open: <Badge variant="info">Open</Badge>,
-  in_progress: <Badge variant="warning">In Progress</Badge>,
-  closed: <Badge variant="success">Closed</Badge>,
-  archived: <Badge variant="secondary">Archived</Badge>,
+const statusLabels: Record<string, string> = {
+  open: "Open",
+  in_progress: "In Progress",
+  closed: "Closed",
+  archived: "Archived",
 };
 
-const investigationStatusBadges: Record<string, React.ReactNode> = {
-  pending: <Badge variant="secondary">Pending</Badge>,
-  running: <Badge variant="warning">Running</Badge>,
-  completed: <Badge variant="success">Completed</Badge>,
-  failed: <Badge variant="destructive">Failed</Badge>,
+const investigationStatusLabels: Record<string, string> = {
+  pending: "Pending",
+  running: "Running",
+  completed: "Completed",
+  failed: "Failed",
 };
 
 export default function DashboardPage() {
+  const { data: casesData } = useQuery({
+    queryKey: ["cases", { page: 1, page_size: 5, status: "open,in_progress" }],
+    queryFn: () => casesApi.list({ page: 1, page_size: 5, status: "open,in_progress" }),
+  });
+
+  const { data: walletsData } = useQuery({
+    queryKey: ["wallets", { page: 1, page_size: 1 }],
+    queryFn: () => walletsApi.list({ page: 1, page_size: 1 }),
+  });
+
+  const { data: investigationsData } = useQuery({
+    queryKey: ["investigations", { page: 1, page_size: 5, status: "running,pending" }],
+    queryFn: () => investigationsApi.list({ page: 1, page_size: 5, status: "running,pending" }),
+  });
+
+  const { data: healthData } = useQuery({
+    queryKey: ["health"],
+    queryFn: () => healthApi.check(),
+    refetchInterval: 30000,
+  });
+
+  const activeCasesCount = casesData?.items.filter((c: any) => c.status !== "closed" && c.status !== "archived").length || 0;
+  const totalWallets = walletsData?.total || 0;
+  const runningInvestigations = investigationsData?.items.filter((i: any) => i.status === "running").length || 0;
+  const completedInvestigations = investigationsData?.items.filter((i: any) => i.status === "completed").length || 0;
+
+  const stats = [
+    { name: "Active Cases", value: activeCasesCount.toString(), change: "+0", icon: FolderOpen, color: "text-blue-400" },
+    { name: "Wallets Tracked", value: totalWallets.toString(), change: "+0", icon: Search, color: "text-green-400" },
+    { name: "Investigations Running", value: runningInvestigations.toString(), change: "0", icon: Activity, color: "text-amber-400" },
+    { name: "Completed Traces", value: completedInvestigations.toString(), change: "+0", icon: FileText, color: "text-purple-400" },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -59,9 +76,11 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">Overview of active investigations and platform status</p>
         </div>
-        <Button>
-          <Plus className="w-4 h-4 mr-2" />
-          New Case
+        <Button asChild>
+          <Link href="/cases/new">
+            <Plus className="w-4 h-4 mr-2" />
+            New Case
+          </Link>
         </Button>
       </div>
 
@@ -88,7 +107,9 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-lg">Recent Cases</CardTitle>
-            <Button variant="ghost" size="sm">View All</Button>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/cases">View All</Link>
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -104,18 +125,29 @@ export default function DashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {recentCases.map((caseItem) => (
+                  {(casesData?.items || []).map((caseItem: any) => (
                     <TableRow key={caseItem.id}>
                       <TableCell className="font-mono text-sm">{caseItem.case_number}</TableCell>
                       <TableCell className="font-medium">{caseItem.title}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="capitalize">{caseItem.crime_type.replace("_", " ")}</Badge>
                       </TableCell>
-                      <TableCell>{statusBadges[caseItem.status]}</TableCell>
-                      <TableCell>{caseItem.wallets}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatRelativeTime(caseItem.updated)}</TableCell>
+                      <TableCell>
+                        <Badge variant={caseItem.status === "in_progress" ? "warning" : caseItem.status === "open" ? "info" : caseItem.status === "closed" ? "success" : "secondary"}>
+                          {statusLabels[caseItem.status]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{caseItem.wallets_count || 0}</TableCell>
+                      <TableCell className="text-muted-foreground">{formatRelativeTime(caseItem.updated_at)}</TableCell>
                     </TableRow>
                   ))}
+                  {(casesData?.items?.length || 0) === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No active cases. <Link href="/cases/new" className="text-primary underline">Create your first case</Link>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </div>
@@ -125,32 +157,43 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-lg">Active Investigations</CardTitle>
-            <Button variant="ghost" size="sm">View All</Button>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/cases">View All</Link>
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentInvestigations.map((inv) => (
+              {(investigationsData?.items || []).map((inv: any) => (
                 <div key={inv.id} className="flex items-center justify-between p-4 rounded-lg bg-tracex-surface-hover/50">
                   <div className="flex items-center gap-4">
-                    <div className="w-2 h-2 rounded-full bg-primary" />
+                    <div className={`w-2 h-2 rounded-full ${inv.status === "completed" ? "bg-green-400" : inv.status === "running" ? "bg-amber-400" : "bg-blue-400"}`} />
                     <div>
-                      <p className="font-mono text-sm">{formatAddress(inv.wallet)}</p>
-                      <p className="text-xs text-muted-foreground">{inv.chain} • {inv.case_id}</p>
+                      <p className="font-mono text-sm">{formatAddress(inv.wallet_id || "unknown")}</p>
+                      <p className="text-xs text-muted-foreground">{inv.case_id} • Started {formatRelativeTime(inv.started_at)}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="w-32">
                       <div className="h-2 bg-tracex-border rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-primary transition-all duration-300"
-                          style={{ width: `${inv.progress}%` }}
+                          className={`h-full transition-all duration-300 ${inv.status === "completed" ? "bg-green-400" : inv.status === "running" ? "bg-amber-400" : "bg-blue-400"}`}
+                          style={{ width: `${inv.result_summary?.progress || (inv.status === "completed" ? 100 : inv.status === "running" ? 50 : 0)}%` }}
                         />
                       </div>
                     </div>
-                    {investigationStatusBadges[inv.status]}
+                    <Badge variant={inv.status === "completed" ? "success" : inv.status === "running" ? "warning" : "secondary"}>
+                      {investigationStatusLabels[inv.status]}
+                    </Badge>
                   </div>
                 </div>
               ))}
+              {(investigationsData?.items?.length || 0) === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Activity className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium">No active investigations</p>
+                  <p className="text-sm mt-1">Start a wallet trace to see investigations here</p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -159,33 +202,39 @@ export default function DashboardPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-lg">Platform Health</CardTitle>
-          <Badge variant="success" className="gap-1">
+          <Badge variant={healthData?.status === "healthy" ? "success" : healthData?.status === "degraded" ? "warning" : "destructive"} className="gap-1">
             <CheckCircle className="w-3 h-3" />
-            All Systems Operational
+            {healthData?.status === "healthy" ? "All Systems Operational" : healthData?.status === "degraded" ? "Degraded Performance" : "System Issues"}
           </Badge>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-3">
             <div className="p-4 rounded-lg bg-tracex-surface-hover/50">
               <div className="flex items-center gap-2 mb-2">
-                <Activity className="w-4 h-4 text-green-400" />
+                <Activity className={`w-4 h-4 ${healthData?.services?.database === "connected" ? "text-green-400" : "text-destructive"}`} />
                 <span className="font-medium">Database</span>
               </div>
-              <p className="text-sm text-muted-foreground">PostgreSQL connected • 12ms latency</p>
+              <p className="text-sm text-muted-foreground">
+                {healthData?.services?.database === "connected" ? "PostgreSQL connected" : "PostgreSQL disconnected"}
+              </p>
             </div>
             <div className="p-4 rounded-lg bg-tracex-surface-hover/50">
               <div className="flex items-center gap-2 mb-2">
-                <Activity className="w-4 h-4 text-green-400" />
+                <Activity className={`w-4 h-4 ${healthData?.services?.neo4j === "connected" ? "text-green-400" : "text-destructive"}`} />
                 <span className="font-medium">Graph Database</span>
               </div>
-              <p className="text-sm text-muted-foreground">Neo4j connected • 8ms latency</p>
+              <p className="text-sm text-muted-foreground">
+                {healthData?.services?.neo4j === "connected" ? "Neo4j connected" : "Neo4j disconnected"}
+              </p>
             </div>
             <div className="p-4 rounded-lg bg-tracex-surface-hover/50">
               <div className="flex items-center gap-2 mb-2">
-                <Activity className="w-4 h-4 text-green-400" />
-                <span className="font-medium">Blockchain RPC</span>
+                <Activity className={`w-4 h-4 ${healthData?.services?.redis === "connected" ? "text-green-400" : "text-destructive"}`} />
+                <span className="font-medium">Cache</span>
               </div>
-              <p className="text-sm text-muted-foreground">Ethereum & Polygon healthy</p>
+              <p className="text-sm text-muted-foreground">
+                {healthData?.services?.redis === "connected" ? "Redis connected" : "Redis disconnected"}
+              </p>
             </div>
           </div>
         </CardContent>

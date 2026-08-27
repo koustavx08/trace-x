@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,17 +11,10 @@ import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { formatRelativeTime, formatAddress } from "@/lib/utils";
+import { formatRelativeTime } from "@/lib/utils";
+import { casesApi } from "@/lib/api";
 import { Plus, Search, Filter, ChevronDown, MoreHorizontal } from "lucide-react";
 import Link from "next/link";
-
-const mockCases = [
-  { id: "1", case_number: "TRX-20240115-0042", title: "DeFi Protocol Exploit", crime_type: "fraud", description: "Major DeFi protocol exploit involving flash loan attack", status: "in_progress", assigned_to: "Analyst A", wallets: 15, updated: "2024-01-15T10:30:00Z", created: "2024-01-15T08:00:00Z" },
-  { id: "2", case_number: "TRX-20240114-0038", title: "Ransomware Payment Tracing", crime_type: "ransomware", description: "Tracing ransomware payments across multiple chains", status: "open", assigned_to: "Analyst B", wallets: 8, updated: "2024-01-14T16:45:00Z", created: "2024-01-14T10:00:00Z" },
-  { id: "3", case_number: "TRX-20240113-0029", title: "Money Laundering Ring", crime_type: "money_laundering", description: "International money laundering operation", status: "closed", assigned_to: "Analyst A", wallets: 42, updated: "2024-01-13T09:15:00Z", created: "2024-01-10T14:00:00Z" },
-  { id: "4", case_number: "TRX-20240112-0017", title: "Darknet Market Seizure", crime_type: "darknet_market", description: "Cryptocurrency seizure from darknet marketplace", status: "archived", assigned_to: "Analyst C", wallets: 23, updated: "2024-01-12T14:20:00Z", created: "2024-01-11T09:00:00Z" },
-  { id: "5", case_number: "TRX-20240111-0009", title: "Sanctions Evasion", crime_type: "sanctions_evasion", description: "Tracking sanctions evasion through crypto mixers", status: "in_progress", assigned_to: "Analyst B", wallets: 31, updated: "2024-01-11T11:30:00Z", created: "2024-01-09T16:00:00Z" },
-];
 
 const statusOptions = ["open", "in_progress", "closed", "archived"];
 const crimeTypeOptions = ["fraud", "money_laundering", "ransomware", "darknet_market", "sanctions_evasion", "other"];
@@ -33,27 +27,38 @@ const statusLabels: Record<string, string> = {
 };
 
 export default function CasesPage() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [crimeTypeFilter, setCrimeTypeFilter] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingCase, setEditingCase] = useState<typeof mockCases[0] | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
 
-  const filteredCases = mockCases.filter((c) => {
-    const matchesSearch = c.case_number.toLowerCase().includes(search.toLowerCase()) ||
-      c.title.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = !statusFilter || c.status === statusFilter;
-    const matchesCrimeType = !crimeTypeFilter || c.crime_type === crimeTypeFilter;
-    return matchesSearch && matchesStatus && matchesCrimeType;
+  const { data: casesData, isLoading, error } = useQuery({
+    queryKey: ["cases", { page, pageSize, status: statusFilter, crime_type: crimeTypeFilter, search }],
+    queryFn: () => casesApi.list({ page, page_size: pageSize, status: statusFilter || undefined, crime_type: crimeTypeFilter || undefined, search: search || undefined }),
+  });
+
+  const createCaseMutation = useMutation({
+    mutationFn: (data: any) => casesApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cases"] });
+      setDialogOpen(false);
+    },
   });
 
   const handleCreateCase = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    console.log("Create case:", Object.fromEntries(formData));
-    setDialogOpen(false);
+    const data = Object.fromEntries(formData);
+    createCaseMutation.mutate(data);
     e.currentTarget.reset();
   };
+
+  const filteredCases = casesData?.items || [];
+  const totalCases = casesData?.total || 0;
+  const totalPages = casesData?.total_pages || 1;
 
   return (
     <div className="space-y-6">
@@ -64,7 +69,7 @@ export default function CasesPage() {
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button disabled={createCaseMutation.isPending}>
               <Plus className="w-4 h-4 mr-2" />
               New Case
             </Button>
@@ -76,10 +81,6 @@ export default function CasesPage() {
             </DialogHeader>
             <form onSubmit={handleCreateCase}>
               <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="case_number">Case Number</Label>
-                  <Input id="case_number" name="case_number" placeholder="TRX-20240115-0042" required />
-                </div>
                 <div className="grid gap-2">
                   <Label htmlFor="title">Title</Label>
                   <Input id="title" name="title" placeholder="Case title" required />
@@ -123,7 +124,9 @@ export default function CasesPage() {
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit">Create Case</Button>
+                <Button type="submit" disabled={createCaseMutation.isPending}>
+                  {createCaseMutation.isPending ? "Creating..." : "Create Case"}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>
@@ -132,18 +135,18 @@ export default function CasesPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-lg">All Cases ({filteredCases.length})</CardTitle>
+          <CardTitle className="text-lg">All Cases ({totalCases})</CardTitle>
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 placeholder="Search cases..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                 className="pl-10 w-64"
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="All Statuses" />
               </SelectTrigger>
@@ -156,7 +159,7 @@ export default function CasesPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={crimeTypeFilter} onValueChange={setCrimeTypeFilter}>
+            <Select value={crimeTypeFilter} onValueChange={(v) => { setCrimeTypeFilter(v); setPage(1); }}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="All Types" />
               </SelectTrigger>
@@ -172,58 +175,85 @@ export default function CasesPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Case Number</TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Crime Type</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Assigned To</TableHead>
-                  <TableHead>Wallets</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Updated</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredCases.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="font-mono text-sm">{c.case_number}</TableCell>
-                    <TableCell>
-                      <Link href={`/cases/${c.id}`} className="font-medium hover:text-primary transition-colors">
-                        {c.title}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="capitalize">
-                        {c.crime_type.replace("_", " ")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={c.status === "in_progress" ? "warning" : c.status === "open" ? "info" : c.status === "closed" ? "success" : "secondary"}>
-                        {statusLabels[c.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{c.assigned_to}</TableCell>
-                    <TableCell>{c.wallets}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatRelativeTime(c.created)}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatRelativeTime(c.updated)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon" asChild>
-                          <Link href={`/cases/${c.id}`}>
-                            <MoreHorizontal className="w-4 h-4" />
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            </div>
+          ) : error ? (
+            <div className="text-center py-8 text-destructive">
+              Failed to load cases: {error instanceof Error ? error.message : "Unknown error"}
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Case Number</TableHead>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Crime Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Assigned To</TableHead>
+                      <TableHead>Wallets</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Updated</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredCases.map((c: any) => (
+                      <TableRow key={c.id}>
+                        <TableCell className="font-mono text-sm">{c.case_number}</TableCell>
+                        <TableCell>
+                          <Link href={`/cases/${c.id}`} className="font-medium hover:text-primary transition-colors">
+                            {c.title}
                           </Link>
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="capitalize">
+                            {c.crime_type.replace("_", " ")}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={c.status === "in_progress" ? "warning" : c.status === "open" ? "info" : c.status === "closed" ? "success" : "secondary"}>
+                            {statusLabels[c.status]}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{c.assigned_to || "Unassigned"}</TableCell>
+                        <TableCell>{c.wallets_count || 0}</TableCell>
+                        <TableCell className="text-muted-foreground">{formatRelativeTime(c.created_at)}</TableCell>
+                        <TableCell className="text-muted-foreground">{formatRelativeTime(c.updated_at)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button variant="ghost" size="icon" asChild>
+                              <Link href={`/cases/${c.id}`}>
+                                <MoreHorizontal className="w-4 h-4" />
+                              </Link>
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Page {page} of {totalPages} • {totalCases} total
+                  </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+                      Previous
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
     </div>
