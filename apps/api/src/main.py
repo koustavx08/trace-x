@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .core import get_settings, setup_logging, init_db, close_db, register_exception_handlers, get_logger
 from .api.v1 import api_router
+from .graph.client import Neo4jClient
+from .providers.factory import ProviderFactory
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -17,7 +19,19 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("database_initialized")
 
+    await Neo4jClient.initialize()
+    logger.info("neo4j_initialized")
+
+    ProviderFactory.initialize()
+    logger.info("providers_initialized")
+
     yield
+
+    await ProviderFactory.close_all()
+    logger.info("providers_closed")
+
+    await Neo4jClient.close()
+    logger.info("neo4j_closed")
 
     await close_db()
     logger.info("application_shutdown")

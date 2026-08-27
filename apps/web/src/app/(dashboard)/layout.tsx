@@ -14,12 +14,14 @@ import {
   ChevronRight,
   Shield,
   Activity,
+  GitBranch,
 } from "lucide-react";
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Cases", href: "/cases", icon: FolderOpen },
   { name: "Analyze", href: "/analyze", icon: Search },
+  { name: "Graph", href: "/graph", icon: GitBranch },
   { name: "Reports", href: "/reports", icon: FileText },
   { name: "Settings", href: "/settings", icon: Settings },
 ];

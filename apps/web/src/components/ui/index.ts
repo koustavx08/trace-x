@@ -12,3 +12,4 @@ export { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 export { Avatar, AvatarImage, AvatarFallback } from "./avatar";
 export { ScrollArea } from "./scroll-area";
 export { Dialog, DialogPortal, DialogOverlay, DialogClose, DialogTrigger, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "./dialog";
+export { Slider } from "./slider";

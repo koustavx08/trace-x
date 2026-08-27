@@ -21,6 +21,7 @@ import {
   ExternalLink,
   Plus,
   ChevronRight,
+  GitBranch,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -354,11 +355,18 @@ export default function CaseDetailPage() {
                             )}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="icon" asChild>
-                              <Link href={`/analyze?wallet=${w.id}&case=${caseId}`}>
-                                <ChevronRight className="w-4 h-4" />
-                              </Link>
-                            </Button>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button variant="ghost" size="icon" asChild>
+                                <Link href={`/analyze?wallet=${w.id}&case=${caseId}`}>
+                                  <ChevronRight className="w-4 h-4" />
+                                </Link>
+                              </Button>
+                              <Button variant="ghost" size="icon" asChild>
+                                <Link href={`/graph?wallet=${w.id}`}>
+                                  <GitBranch className="w-4 h-4" />
+                                </Link>
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}

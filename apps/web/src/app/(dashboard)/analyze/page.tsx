@@ -23,6 +23,8 @@ import {
   Share2,
   XCircle,
   CheckCircle2,
+  GitBranch,
+  ExternalLink,
 } from "lucide-react";
 
 interface ChainInfo {
@@ -305,6 +307,14 @@ export default function AnalyzePage() {
                 <Download className="w-4 h-4 mr-2" />
                 Export Results
               </Button>
+              {results && results.length > 0 && (
+                <Button type="button" variant="outline" asChild>
+                  <a href={`/graph?wallet=${new URLSearchParams(window.location.search).get("wallet") || ""}&address=${address}`} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Open in Graph
+                  </a>
+                </Button>
+              )}
             </div>
           </form>
         </CardContent>

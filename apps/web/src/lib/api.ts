@@ -208,6 +208,61 @@ export interface WalletTransactionsResponse {
   total_pages: number;
 }
 
+export interface GraphNode {
+  id: string;
+  type: "wallet" | "entity" | "transaction";
+  address?: string;
+  chain?: string;
+  label?: string;
+  name?: string;
+  entity_type?: string;
+  confidence?: string;
+  risk_score?: number;
+  tx_hash?: string;
+  value?: string;
+  value_usd?: number;
+}
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+  value?: string;
+  tx_hash?: string;
+}
+
+export interface SubgraphRequest {
+  addresses: string[];
+  chain: string;
+  depth?: number;
+}
+
+export interface SubgraphResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export interface PathToVASPRequest {
+  wallet_id: string;
+  max_hops?: number;
+  min_confidence?: string;
+}
+
+export interface ClusterDetectionRequest {
+  chain: string;
+  min_cluster_size?: number;
+}
+
+export interface PatternDetectionRequest {
+  chain: string;
+  pattern_type: string;
+  time_window_hours?: number;
+}
+
+export interface EntityLookupRequest {
+  address: string;
+  chain: string;
+}
+
 export const casesApi = {
   list: (params?: { page?: number; page_size?: number; status?: string; crime_type?: string }) =>
     api.get<PaginatedResponse<Case>>("/cases", params),
@@ -259,4 +314,33 @@ export const analysisApi = {
     api.post<TraceResponse>(`/analysis/wallets/${walletId}/trace`, data),
   getWalletTransactions: (walletId: string, params?: { page?: number; page_size?: number }) =>
     api.get<WalletTransactionsResponse>(`/analysis/wallets/${walletId}/transactions`, params),
+};
+
+export const graphApi = {
+  syncWallet: (walletId: string) =>
+    api.post<{ status: string; wallet_id: string; transactions: number }>("/graph/wallets/sync", { wallet_id: walletId }),
+  getSubgraph: (data: SubgraphRequest) =>
+    api.post<SubgraphResponse>("/graph/subgraph", data),
+  findPathsToVASP: (walletId: string, data: PathToVASPRequest) =>
+    api.post(`/graph/wallets/${walletId}/paths-to-vasp`, data),
+  checkMixer: (walletId: string, max_hops?: number) =>
+    api.post(`/graph/wallets/${walletId}/mixer-check`, null, { params: { max_hops } }),
+  detectPatterns: (data: PatternDetectionRequest) =>
+    api.post("/graph/patterns/detect", data),
+  detectClusters: (data: ClusterDetectionRequest) =>
+    api.post("/graph/clusters/detect", data),
+  getWalletStats: (walletId: string) =>
+    api.get(`/graph/wallets/${walletId}/stats`),
+  getWalletCentrality: (walletId: string, algorithm?: string) =>
+    api.get(`/graph/wallets/${walletId}/centrality`, { algorithm }),
+  getTemporalFlow: (walletId: string, start_date: string, end_date: string, bucket?: string) =>
+    api.get(`/graph/wallets/${walletId}/temporal-flow`, { start_date, end_date, bucket }),
+  lookupEntity: (data: EntityLookupRequest) =>
+    api.post("/graph/entities/lookup", data),
+  enrichWallet: (walletId: string) =>
+    api.post(`/graph/entities/enrich`, { wallet_id: walletId }),
+  syncEntities: () =>
+    api.post("/graph/entities/sync"),
+  health: () =>
+    api.get("/graph/health"),
 };
