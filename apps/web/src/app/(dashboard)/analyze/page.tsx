@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   GitBranch,
   ExternalLink,
+  Bot,
 } from "lucide-react";
 
 interface ChainInfo {
@@ -312,6 +313,14 @@ export default function AnalyzePage() {
                   <a href={`/graph?wallet=${new URLSearchParams(window.location.search).get("wallet") || ""}&address=${address}`} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="w-4 h-4 mr-2" />
                     Open in Graph
+                  </a>
+                </Button>
+              )}
+              {address && validationResult?.valid && (
+                <Button type="button" variant="outline" asChild>
+                  <a href={`/ai?address=${address}&case=${new URLSearchParams(window.location.search).get("case") || ""}`} target="_blank" rel="noopener noreferrer">
+                    <Bot className="w-4 h-4 mr-2" />
+                    Ask AI Assistant
                   </a>
                 </Button>
               )}

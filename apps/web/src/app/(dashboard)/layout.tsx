@@ -16,6 +16,7 @@ import {
   Activity,
   GitBranch,
   BarChart3,
+  Bot,
 } from "lucide-react";
 
 const navigation = [
@@ -24,6 +25,7 @@ const navigation = [
   { name: "Analyze", href: "/analyze", icon: Search },
   { name: "Graph", href: "/graph", icon: GitBranch },
   { name: "Risk", href: "/risk", icon: BarChart3 },
+  { name: "AI Assistant", href: "/ai", icon: Bot },
   { name: "Reports", href: "/reports", icon: FileText },
   { name: "Settings", href: "/settings", icon: Settings },
 ];

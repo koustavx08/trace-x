@@ -8,6 +8,7 @@ from .reports import router as reports_router
 from .analysis import router as analysis_router
 from .graph import router as graph_router
 from .risk import router as risk_router
+from ....ai import ai_router
 
 api_router = APIRouter()
 
@@ -19,3 +20,4 @@ api_router.include_router(reports_router)
 api_router.include_router(analysis_router)
 api_router.include_router(graph_router)
 api_router.include_router(risk_router)
+api_router.include_router(ai_router)

@@ -434,3 +434,73 @@ export const riskApi = {
   getCaseRiskSummary: (caseId: string) =>
     api.get<CaseRiskSummary>(`/risk/cases/${caseId}/risk-summary`),
 };
+
+export interface Capability {
+  name: string;
+  description: string;
+  example_queries: string[];
+}
+
+export interface Evidence {
+  source: string;
+  evidence_type: string;
+  description: string;
+  confidence: string;
+  data: Record<string, any>;
+  timestamp: string;
+}
+
+export interface AIQueryResponse {
+  answer: string;
+  query_type: string;
+  confidence: string;
+  evidence: Evidence[];
+  follow_up_questions: string[];
+  metadata: Record<string, any>;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: string;
+  metadata?: Record<string, any>;
+}
+
+export interface ChatSession {
+  session_id: string;
+  case_id?: string;
+  messages: ChatMessage[];
+}
+
+export interface ChatRequest {
+  message: string;
+  session_id?: string;
+  case_id?: string;
+  wallet_id?: string;
+}
+
+export interface ChatResponse {
+  session_id: string;
+  message: ChatMessage;
+  suggested_actions: string[];
+}
+
+export interface CapabilitiesResponse {
+  capabilities: Capability[];
+  confidence_levels: Array<{ level: string; description: string }>;
+}
+
+export const aiApi = {
+  query: (data: { query: string; case_id?: string; wallet_id?: string }) =>
+    api.post<AIQueryResponse>("/ai/query", data),
+  chat: (data: ChatRequest) =>
+    api.post<ChatResponse>("/ai/chat", data),
+  getChatHistory: (sessionId: string) =>
+    api.get<ChatSession>(`/ai/chat/history/${sessionId}`),
+  deleteChatHistory: (sessionId: string) =>
+    api.delete(`/ai/chat/history/${sessionId}`),
+  getCapabilities: () =>
+    api.get<CapabilitiesResponse>("/ai/capabilities"),
+  generateNarrative: (caseId: string, walletIds?: string[]) =>
+    api.post<{ case_id: string; narrative: string; generated_at: string }>(`/ai/generate-narrative`, { case_id: caseId, wallet_ids: walletIds }),
+};
