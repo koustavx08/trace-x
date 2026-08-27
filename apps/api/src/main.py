@@ -6,6 +6,7 @@ from .core import get_settings, setup_logging, init_db, close_db, register_excep
 from .api.v1 import api_router
 from .graph.client import Neo4jClient
 from .providers.factory import ProviderFactory
+from .auth import audit_logger
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -25,7 +26,21 @@ async def lifespan(app: FastAPI):
     ProviderFactory.initialize()
     logger.info("providers_initialized")
 
+    # Initialize audit logger
+    await audit_logger.log(
+        action="system_startup",
+        success=True,
+        metadata={"app_name": settings.APP_NAME, "env": settings.APP_ENV},
+    )
+
     yield
+
+    # Log shutdown
+    await audit_logger.log(
+        action="system_shutdown",
+        success=True,
+    )
+    await audit_logger.close()
 
     await ProviderFactory.close_all()
     logger.info("providers_closed")

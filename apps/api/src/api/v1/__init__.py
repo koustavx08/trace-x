@@ -8,11 +8,13 @@ from .reports import router as reports_router
 from .analysis import router as analysis_router
 from .graph import router as graph_router
 from .risk import router as risk_router
+from .auth import router as auth_router
 from ....ai import ai_router
 
 api_router = APIRouter()
 
 api_router.include_router(health_router, tags=["health"])
+api_router.include_router(auth_router)
 api_router.include_router(cases_router)
 api_router.include_router(wallets_router)
 api_router.include_router(investigations_router)
