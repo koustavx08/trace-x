@@ -15,6 +15,7 @@ import {
   Shield,
   Activity,
   GitBranch,
+  BarChart3,
 } from "lucide-react";
 
 const navigation = [
@@ -22,6 +23,7 @@ const navigation = [
   { name: "Cases", href: "/cases", icon: FolderOpen },
   { name: "Analyze", href: "/analyze", icon: Search },
   { name: "Graph", href: "/graph", icon: GitBranch },
+  { name: "Risk", href: "/risk", icon: BarChart3 },
   { name: "Reports", href: "/reports", icon: FileText },
   { name: "Settings", href: "/settings", icon: Settings },
 ];

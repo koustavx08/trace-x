@@ -344,3 +344,93 @@ export const graphApi = {
   health: () =>
     api.get("/graph/health"),
 };
+
+export interface RiskFactor {
+  type: string;
+  severity: string;
+  score: number;
+  weight: number;
+  weighted_score: number;
+  description: string;
+  evidence: Record<string, any>;
+  confidence: string;
+}
+
+export interface RiskAssessment {
+  overall_score: number;
+  risk_level: string;
+  factors: RiskFactor[];
+  summary: string;
+  methodology: string;
+  assessed_at: string;
+}
+
+export interface Attribution {
+  entity_name: string;
+  entity_type: string;
+  address: string;
+  chain: string;
+  attribution_type: string;
+  confidence: string;
+  confidence_score: number;
+  distance_hops: number;
+  total_value_eth: number;
+  evidence: Array<{
+    source: string;
+    evidence_type: string;
+    description: string;
+    confidence: string;
+    data: Record<string, any>;
+  }>;
+  path: any;
+}
+
+export interface AttributionResponse {
+  attributed: boolean;
+  nearest_vasp: Attribution | null;
+  all_attributions: Attribution[];
+  summary: {
+    exchanges_found: number;
+    mixers_found: number;
+    bridges_found: number;
+    highest_confidence: number;
+    average_hops: number;
+  };
+}
+
+export interface CaseRiskSummary {
+  case_id: string;
+  case_number: string;
+  total_wallets: number;
+  chains: string[];
+  risk_distribution: Record<string, number>;
+  attribution: Record<string, number>;
+  average_risk_score: number;
+  top_risk_wallets: Array<{
+    address: string;
+    risk_score: number;
+    label: string;
+  }>;
+}
+
+export const riskApi = {
+  assessWallet: (walletId: string) =>
+    api.get<RiskAssessment>(`/risk/wallets/${walletId}/assess`),
+  getAttribution: (walletId: string, max_hops?: number) =>
+    api.get<AttributionResponse>(`/risk/wallets/${walletId}/attribution`, { max_hops }),
+  attributeWallet: (walletId: string, max_hops?: number) =>
+    api.post<Attribution[]>(`/risk/wallets/${walletId}/attribute`, null, { params: { max_hops } }),
+  generateReport: (data: {
+    case_id: string;
+    investigation_run_id?: string;
+    title?: string;
+    template?: string;
+    format?: string;
+    generated_by: string;
+  }) =>
+    api.post<{ report_id: string; title: string; format: string; file_size: number; generated_at: string }>("/risk/reports/generate", data),
+  downloadReport: (reportId: string) =>
+    api.get(`/risk/reports/${reportId}/download`, { responseType: "blob" }),
+  getCaseRiskSummary: (caseId: string) =>
+    api.get<CaseRiskSummary>(`/risk/cases/${caseId}/risk-summary`),
+};

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { formatRelativeTime, formatAddress, getRiskColor, getRiskBg, getConfidenceColor } from "@/lib/utils";
-import { casesApi, walletsApi, investigationsApi } from "@/lib/api";
+import { casesApi, walletsApi, investigationsApi, riskApi } from "@/lib/api";
 import {
   Shield,
   Search,
@@ -22,6 +22,7 @@ import {
   Plus,
   ChevronRight,
   GitBranch,
+  BarChart3,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -65,6 +66,12 @@ export default function CaseDetailPage() {
   const { data: investigationsData, isLoading: investigationsLoading } = useQuery({
     queryKey: ["investigations", { case_id: caseId }],
     queryFn: () => investigationsApi.list({ case_id: caseId, page_size: 100 }),
+    enabled: !!caseId,
+  });
+
+  const { data: caseRiskSummary } = useQuery({
+    queryKey: ["caseRiskSummary", caseId],
+    queryFn: () => riskApi.getCaseRiskSummary(caseId),
     enabled: !!caseId,
   });
 
@@ -183,10 +190,11 @@ export default function CaseDetailPage() {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="wallets">Wallets ({wallets.length})</TabsTrigger>
           <TabsTrigger value="investigations">Investigations ({investigations.length})</TabsTrigger>
+          <TabsTrigger value="risk">Risk Analysis</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -376,6 +384,129 @@ export default function CaseDetailPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="risk">
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold">Risk Analysis</h2>
+                <p className="text-muted-foreground">Case-level risk assessment and attribution summary</p>
+              </div>
+              <Button variant="outline" asChild>
+                <Link href={`/risk?case=${caseId}`}>
+                  <BarChart3 className="w-4 h-4 mr-2" />
+                  Open Full Risk Dashboard
+                </Link>
+              </Button>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Case Risk Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {caseRiskSummary && (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-4 mb-6">
+                      <Card>
+                        <CardContent className="p-6">
+                          <p className="text-sm font-medium text-muted-foreground">Total Wallets</p>
+                          <p className="text-3xl font-bold tracking-tight">{caseRiskSummary.total_wallets}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-6">
+                          <p className="text-sm font-medium text-muted-foreground">Avg Risk Score</p>
+                          <p className="text-3xl font-bold tracking-tight text-destructive">{caseRiskSummary.average_risk_score}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-6">
+                          <p className="text-sm font-medium text-muted-foreground">Confirmed Attributions</p>
+                          <p className="text-3xl font-bold tracking-tight text-green-400">{caseRiskSummary.attribution.confirmed}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-6">
+                          <p className="text-sm font-medium text-muted-foreground">Chains</p>
+                          <p className="text-3xl font-bold tracking-tight">{caseRiskSummary.chains.length}</p>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Risk Distribution</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            {Object.entries(caseRiskSummary.risk_distribution).map(([level, count]) => (
+                              <div key={level} className="flex items-center gap-4">
+                                <Badge 
+                                  variant={
+                                    level === "critical" ? "destructive" :
+                                    level === "high" ? "destructive" :
+                                    level === "medium" ? "warning" :
+                                    level === "low" ? "success" : "info"
+                                  }
+                                  className="w-24"
+                                >
+                                  {level.toUpperCase()}
+                                </Badge>
+                                <div className="flex-1 h-2 bg-tracex-border rounded-full overflow-hidden">
+                                  <div className={`h-full ${level === "critical" ? "bg-destructive" : level === "high" ? "bg-destructive" : level === "medium" ? "bg-amber-400" : level === "low" ? "bg-green-400" : "bg-blue-400"}`} style={{ width: `${caseRiskSummary.total_wallets > 0 ? (count / caseRiskSummary.total_wallets) * 100 : 0}%` }} />
+                                </div>
+                                <span className="font-mono w-10 text-right">{count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Top Risk Wallets</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {caseRiskSummary.top_risk_wallets.length > 0 ? (
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Wallet</TableHead>
+                                  <TableHead>Label</TableHead>
+                                  <TableHead>Risk Score</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {caseRiskSummary.top_risk_wallets.map((w: any) => (
+                                  <TableRow key={w.address}>
+                                    <TableCell className="font-mono text-sm">{formatAddress(w.address)}</TableCell>
+                                    <TableCell>{w.label || "-"}</TableCell>
+                                    <TableCell>
+                                      <div className="flex items-center gap-2">
+                                        <div className={`h-2 w-24 ${getRiskBg(w.risk_score)} rounded-full overflow-hidden`}>
+                                          <div className={`h-full ${getRiskColor(w.risk_score)}`} style={{ width: `${w.risk_score}%` }} />
+                                        </div>
+                                        <span className={getRiskColor(w.risk_score)}>{w.risk_score}</span>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          ) : (
+                            <p className="text-muted-foreground">No wallets in case</p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="investigations">
