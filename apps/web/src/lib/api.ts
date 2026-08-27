@@ -1,0 +1,171 @@
+import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from "axios";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+
+class ApiClient {
+  private client: AxiosInstance;
+
+  constructor() {
+    this.client = axios.create({
+      baseURL: API_URL,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      timeout: 30000,
+    });
+
+    this.client.interceptors.request.use(
+      (config: InternalAxiosRequestConfig) => {
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error: AxiosError) => {
+        if (error.response?.status === 401) {
+          // Handle unauthorized
+        }
+        return Promise.reject(error);
+      }
+    );
+  }
+
+  async get<T>(url: string, params?: Record<string, unknown>) {
+    const response = await this.client.get<T>(url, { params });
+    return response.data;
+  }
+
+  async post<T>(url: string, data?: unknown) {
+    const response = await this.client.post<T>(url, data);
+    return response.data;
+  }
+
+  async patch<T>(url: string, data?: unknown) {
+    const response = await this.client.patch<T>(url, data);
+    return response.data;
+  }
+
+  async delete<T>(url: string) {
+    const response = await this.client.delete<T>(url);
+    return response.data;
+  }
+}
+
+export const api = new ApiClient();
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface Case {
+  id: string;
+  case_number: string;
+  title: string;
+  crime_type: string;
+  description: string;
+  status: string;
+  assigned_to?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Wallet {
+  id: string;
+  case_id: string;
+  address: string;
+  chain: string;
+  label?: string;
+  attribution_status: string;
+  risk_score: number;
+  entity_name?: string;
+  entity_confidence?: string;
+  first_seen_tx_hash?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestigationRun {
+  id: string;
+  case_id: string;
+  wallet_id: string;
+  status: string;
+  started_at: string;
+  completed_at?: string;
+  error_message?: string;
+  config?: Record<string, unknown>;
+  result_summary?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Report {
+  id: string;
+  case_id: string;
+  investigation_run_id?: string;
+  title: string;
+  summary: string;
+  findings: Record<string, unknown>;
+  risk_assessment: Record<string, unknown>;
+  graph_snapshot?: Record<string, unknown>;
+  generated_by: string;
+  format: string;
+  file_path?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HealthResponse {
+  status: string;
+  version: string;
+  timestamp: string;
+  services: Record<string, string>;
+}
+
+export const casesApi = {
+  list: (params?: { page?: number; page_size?: number; status?: string; crime_type?: string }) =>
+    api.get<PaginatedResponse<Case>>("/cases", params),
+  get: (id: string) => api.get<Case>(`/cases/${id}`),
+  create: (data: Partial<Case>) => api.post<Case>("/cases", data),
+  update: (id: string, data: Partial<Case>) => api.patch<Case>(`/cases/${id}`, data),
+  delete: (id: string) => api.delete<void>(`/cases/${id}`),
+};
+
+export const walletsApi = {
+  list: (params?: { case_id?: string; chain?: string; attribution_status?: string; page?: number; page_size?: number }) =>
+    api.get<PaginatedResponse<Wallet>>("/wallets", params),
+  get: (id: string) => api.get<Wallet>(`/wallets/${id}`),
+  create: (data: Partial<Wallet> & { case_id: string }) => api.post<Wallet>("/wallets", data),
+  update: (id: string, data: Partial<Wallet>) => api.patch<Wallet>(`/wallets/${id}`, data),
+  delete: (id: string) => api.delete<void>(`/wallets/${id}`),
+};
+
+export const investigationsApi = {
+  list: (params?: { case_id?: string; wallet_id?: string; status?: string; page?: number; page_size?: number }) =>
+    api.get<PaginatedResponse<InvestigationRun>>("/investigations", params),
+  get: (id: string) => api.get<InvestigationRun>(`/investigations/${id}`),
+  create: (data: { case_id: string; wallet_id: string; config?: Record<string, unknown> }) =>
+    api.post<InvestigationRun>("/investigations", data),
+  update: (id: string, data: Partial<InvestigationRun>) => api.patch<InvestigationRun>(`/investigations/${id}`, data),
+};
+
+export const reportsApi = {
+  list: (params?: { case_id?: string; page?: number; page_size?: number }) =>
+    api.get<PaginatedResponse<Report>>("/reports", params),
+  get: (id: string) => api.get<Report>(`/reports/${id}`),
+  create: (data: Partial<Report> & { case_id: string; generated_by: string }) =>
+    api.post<Report>("/reports", data),
+};
+
+export const healthApi = {
+  check: () => api.get<HealthResponse>("/health"),
+  ready: () => api.get<{ status: string }>("/health/ready"),
+  live: () => api.get<{ status: string }>("/health/live"),
+};
