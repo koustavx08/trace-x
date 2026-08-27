@@ -17,8 +17,11 @@ from sqlalchemy import select
 
 import sys
 import os
-# Add the apps/api directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'apps', 'api'))
+from pathlib import Path
+
+# Add the project root to the path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "apps" / "api"))
 
 from src.core.config import get_settings
 from src.core.database import Base

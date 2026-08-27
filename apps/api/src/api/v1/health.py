@@ -54,10 +54,12 @@ async def health_check(session: AsyncSession = Depends(get_session)) -> HealthRe
         services["neo4j"] = "disconnected"
         overall_status = "degraded"
 
+    from datetime import datetime, timezone
+    
     return HealthResponse(
         status=overall_status,
         version="0.1.0",
-        timestamp="2024-01-01T00:00:00Z",
+        timestamp=datetime.now(timezone.utc).isoformat(),
         services=services,
     )
 

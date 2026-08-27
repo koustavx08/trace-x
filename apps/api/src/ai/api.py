@@ -279,7 +279,6 @@ async def generate_investigation_narrative(
         if mixers:
             narrative_parts.append(f"- **{len(mixers)} mixer interactions** detected — high risk indicator")
 
-    chains = set(w.chain for w in wallets)
     narrative_parts.append(f"- **Cross-chain activity** detected across {len(chains)} chains: {', '.join(chains)}")
 
     completed_inv = [i for i in investigations if i.status == "completed"]
