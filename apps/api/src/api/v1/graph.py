@@ -4,14 +4,14 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
-from ....core import get_session, NotFoundError
-from ....models import Wallet, Case
-from ....graph.client import Neo4jClient
-from ....graph.repository import graph_repository
-from ....graph.queries import graph_queries
-from ....graph.models import GraphWallet, GraphTransaction, GraphEntity, EntityType, ConfidenceLevel
-from ....intelligence import entity_intelligence
-from ....services import wallet_analysis_service
+from src.core import get_session, NotFoundError
+from src.models import Wallet, Case
+from src.graph.client import Neo4jClient
+from src.graph.repository import graph_repository
+from src.graph.queries import graph_queries
+from src.graph.models import GraphWallet, GraphTransaction, GraphEntity, EntityType, ConfidenceLevel
+from src.intelligence import entity_intelligence
+from src.services import wallet_analysis_service
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
@@ -72,7 +72,7 @@ async def sync_wallet_to_graph(
     )
     await graph_repository.upsert_wallet(graph_wallet)
 
-    from ....models import Transaction
+    from src.models import Transaction
     from sqlalchemy import select
     result = await session.execute(select(Transaction).where(Transaction.wallet_id == wallet_id))
     transactions = result.scalars().all()

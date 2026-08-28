@@ -15,7 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
-from ..core.database import Base
+from src.core.database import Base
 import enum
 
 
@@ -105,7 +105,7 @@ class Case(Base):
     assigned_to: Mapped[PG_UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
-    metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    case_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -157,7 +157,7 @@ class Wallet(Base):
     entity_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     entity_confidence: Mapped[str | None] = mapped_column(String(20), nullable=True)
     first_seen_tx_hash: Mapped[str | None] = mapped_column(String(66), nullable=True)
-    metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    wallet_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -205,7 +205,7 @@ class Transaction(Base):
     token_symbol: Mapped[str | None] = mapped_column(String(20), nullable=True)
     method: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_suspicious: Mapped[bool] = mapped_column(default=False, nullable=False)
-    metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    transaction_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

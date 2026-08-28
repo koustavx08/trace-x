@@ -5,8 +5,8 @@ import redis.asyncio as redis
 from neo4j import AsyncGraphDatabase
 import structlog
 
-from ....core import get_settings, get_session
-from ....schemas import HealthResponse
+from src.core import get_settings, get_session
+from src.schemas import HealthResponse
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()

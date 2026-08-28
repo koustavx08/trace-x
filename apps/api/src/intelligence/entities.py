@@ -6,7 +6,7 @@ import httpx
 import csv
 import io
 
-from ..core.config import get_settings
+from src.core.config import get_settings
 from ..graph.models import GraphEntity, EntityType, ConfidenceLevel
 from ..graph.repository import graph_repository
 

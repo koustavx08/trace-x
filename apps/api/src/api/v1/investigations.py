@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from ....core import get_session, NotFoundError
-from ....models import InvestigationRun, InvestigationStatus
-from ....schemas import (
+from src.core import get_session, NotFoundError
+from src.models import InvestigationRun, InvestigationStatus
+from src.schemas import (
     InvestigationRunCreate,
     InvestigationRunUpdate,
     InvestigationRunResponse,
@@ -23,7 +23,7 @@ async def create_investigation(
     wallet_id: UUID = Query(..., description="Wallet ID to investigate"),
     session: AsyncSession = Depends(get_session),
 ) -> InvestigationRunResponse:
-    from ....models import Case, Wallet
+    from src.models import Case, Wallet
 
     case_result = await session.execute(select(Case).where(Case.id == case_id))
     case = case_result.scalar_one_or_none()

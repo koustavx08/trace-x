@@ -1,3 +1,13 @@
+# conftest.py - pytest configuration with proper path setup
+import sys
+import os
+
+# Add the src directory to the path BEFORE any other imports
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+src_path = os.path.join(project_root, 'src')
+sys.path.insert(0, src_path)
+
+# Now we can import pytest and other modules
 import pytest
 import asyncio
 from typing import AsyncGenerator

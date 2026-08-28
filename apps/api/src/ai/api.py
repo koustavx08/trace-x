@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
-from ....core import get_session, NotFoundError
-from ....models import Case
-from ....ai.service import investigation_assistant, AIQueryRequest, AIQueryResponse
-from ....ai.schemas import ChatRequest, ChatResponse, ChatSession, ChatMessage
+from src.core import get_session, NotFoundError
+from src.models import Case
+from src.ai.schemas import AIQueryRequest, AIQueryResponse, ChatRequest, ChatResponse, ChatSession, ChatMessage
+from src.ai.service import investigation_assistant
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -224,7 +224,7 @@ async def generate_investigation_narrative(
         raise NotFoundError("Case", str(case_id))
 
     from sqlalchemy import select
-    from ....models import Wallet, InvestigationRun
+    from src.models import Wallet, InvestigationRun
 
     wallet_query = select(Wallet).where(Wallet.case_id == case_id)
     if wallet_ids:

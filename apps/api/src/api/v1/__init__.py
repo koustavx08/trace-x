@@ -9,7 +9,7 @@ from .analysis import router as analysis_router
 from .graph import router as graph_router
 from .risk import router as risk_router
 from .auth import router as auth_router
-from ....ai import ai_router
+from src.ai import ai_router
 
 api_router = APIRouter()
 

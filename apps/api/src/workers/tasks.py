@@ -7,13 +7,13 @@ from datetime import datetime
 import structlog
 import asyncio
 
-from ..core import get_session
-from ..models import Wallet, InvestigationRun, InvestigationStatus, Case
+from src.core import get_session
+from src.models import Wallet, InvestigationRun, InvestigationStatus, Case
 from ..graph.repository import graph_repository
 from ..graph.models import GraphWallet, GraphTransaction
-from ..intelligence import entity_intelligence
+from src.intelligence import entity_intelligence
 from ..analytics import risk_scoring_engine, attribution_engine
-from ..reports import report_generator, ReportFormat, ReportTemplate
+from src.reports import report_generator, ReportFormat, ReportTemplate
 
 logger = structlog.get_logger(__name__)
 
@@ -34,7 +34,7 @@ def wallet_analysis_task(self, wallet_id: str, trace_depth: int = 5, max_transac
     async def _analyze():
         async with get_session() as session:
             from sqlalchemy import select
-            from ..models import Wallet, Transaction
+            from src.models import Wallet, Transaction
             
             wallet = await session.get(Wallet, UUID(wallet_id))
             if not wallet:
@@ -215,7 +215,7 @@ def report_generation_task(self, case_id: str, investigation_run_id: str = None,
     async def _generate():
         async with get_session() as session:
             from sqlalchemy import select
-            from ..models import Case, InvestigationRun
+            from src.models import Case, InvestigationRun
             
             case = await session.get(Case, UUID(case_id))
             if not case:
@@ -237,7 +237,7 @@ def report_generation_task(self, case_id: str, investigation_run_id: str = None,
             )
             
             # Save report to database
-            from ..models import Report
+            from src.models import Report
             db_report = Report(
                 case_id=UUID(case_id),
                 investigation_run_id=UUID(investigation_run_id) if investigation_run_id else None,
@@ -273,7 +273,7 @@ def graph_sync_task(self, wallet_id: str):
     async def _sync():
         async with get_session() as session:
             from sqlalchemy import select
-            from ..models import Wallet, Transaction
+            from src.models import Wallet, Transaction
             
             wallet = await session.get(Wallet, UUID(wallet_id))
             if not wallet:
@@ -337,7 +337,7 @@ def entity_enrichment_task(self, wallet_id: str):
     """Background task for entity enrichment."""
     async def _enrich():
         async with get_session() as session:
-            from ..models import Wallet
+            from src.models import Wallet
             
             wallet = await session.get(Wallet, UUID(wallet_id))
             if not wallet:

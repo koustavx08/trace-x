@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from ....core import get_session, NotFoundError
-from ....models import Case, Wallet, AttributionStatus
-from ....schemas import WalletCreate, WalletUpdate, WalletResponse, PaginatedResponse
+from src.core import get_session, NotFoundError
+from src.models import Case, Wallet, AttributionStatus
+from src.schemas import WalletCreate, WalletUpdate, WalletResponse, PaginatedResponse
 
 router = APIRouter(prefix="/wallets", tags=["wallets"])
 

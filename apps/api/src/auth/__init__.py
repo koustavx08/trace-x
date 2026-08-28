@@ -18,11 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, Field, EmailStr
 
-from ..core.config import get_settings
-from ..core.database import get_session
-from ..core.logging import get_logger
-from ..models import User, UserRole
-from ..core.exceptions import ValidationError
+from src.core.config import get_settings
+from src.core.database import get_session
+from src.core.logging import get_logger
+from src.models import User, UserRole
+from src.core.exceptions import ValidationError
 
 logger = get_logger(__name__)
 settings = get_settings()

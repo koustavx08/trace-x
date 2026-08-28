@@ -4,8 +4,8 @@ import structlog
 from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession, Record
 from neo4j.exceptions import Neo4jError
 
-from ..core.config import get_settings
-from ..core.logging import get_logger
+from src.core.config import get_settings
+from src.core.logging import get_logger
 
 logger = get_logger(__name__)
 settings = get_settings()

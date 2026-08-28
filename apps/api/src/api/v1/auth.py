@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, EmailStr
 
-from ....core import get_session, get_logger
-from ....auth import (
+from src.core import get_session, get_logger
+from src.auth import (
     AuthService,
     LoginRequest,
     TokenResponse,
@@ -14,6 +14,7 @@ from ....auth import (
     get_current_user,
     require_admin,
 )
+from src.models import User
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -63,7 +64,7 @@ async def create_user(
     current_user: User = Depends(require_admin),
 ):
     """Create new user (admin only)."""
-    from ....models import UserRole
+    from src.models import UserRole
     try:
         user_role = UserRole(role)
     except ValueError:

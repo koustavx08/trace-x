@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, Query, status, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
-from ....core import get_session, NotFoundError, ValidationError
-from ....models import Wallet, Case
-from ....schemas import WalletCreate, WalletResponse, InvestigationRunResponse
-from ....services import wallet_analysis_service
+from src.core import get_session, NotFoundError, ValidationError
+from src.models import Wallet, Case
+from src.schemas import WalletCreate, WalletResponse, InvestigationRunResponse
+from src.services import wallet_analysis_service
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
@@ -35,7 +35,7 @@ async def validate_wallet_address(
     address: str = Query(..., min_length=42, max_length=42),
     chain_id: Optional[int] = Query(None, ge=1),
 ):
-    from ....core.validation import is_valid_evm_address, to_checksum, get_chain_info, detect_chain_from_address
+    from src.core.validation import is_valid_evm_address, to_checksum, get_chain_info, detect_chain_from_address
 
     if not is_valid_evm_address(address):
         return {"valid": False, "error": "Invalid EVM address format"}
@@ -121,7 +121,7 @@ async def get_wallet_transactions(
         raise NotFoundError("Wallet", str(wallet_id))
 
     from sqlalchemy import select, func
-    from ....models import Transaction
+    from src.models import Transaction
 
     query = select(Transaction).where(Transaction.wallet_id == wallet_id).order_by(Transaction.block_number.desc())
 
@@ -160,7 +160,7 @@ async def get_wallet_transactions(
 
 @router.get("/chains")
 async def list_supported_chains():
-    from ....core.validation import get_supported_chains
+    from src.core.validation import get_supported_chains
 
     chains = get_supported_chains()
     return {"chains": [{"chain_id": k, **v} for k, v in chains.items()]}

@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
-from ....core import get_session, NotFoundError
-from ....models import Wallet, Case, InvestigationRun
-from ....analytics import risk_scoring_engine, attribution_engine, RiskAssessment, VASPAttribution
-from ....graph.repository import graph_repository
-from ....reports import report_generator, ReportFormat, ReportTemplate
+from src.core import get_session, NotFoundError
+from src.models import Wallet, Case, InvestigationRun
+from src.analytics import risk_scoring_engine, attribution_engine, RiskAssessment, VASPAttribution
+from src.graph.repository import graph_repository
+from src.reports import report_generator, ReportFormat, ReportTemplate
 
 router = APIRouter(prefix="/risk", tags=["risk"])
 
@@ -55,7 +55,7 @@ async def assess_wallet_risk(
     if not wallet:
         raise NotFoundError("Wallet", str(wallet_id))
 
-    from ....models import Transaction
+    from src.models import Transaction
     from sqlalchemy import select
     result = await session.execute(
         select(Transaction).where(Transaction.wallet_id == wallet_id)

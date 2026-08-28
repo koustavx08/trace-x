@@ -6,14 +6,14 @@ import structlog
 import json
 import re
 
-from ..core.config import get_settings
+from src.core.config import get_settings
 from ..graph.repository import graph_repository
 from ..graph.queries import graph_queries
 from ..graph.models import ConfidenceLevel, EntityType
 from ..analytics.risk_engine import risk_scoring_engine
 from ..analytics.attribution_engine import attribution_engine
-from ..models import Case, Wallet, InvestigationRun, Transaction
-from ..core import get_session
+from src.models import Case, Wallet, InvestigationRun, Transaction
+from src.core import get_session
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -255,7 +255,7 @@ class InvestigationAssistant:
         if not target_wallet_id and target_address:
             async with get_session() as session:
                 from sqlalchemy import select
-                from ..models import Wallet
+                from src.models import Wallet
                 result = await session.execute(
                     select(Wallet).where(Wallet.address == target_address, Wallet.chain == chain)
                 )
@@ -334,7 +334,7 @@ class InvestigationAssistant:
 
         if wallet_id:
             async with get_session() as session:
-                from ..models import Wallet
+                from src.models import Wallet
                 wallet = await session.get(Wallet, wallet_id)
                 if wallet:
                     chain = wallet.chain
@@ -412,7 +412,7 @@ class InvestigationAssistant:
         target_address = address
         if not target_address and wallet_id:
             async with get_session() as session:
-                from ..models import Wallet
+                from src.models import Wallet
                 wallet = await session.get(Wallet, wallet_id)
                 if wallet:
                     target_address = wallet.address
@@ -493,7 +493,7 @@ class InvestigationAssistant:
         entity = await graph_repository.get_wallet(address, chain)
 
         if not entity:
-            from ..intelligence import entity_intelligence
+            from src.intelligence import entity_intelligence
             entity = await entity_intelligence.lookup_entity(address, chain)
 
         if not entity:
@@ -558,7 +558,7 @@ class InvestigationAssistant:
                 )
 
             from sqlalchemy import select
-            from ..models import Wallet, InvestigationRun
+            from src.models import Wallet, InvestigationRun
             wallets_result = await session.execute(select(Wallet).where(Wallet.case_id == case_id))
             wallets = list(wallets_result.scalars().all())
 
@@ -627,7 +627,7 @@ class InvestigationAssistant:
         target_address = address
         if wallet_id:
             async with get_session() as session:
-                from ..models import Wallet
+                from src.models import Wallet
                 wallet = await session.get(Wallet, wallet_id)
                 if wallet:
                     target_address = wallet.address
@@ -732,7 +732,7 @@ class InvestigationAssistant:
 
     async def _get_wallet_risk(self, wallet_id: str):
         async with get_session() as session:
-            from ..models import Wallet, Transaction
+            from src.models import Wallet, Transaction
             from sqlalchemy import select
             wallet = await session.get(Wallet, wallet_id)
             if not wallet:
@@ -800,7 +800,7 @@ class InvestigationAssistant:
                 return {}
 
             from sqlalchemy import select
-            from ..models import Wallet
+            from src.models import Wallet
             result = await session.execute(select(Wallet).where(Wallet.case_id == case_id))
             wallets = list(result.scalars().all())
 
@@ -835,7 +835,7 @@ class InvestigationAssistant:
     async def _resolve_case_id(self, case_number: str) -> Optional[str]:
         async with get_session() as session:
             from sqlalchemy import select
-            from ..models import Case
+            from src.models import Case
             result = await session.execute(select(Case).where(Case.case_number == case_number))
             case = result.scalar_one_or_none()
             return str(case.id) if case else None

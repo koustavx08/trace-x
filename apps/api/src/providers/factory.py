@@ -4,7 +4,7 @@ import structlog
 from .base import ProviderRegistry
 from .evm.alchemy import AlchemyProvider
 from .evm.infura import InfuraProvider
-from ..core.config import get_settings
+from src.core.config import get_settings
 
 logger = structlog.get_logger(__name__)
 

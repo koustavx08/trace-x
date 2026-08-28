@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-from ....core import get_session, NotFoundError
-from ....models import Case, CaseStatus, CrimeType
-from ....schemas import (
+from src.core import get_session, NotFoundError
+from src.models import Case, CaseStatus, CrimeType
+from src.schemas import (
     CaseCreate,
     CaseUpdate,
     CaseResponse,

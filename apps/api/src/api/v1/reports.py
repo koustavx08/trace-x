@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from ....core import get_session, NotFoundError
-from ....models import Report
-from ....schemas import ReportCreate, ReportResponse, PaginatedResponse
+from src.core import get_session, NotFoundError
+from src.models import Report
+from src.schemas import ReportCreate, ReportResponse, PaginatedResponse
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -18,7 +18,7 @@ async def create_report(
     generated_by: UUID = Query(..., description="User ID who generated the report"),
     session: AsyncSession = Depends(get_session),
 ) -> ReportResponse:
-    from ....models import Case, InvestigationRun
+    from src.models import Case, InvestigationRun
 
     case_result = await session.execute(select(Case).where(Case.id == case_id))
     case = case_result.scalar_one_or_none()
