@@ -432,48 +432,49 @@ export default function DemoPage() {
                   <CardHeader>
                     <CardTitle>VASP Attribution</CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    {analysisResult.attribution?.attributed ? (
-                      <div className="space-y-4">
-                        <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="font-semibold text-green-400">VASP Identified</p>
-                              <p className="text-sm text-muted-foreground">
-                                Funds traced to <strong>{analysisResult.attribution?.nearest_vasp?.entity_name || "Unknown"}</strong>
-                                with <Badge variant="success" className="ml-2">{analysisResult.attribution?.nearest_vasp?.confidence}</Badge> confidence
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-mono text-lg text-green-400">
-                                {(analysisResult.attribution?.nearest_vasp?.confidence_score * 100).toFixed(1)}%
-                              </p>
-                              <p className="text-xs text-muted-foreground">Confidence Score</p>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-3 gap-4 text-sm mt-4">
-                            <div className="p-3 rounded-lg bg-tracex-surface-hover/50">
-                              <p className="text-muted-foreground">Distance</p>
-                              <p className="font-bold">{analysisResult.attribution?.nearest_vasp?.distance_hops} hops</p>
-                            </div>
-                            <div className="p-3 rounded-lg bg-tracex-surface-hover/50">
-                              <p className="text-muted-foreground">Value Traced</p>
-                              <p className="font-bold">{analysisResult.attribution?.nearest_vasp?.total_value_eth?.toFixed(4) || 0} ETH</p>
-                            </div>
-                            <div className="p-3 rounded-lg bg-tracex-surface-hover/50">
-                              <p className="text-muted-foreground">Evidence Items</p>
-                              <p className="font-bold">{analysisResult.attribution?.nearest_vasp?.evidence?.length || 0}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-center py-8 text-muted-foreground">
-                          <AlertTriangle className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                          <p className="text-lg font-medium">No VASP Attribution Found</p>
-                          <p className="text-sm mt-1">Fund flow did not reach a known exchange within trace depth</p>
-                        </div>
-                      )}
-                  </CardContent>
+                   <CardContent>
+                     {analysisResult.attribution?.attributed ? (
+                       <div className="space-y-4">
+                         <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
+                           <div className="flex items-center justify-between">
+                             <div>
+                               <p className="font-semibold text-green-400">VASP Identified</p>
+                               <p className="text-sm text-muted-foreground">
+                                 Funds traced to <strong>{analysisResult.attribution?.nearest_vasp?.entity_name || "Unknown"}</strong>
+                                 with <Badge variant="success" className="ml-2">{analysisResult.attribution?.nearest_vasp?.confidence}</Badge> confidence
+                               </p>
+                             </div>
+                             <div className="text-right">
+                               <p className="font-mono text-lg text-green-400">
+                                 {(analysisResult.attribution?.nearest_vasp?.confidence_score * 100).toFixed(1)}%
+                               </p>
+                               <p className="text-xs text-muted-foreground">Confidence Score</p>
+                             </div>
+                           </div>
+                           <div className="grid grid-cols-3 gap-4 text-sm mt-4">
+                             <div className="p-3 rounded-lg bg-tracex-surface-hover/50">
+                               <p className="text-muted-foreground">Distance</p>
+                               <p className="font-bold">{analysisResult.attribution?.nearest_vasp?.distance_hops} hops</p>
+                             </div>
+                             <div className="p-3 rounded-lg bg-tracex-surface-hover/50">
+                               <p className="text-muted-foreground">Value Traced</p>
+                               <p className="font-bold">{analysisResult.attribution?.nearest_vasp?.total_value_eth?.toFixed(4) || 0} ETH</p>
+                             </div>
+                             <div className="p-3 rounded-lg bg-tracex-surface-hover/50">
+                               <p className="text-muted-foreground">Evidence Items</p>
+                               <p className="font-bold">{analysisResult.attribution?.nearest_vasp?.evidence?.length || 0}</p>
+                             </div>
+                           </div>
+                         </div>
+                       </div>
+                     ) : (
+                       <div className="text-center py-8 text-muted-foreground">
+                         <AlertTriangle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                         <p className="text-lg font-medium">No VASP Attribution Found</p>
+                         <p className="text-sm mt-1">Fund flow did not reach a known exchange within trace depth</p>
+                       </div>
+                     )}
+                   </CardContent>
                 </Card>
 
                 {analysisResult.attribution?.all_attributions?.length && (
@@ -570,48 +571,48 @@ export default function DemoPage() {
                           </CardContent>
                         </Card>
 
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>Risk Factors ({analysisResult.risk.factors?.length || 0})</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            {analysisResult.risk.factors?.map((factor: any, i: number) => (
-                              <div key={i} className="p-4 rounded-lg border border-tracex-border bg-tracex-surface-hover/50">
-                                <div className="flex items-start justify-between gap-4">
-                                  <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className="font-semibold">{factor.type.replace("_", " ")}</span>
-                                      <Badge 
-                                        variant={
-                                          factor.severity === "critical" ? "destructive" :
-                                          factor.severity === "high" ? "destructive" :
-                                          factor.severity === "medium" ? "warning" :
-                                          factor.severity === "low" ? "success" : "info"
-                                        }
-                                      >
-                                        {factor.severity.toUpperCase()}
-                                      </Badge>
-                                    </div>
-                                    <p className="text-sm text-muted-foreground">{factor.description}</p>
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      Weight: {factor.weight} | Score: {factor.score} | Weighted: {factor.weighted_score.toFixed(1)}
-                                    </p>
-                                  </div>
-                                  <Badge 
-                                    variant={
-                                      factor.confidence === "CONFIRMED" ? "success" :
-                                      factor.confidence === "HIGH_CONFIDENCE" ? "info" :
-                                      factor.confidence === "PROBABLE" ? "warning" : "secondary"
-                                    }
-                                    className={getConfidenceColor(factor.confidence)}
-                                  >
-                                    {factor.confidence}
-                                  </Badge>
-                                </div>
-                              ))}
-                            )}
-                          </CardContent>
-                        </Card>
+                         <Card>
+                           <CardHeader>
+                             <CardTitle>Risk Factors ({analysisResult.risk.factors?.length || 0})</CardTitle>
+                           </CardHeader>
+                           <CardContent>
+                             {analysisResult.risk.factors?.map((factor: any, i: number) => (
+                               <div key={i} className="p-4 rounded-lg border border-tracex-border bg-tracex-surface-hover/50">
+                                 <div className="flex items-start justify-between gap-4">
+                                   <div className="flex-1">
+                                     <div className="flex items-center gap-2 mb-1">
+                                       <span className="font-semibold">{factor.type.replace("_", " ")}</span>
+                                       <Badge 
+                                         variant={
+                                           factor.severity === "critical" ? "destructive" :
+                                           factor.severity === "high" ? "destructive" :
+                                           factor.severity === "medium" ? "warning" :
+                                           factor.severity === "low" ? "success" : "info"
+                                         }
+                                       >
+                                         {factor.severity.toUpperCase()}
+                                       </Badge>
+                                     </div>
+                                     <p className="text-sm text-muted-foreground">{factor.description}</p>
+                                     <p className="text-xs text-muted-foreground mt-1">
+                                       Weight: {factor.weight} | Score: {factor.score} | Weighted: {factor.weighted_score.toFixed(1)}
+                                     </p>
+                                   </div>
+                                   <Badge 
+                                     variant={
+                                       factor.confidence === "CONFIRMED" ? "success" :
+                                       factor.confidence === "HIGH_CONFIDENCE" ? "info" :
+                                       factor.confidence === "PROBABLE" ? "warning" : "secondary"
+                                     }
+                                     className={getConfidenceColor(factor.confidence)}
+                                   >
+                                     {factor.confidence}
+                                   </Badge>
+                                 </div>
+                               </div>
+                             ))}
+                           </CardContent>
+                         </Card>
 
                         <Card>
                           <CardHeader>
