@@ -103,6 +103,12 @@ tracex-verify/
 htmlcov/
 .coverage
 
+# Development/test helper scripts (not for commit)
+fix_imports.py
+run_tests*.py
+apps/api/tests/pytest_path_setup.py
+apps/api/tests/pytest_plugin.py
+
 # IDE and editor files
 .vscode/
 .idea/
