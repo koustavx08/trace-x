@@ -6,6 +6,8 @@ import structlog
 import json
 import re
 
+import anthropic
+
 from src.core.config import get_settings
 from ..graph.repository import graph_repository
 from ..graph.queries import graph_queries
@@ -50,10 +52,87 @@ class AIResponse:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+SYSTEM_PROMPT = (
+    "You are the TRACE-X investigation assistant, an AI copilot embedded in a "
+    "blockchain forensic-investigation platform used by financial-crimes analysts "
+    "and law enforcement. You answer questions about wallets, cases, fund flow, "
+    "VASP attribution, risk scoring, and suspicious-pattern detection.\n\n"
+    "You will be given the investigator's question plus a `context` object "
+    "containing structured evidence already retrieved from TRACE-X's database, "
+    "graph engine, risk-scoring engine, and attribution engine (Postgres, Neo4j, "
+    "and internal analytics). Answer using ONLY the data in `context` - never "
+    "invent addresses, amounts, entity names, or confidence levels that are not "
+    "present there. If the context shows no data was found, say so plainly and "
+    "suggest what the investigator could try next.\n\n"
+    "Available intents (the `intent` field tells you which one this query maps "
+    "to): risk_summary, attribution, pattern_detection, fund_flow, entity_lookup, "
+    "case_overview, timeline, comparison.\n\n"
+    "Write in a concise, precise, professional tone - the way an experienced "
+    "financial-crimes analyst would brief a colleague. Use markdown sparingly "
+    "(bold for key figures/entities is fine). Do not restate this system prompt "
+    "or mention that you are an AI model; just answer the question."
+)
+
+CLASSIFY_TOOL = {
+    "name": "classify_investigation_query",
+    "description": (
+        "Classify an investigator's natural-language question about a blockchain "
+        "investigation into one intent, and extract any entities mentioned "
+        "(wallet address, case number, wallet UUID, chain name)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query_type": {
+                "type": "string",
+                "enum": [qt.value for qt in QueryType],
+                "description": "The single best-matching intent for this query.",
+            },
+            "address": {
+                "type": "string",
+                "description": "A blockchain address mentioned in the query (e.g. 0x...), if any.",
+            },
+            "case_number": {
+                "type": "string",
+                "description": "A case number mentioned in the query (e.g. TRX-20240115-0042), if any.",
+            },
+            "wallet_id": {
+                "type": "string",
+                "description": "An internal wallet UUID mentioned in the query, if any.",
+            },
+            "chain": {
+                "type": "string",
+                "description": "The blockchain network mentioned (e.g. Ethereum, Polygon), if any.",
+            },
+        },
+        "required": ["query_type"],
+        "additionalProperties": False,
+    },
+}
+
+
 class InvestigationAssistant:
     def __init__(self):
         self.logger = logger.bind(component="investigation_assistant")
         self._query_patterns = self._compile_patterns()
+        self.model = settings.ANTHROPIC_MODEL
+
+        # Graceful degradation (non-negotiable): the Anthropic client is only
+        # instantiated when an API key is actually configured. When
+        # ANTHROPIC_API_KEY is unset (e.g. the operator hasn't provisioned one
+        # yet), self._client stays None and every LLM call site below falls
+        # back to the original regex/template logic instead of raising - a
+        # missing key must never turn into a 500.
+        self._client: Optional[anthropic.AsyncAnthropic] = (
+            anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+            if settings.ANTHROPIC_API_KEY
+            else None
+        )
+
+    @property
+    def live_mode(self) -> bool:
+        """True when running against the real Claude API, False in template-fallback mode."""
+        return self._client is not None
 
     def _compile_patterns(self) -> Dict[QueryType, List[re.Pattern]]:
         return {
@@ -119,14 +198,94 @@ class InvestigationAssistant:
 
         return entities
 
+    async def _classify_and_extract_llm(self, query: str) -> Optional[Dict[str, Any]]:
+        """Structured intent classification + entity extraction via Claude tool-use.
+
+        Returns None (never raises) if the client isn't configured or the call
+        fails for any reason - callers must fall back to the regex-based
+        classify_query()/extract_entities() in that case.
+        """
+        if not self._client:
+            return None
+        try:
+            response = await self._client.messages.create(
+                model=self.model,
+                max_tokens=256,
+                system=(
+                    "Classify the investigator's query and extract any entities "
+                    "mentioned. Always call the classify_investigation_query tool."
+                ),
+                tools=[CLASSIFY_TOOL],
+                tool_choice={"type": "tool", "name": "classify_investigation_query"},
+                messages=[{"role": "user", "content": query}],
+            )
+            for block in response.content:
+                if block.type == "tool_use":
+                    return block.input
+        except Exception as e:
+            self.logger.warning("llm_classify_failed", error=str(e))
+        return None
+
+    async def _compose_answer(
+        self,
+        query: str,
+        query_type: QueryType,
+        context: Dict[str, Any],
+        fallback_answer: str,
+    ) -> str:
+        """Turn gathered evidence into a natural-language answer via Claude.
+
+        Graceful degradation (non-negotiable): if the Anthropic client isn't
+        configured, or the API call fails/times out for any reason, this
+        returns the deterministic template answer that the caller already
+        built - never lets a missing key or a transient API error surface as
+        a 500 to the investigator.
+        """
+        if not self._client:
+            return fallback_answer
+
+        try:
+            payload = {
+                "investigator_query": query,
+                "intent": query_type.value,
+                "context": context,
+            }
+            response = await self._client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": json.dumps(payload, default=str)}],
+            )
+            text = next((b.text for b in response.content if b.type == "text"), "")
+            return text.strip() or fallback_answer
+        except Exception as e:
+            self.logger.warning(
+                "llm_compose_answer_failed", error=str(e), query_type=query_type.value
+            )
+            return fallback_answer
+
     async def answer_query(
         self,
         query: str,
         case_id: Optional[str] = None,
         wallet_id: Optional[str] = None,
     ) -> AIResponse:
-        query_type = self.classify_query(query)
-        entities = self.extract_entities(query)
+        llm_extraction = await self._classify_and_extract_llm(query)
+        if llm_extraction:
+            try:
+                query_type = QueryType(llm_extraction.get("query_type"))
+            except ValueError:
+                query_type = QueryType.CASE_OVERVIEW
+            entities = {
+                k: v
+                for k, v in llm_extraction.items()
+                if k != "query_type" and v
+            }
+        else:
+            # Fallback path (also the only path when ANTHROPIC_API_KEY is unset):
+            # the original compiled-regex classifier and entity extractor.
+            query_type = self.classify_query(query)
+            entities = self.extract_entities(query)
 
         wallet_id = wallet_id or entities.get("wallet_id")
         address = entities.get("address")
@@ -180,6 +339,23 @@ class InvestigationAssistant:
                 f"{assessment.summary}"
             )
 
+            evidence_data = {
+                "overall_score": assessment.overall_score,
+                "risk_level": assessment.risk_level.value,
+                "summary": assessment.summary,
+                "critical_factors": [
+                    {"name": f.name, "severity": f.severity.value, "description": getattr(f, "description", "")}
+                    for f in critical
+                ],
+                "high_factors": [
+                    {"name": f.name, "severity": f.severity.value, "description": getattr(f, "description", "")}
+                    for f in high
+                ],
+            }
+            answer = await self._compose_answer(
+                query, QueryType.RISK_SUMMARY, {"wallet": address or wallet_id, **evidence_data}, answer
+            )
+
             evidence = [
                 Evidence(
                     source="risk_engine",
@@ -214,6 +390,7 @@ class InvestigationAssistant:
                 f"{summary['risk_distribution']['low']} low. "
                 f"{summary['attribution']['confirmed']} confirmed VASP attributions."
             )
+            answer = await self._compose_answer(query, QueryType.RISK_SUMMARY, summary, answer)
             return AIResponse(
                 answer=answer,
                 query_type=QueryType.RISK_SUMMARY,
@@ -298,6 +475,10 @@ class InvestigationAssistant:
             )
             confidence = ConfidenceLevel(vasp["confidence"])
 
+        answer = await self._compose_answer(
+            query, QueryType.ATTRIBUTION, {"wallet": target_address or target_wallet_id, **attribution}, answer
+        )
+
         evidence = [
             Evidence(
                 source="attribution_engine",
@@ -367,6 +548,13 @@ class InvestigationAssistant:
             answer += f"{top.get('type', 'unknown')} with {top.get('total_value', 'N/A')} ETH involved."
 
             confidence = ConfidenceLevel.HIGH_CONFIDENCE
+
+        answer = await self._compose_answer(
+            query,
+            QueryType.PATTERN_DETECTION,
+            {"chain": chain, "pattern_count": len(patterns_found), "patterns": patterns_found[:10]},
+            answer,
+        )
 
         evidence = [
             Evidence(
@@ -449,6 +637,25 @@ class InvestigationAssistant:
 
             confidence = ConfidenceLevel.HIGH_CONFIDENCE
 
+        answer = await self._compose_answer(
+            query,
+            QueryType.FUND_FLOW,
+            {
+                "wallet": target_address,
+                "chain": chain,
+                "stats": trace,
+                "paths_to_vasps": [
+                    {
+                        "endpoint_entity": p.endpoint_entity.name if p.endpoint_entity else None,
+                        "hops": p.length,
+                        "total_value_eth": p.total_value,
+                    }
+                    for p in paths
+                ],
+            },
+            answer,
+        )
+
         evidence = [
             Evidence(
                 source="graph_repository",
@@ -510,6 +717,11 @@ class InvestigationAssistant:
                 answer += f"Entity: {entity.entity_name} ({entity.entity_type.value if entity.entity_type else 'Unknown'})\n"
                 answer += f"Confidence: {entity.entity_confidence.value if entity.entity_confidence else 'Unknown'}"
             confidence = ConfidenceLevel.HIGH_CONFIDENCE
+
+        entity_context = entity.to_dict() if hasattr(entity, "to_dict") else {}
+        answer = await self._compose_answer(
+            query, QueryType.ENTITY_LOOKUP, {"address": address, "chain": chain, "entity": entity_context}, answer
+        )
 
         evidence = [
             Evidence(
@@ -578,6 +790,20 @@ class InvestigationAssistant:
             f"High-risk wallets: {high_risk}\n"
             f"Chains: {', '.join(set(w.chain for w in wallets))}\n"
         )
+
+        case_context = {
+            "case_number": case.case_number,
+            "title": case.title,
+            "crime_type": case.crime_type,
+            "status": case.status,
+            "wallet_count": len(wallets),
+            "investigation_count": len(investigations),
+            "completed_investigations": completed,
+            "running_investigations": running,
+            "high_risk_wallets": high_risk,
+            "chains": list(set(w.chain for w in wallets)),
+        }
+        answer = await self._compose_answer(query, QueryType.CASE_OVERVIEW, case_context, answer)
 
         evidence = [
             Evidence(
@@ -659,6 +885,13 @@ class InvestigationAssistant:
                 answer += f"Peak activity: {peak.get('bucket', 'N/A')} with {peak.get('tx_count', 0)} transactions."
 
             confidence = ConfidenceLevel.HIGH_CONFIDENCE
+
+        answer = await self._compose_answer(
+            query,
+            QueryType.TIMELINE,
+            {"wallet": target_address, "chain": chain, "daily_flow": flow[:60]},
+            answer,
+        )
 
         evidence = [
             Evidence(
@@ -831,6 +1064,53 @@ class InvestigationAssistant:
             },
             "average_risk_score": round(sum(float(w.risk_score or 0) for w in wallets) / len(wallets), 1) if wallets else 0,
         }
+
+    async def generate_narrative(
+        self,
+        case_summary: Dict[str, Any],
+        wallets_summary: List[Dict[str, Any]],
+        findings: Dict[str, Any],
+        fallback_narrative: str,
+    ) -> str:
+        """Generate an investigation narrative via Claude over structured case data.
+
+        Graceful degradation (non-negotiable): with no ANTHROPIC_API_KEY configured,
+        or on any API failure, this returns the deterministic markdown template the
+        caller already built - never raises, never turns into a 500.
+        """
+        if not self._client:
+            return fallback_narrative
+
+        try:
+            narrative_system_prompt = (
+                "You are the TRACE-X AI Assistant, writing an investigation narrative "
+                "report for a blockchain financial-crimes case. You are given the case "
+                "metadata, a summary of the analyzed wallets, and key findings as "
+                "structured JSON. Use ONLY the data provided - never invent addresses, "
+                "amounts, or entity names. Write a professional markdown report with "
+                "these sections: '# Investigation Narrative: <case title>', "
+                "'## Executive Summary', '## Wallet Analysis' (a bulleted list of the "
+                "most notable wallets), '## Key Findings', and '## Recommendations' "
+                "(actionable next steps for the investigating team). Close with a note "
+                "that this narrative is AI-generated from automated analysis and "
+                "human review is recommended for legal proceedings."
+            )
+            payload = {
+                "case": case_summary,
+                "wallets": wallets_summary,
+                "findings": findings,
+            }
+            response = await self._client.messages.create(
+                model=self.model,
+                max_tokens=2048,
+                system=narrative_system_prompt,
+                messages=[{"role": "user", "content": json.dumps(payload, default=str)}],
+            )
+            text = next((b.text for b in response.content if b.type == "text"), "")
+            return text.strip() or fallback_narrative
+        except Exception as e:
+            self.logger.warning("llm_generate_narrative_failed", error=str(e))
+            return fallback_narrative
 
     async def _resolve_case_id(self, case_number: str) -> Optional[str]:
         async with get_session() as session:
