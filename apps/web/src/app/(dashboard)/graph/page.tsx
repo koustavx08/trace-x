@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { formatAddress, formatCurrency } from "@/lib/utils";
-import { analysisApi, graphApi } from "@/lib/api";
+import { analysisApi, graphApi, GraphNode, GraphEdge, SubgraphResponse } from "@/lib/api";
 import {
   Search,
   Target,
@@ -25,35 +25,29 @@ import {
   CheckCircle,
   Info,
 } from "lucide-react";
-import ReactFlow, { Background, Controls, MiniMap, Node, Edge, addEdge, Connection, NodeTypes, EdgeTypes } from "reactflow";
+import ReactFlow, {
+  Background,
+  Controls,
+  MiniMap,
+  Node,
+  Edge,
+  EdgeProps,
+  NodeProps,
+  addEdge,
+  applyNodeChanges,
+  applyEdgeChanges,
+  Connection,
+  NodeTypes,
+  EdgeTypes,
+  NodeChange,
+  EdgeChange,
+  getBezierPath,
+  MarkerType,
+  Position,
+  ReactFlowInstance,
+} from "reactflow";
 import "reactflow/dist/style.css";
-
-interface GraphNode {
-  id: string;
-  type: "wallet" | "entity" | "transaction";
-  address?: string;
-  chain?: string;
-  label?: string;
-  name?: string;
-  entity_type?: string;
-  confidence?: string;
-  risk_score?: number;
-  tx_hash?: string;
-  value?: string;
-  value_usd?: number;
-}
-
-interface GraphEdge {
-  from: string;
-  to: string;
-  value?: string;
-  tx_hash?: string;
-}
-
-interface SubgraphResponse {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-}
+import dagre from "dagre";
 
 const nodeTypes: NodeTypes = {
   wallet: WalletNode,
@@ -65,7 +59,7 @@ const edgeTypes: EdgeTypes = {
   default: CustomEdge,
 };
 
-function WalletNode({ data }: Node<GraphNode>) {
+function WalletNode({ data }: NodeProps<GraphNode>) {
   const riskColor = data.risk_score
     ? data.risk_score >= 75 ? "border-destructive bg-destructive/10" 
       : data.risk_score >= 50 ? "border-amber-400 bg-amber-400/10"
@@ -91,7 +85,7 @@ function WalletNode({ data }: Node<GraphNode>) {
   );
 }
 
-function EntityNode({ data }: Node<GraphNode>) {
+function EntityNode({ data }: NodeProps<GraphNode>) {
   const confidenceColors: Record<string, string> = {
     CONFIRMED: "border-green-400 bg-green-400/10",
     HIGH_CONFIDENCE: "border-blue-400 bg-blue-400/10",
@@ -120,7 +114,7 @@ function EntityNode({ data }: Node<GraphNode>) {
   );
 }
 
-function TransactionNode({ data }: Node<GraphNode>) {
+function TransactionNode({ data }: NodeProps<GraphNode>) {
   return (
     <div className="p-2 rounded-lg border border-tracex-border bg-tracex-surface min-w-[140px] text-center">
       <div className="flex items-center justify-center gap-1 mb-1">
@@ -135,29 +129,74 @@ function TransactionNode({ data }: Node<GraphNode>) {
   );
 }
 
-function CustomEdge({ id, source, target, data }: Edge) {
+// The backend never sends `data.path`/`data.dashed` (there is no such
+// concept server-side - see lib/api.ts). The path is computed here from the
+// node positions ReactFlow hands to every edge renderer; `dashed` is the
+// only thing that comes from the API (synthesized in getSubgraph's response
+// mapping from the relationship type - see GraphEdge in lib/api.ts).
+function CustomEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition = Position.Bottom,
+  targetPosition = Position.Top,
+  style,
+  markerEnd,
+  data,
+}: EdgeProps<GraphEdge>) {
+  const [edgePath] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
   return (
-    <>
-      <path
-        strokeWidth={2}
-        stroke="currentColor"
-        fill="none"
-        d={data.path}
-        style={{ strokeDasharray: data.dashed ? "5,5" : undefined }}
-      />
-      <marker
-        id={`arrow-${id}`}
-        markerWidth={10}
-        markerHeight={10}
-        refX={8}
-        refY={3}
-        orient="auto"
-        markerUnits="strokeWidth"
-      >
-        <path d="M0,0 L0,6 L9,3 z" fill="currentColor" />
-      </marker>
-    </>
+    <path
+      id={id}
+      className="react-flow__edge-path"
+      strokeWidth={2}
+      stroke="currentColor"
+      fill="none"
+      d={edgePath}
+      style={{ ...style, strokeDasharray: data?.dashed ? "5,5" : undefined }}
+      markerEnd={markerEnd}
+    />
   );
+}
+
+// Auto-layout via dagre: replaces the previous `Math.random()` positioning,
+// which produced overlapping, unreadable graphs. Runs top-to-bottom so
+// fund-flow direction (source -> target) reads naturally.
+function layoutGraph(nodes: Node<GraphNode>[], edges: Edge[]): Node<GraphNode>[] {
+  const NODE_WIDTH = 200;
+  const NODE_HEIGHT = 90;
+
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: "TB", nodesep: 60, ranksep: 100 });
+
+  nodes.forEach((node) => {
+    g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+  });
+  edges.forEach((edge) => {
+    g.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(g);
+
+  return nodes.map((node) => {
+    const { x, y } = g.node(node.id) ?? { x: 0, y: 0 };
+    return {
+      ...node,
+      // dagre centers the node; ReactFlow positions from the top-left.
+      position: { x: x - NODE_WIDTH / 2, y: y - NODE_HEIGHT / 2 },
+    };
+  });
 }
 
 export default function GraphPage() {
@@ -167,10 +206,11 @@ export default function GraphPage() {
   const [loading, setLoading] = useState(false);
   const [subgraph, setSubgraph] = useState<SubgraphResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance<GraphNode, GraphEdge> | null>(null);
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
 
-  const rfRef = useRef<ReactFlow<GraphNode, GraphEdge>>(null);
+  const [nodes, setNodes] = useState<Node<GraphNode>[]>([]);
+  const [edges, setEdges] = useState<Edge<GraphEdge>[]>([]);
 
   const fetchGraph = async () => {
     if (!walletId) {
@@ -192,35 +232,68 @@ export default function GraphPage() {
     }
   };
 
-  const onNodesChange = (changes: any) => {
-    // Handle node changes if needed
-  };
+  // Rebuild the ReactFlow node/edge state whenever a new subgraph is loaded,
+  // running it through dagre for a readable, non-overlapping layout.
+  useEffect(() => {
+    if (!subgraph) {
+      setNodes([]);
+      setEdges([]);
+      return;
+    }
 
-  const onEdgesChange = (changes: any) => {
-    // Handle edge changes if needed
-  };
+    const rawNodes: Node<GraphNode>[] = subgraph.nodes.map((n) => ({
+      id: n.id,
+      type: n.type,
+      position: { x: 0, y: 0 },
+      data: n,
+    }));
 
-  const onConnect = (connection: Connection) => {
-    // Handle new connections
-  };
+    const rawEdges: Edge<GraphEdge>[] = subgraph.edges.map((e, i) => ({
+      id: `edge-${i}`,
+      source: e.from,
+      target: e.to,
+      type: "default",
+      animated: !e.dashed,
+      style: { strokeWidth: 2 },
+      markerEnd: { type: MarkerType.ArrowClosed },
+      label: e.value ? formatCurrency((parseFloat(e.value) / 1e18) * 2000) : undefined,
+      labelBgStyle: { fill: "rgba(0,0,0,0.8)", fillOpacity: 0.8 },
+      data: e,
+    }));
 
-  const nodes = subgraph?.nodes.map(n => ({
-    id: n.id,
-    type: n.type,
-    position: { x: Math.random() * 500, y: Math.random() * 500 },
-    data: n,
-  })) || [];
+    setNodes(layoutGraph(rawNodes, rawEdges));
+    setEdges(rawEdges);
+  }, [subgraph]);
 
-  const edges = subgraph?.edges.map((e, i) => ({
-    id: `edge-${i}`,
-    source: e.from,
-    target: e.to,
-    type: "default",
-    animated: true,
-    style: { strokeWidth: 2 },
-    label: e.value ? formatCurrency(parseFloat(e.value) / 1e18 * 2000) : undefined,
-    labelBgStyle: { fill: "rgba(0,0,0,0.8)", fillOpacity: 0.8 },
-  })) || [];
+  // The graph is primarily a read/investigate view backed by immutable
+  // on-chain data, but ReactFlow still needs real handlers to support
+  // dragging nodes around (to declutter a dense layout) and selection.
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((nds) => applyNodeChanges(changes, nds));
+  }, []);
+
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    setEdges((eds) => applyEdgeChanges(changes, eds));
+  }, []);
+
+  // Manual node-to-node connections are investigator annotations only
+  // (e.g. "I believe these are linked") - they are not fund-flow edges and
+  // are not persisted to the backend, so mark them dashed/unanimated to
+  // distinguish them from real on-chain edges.
+  const onConnect = useCallback((connection: Connection) => {
+    setEdges((eds) =>
+      addEdge(
+        {
+          ...connection,
+          type: "default",
+          animated: false,
+          style: { strokeWidth: 2 },
+          data: { from: connection.source ?? "", to: connection.target ?? "", dashed: true },
+        },
+        eds
+      )
+    );
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -269,17 +342,17 @@ export default function GraphPage() {
                 max={4}
                 min={1}
                 step={1}
-                onValueChange={([v]) => setDepth(v)}
+                onValueChange={([v]: number[]) => setDepth(v)}
                 className="w-40"
               />
               <span className="text-sm text-muted-foreground">{depth} hops</span>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => rfRef.current?.fitView()} disabled={!reactFlowInstance}>
+              <Button variant="outline" onClick={() => reactFlowInstance?.fitView()} disabled={!reactFlowInstance}>
                 <Target className="w-4 h-4 mr-2" />
                 Fit View
               </Button>
-              <Button variant="outline" onClick={() => rfRef.current?.setViewport({ x: 0, y: 0, zoom: 1 })} disabled={!reactFlowInstance}>
+              <Button variant="outline" onClick={() => reactFlowInstance?.setViewport({ x: 0, y: 0, zoom: 1 })} disabled={!reactFlowInstance}>
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Reset
               </Button>
@@ -310,17 +383,17 @@ export default function GraphPage() {
       <Card className="h-[70vh]">
         <CardContent className="p-0 h-full">
           {subgraph && subgraph.nodes.length > 0 ? (
-            <ReactFlow<GraphNode, GraphEdge>
-              ref={rfRef}
+            <ReactFlow
               nodes={nodes}
               edges={edges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              onInit={setReactFlowInstance}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
               fitView={true}
-              onViewportChange={setViewport}
+              onMove={(_, vp) => setViewport(vp)}
             >
               <Background color="#1f2937" gap={16} />
               <Controls />

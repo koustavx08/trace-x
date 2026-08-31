@@ -218,16 +218,40 @@ export interface GraphNode {
   entity_type?: string;
   confidence?: string;
   risk_score?: number;
+  entity_name?: string;
+  entity_confidence?: string;
   tx_hash?: string;
   value?: string;
   value_usd?: number;
+  token_symbol?: string;
+}
+
+// Raw shape of an edge as returned by GET/POST /graph/subgraph (see
+// apps/api/src/graph/repository.py::get_subgraph). Relationship-specific
+// fields (value, tx_hash, ...) are nested under `properties` rather than
+// flattened, and there is no `path`/`dashed` field — those are UI-only
+// concerns computed client-side (see CustomEdge in graph/page.tsx).
+interface RawGraphEdge {
+  from: string;
+  to: string;
+  type?: string;
+  value?: string;
+  tx_hash?: string;
+  properties?: Record<string, unknown>;
 }
 
 export interface GraphEdge {
   from: string;
   to: string;
+  type?: string;
   value?: string;
   tx_hash?: string;
+  /**
+   * Not sent by the backend. Synthesized here from the relationship `type`
+   * so CustomEdge can render inferred/attribution links (e.g. BELONGS_TO)
+   * as dashed and actual fund-flow relationships (SENT/RECEIVED) as solid.
+   */
+  dashed?: boolean;
 }
 
 export interface SubgraphRequest {
@@ -239,6 +263,11 @@ export interface SubgraphRequest {
 export interface SubgraphResponse {
   nodes: GraphNode[];
   edges: GraphEdge[];
+}
+
+interface RawSubgraphResponse {
+  nodes: GraphNode[];
+  edges: RawGraphEdge[];
 }
 
 export interface PathToVASPRequest {
@@ -319,8 +348,26 @@ export const analysisApi = {
 export const graphApi = {
   syncWallet: (walletId: string) =>
     api.post<{ status: string; wallet_id: string; transactions: number }>("/graph/wallets/sync", { wallet_id: walletId }),
-  getSubgraph: (data: SubgraphRequest) =>
-    api.post<SubgraphResponse>("/graph/subgraph", data),
+  getSubgraph: async (data: SubgraphRequest): Promise<SubgraphResponse> => {
+    const raw = await api.post<RawSubgraphResponse>("/graph/subgraph", data);
+    return {
+      nodes: raw.nodes,
+      edges: raw.edges.map((e) => {
+        const props = e.properties ?? {};
+        return {
+          from: e.from,
+          to: e.to,
+          type: e.type,
+          value: e.value ?? (props.value as string | undefined),
+          tx_hash: e.tx_hash ?? (props.tx_hash as string | undefined),
+          // SENT/RECEIVED are real on-chain fund movements; anything else
+          // (e.g. BELONGS_TO, an entity attribution link) is inferred, so
+          // render it dashed to visually distinguish it in the graph.
+          dashed: !!e.type && e.type !== "SENT" && e.type !== "RECEIVED",
+        };
+      }),
+    };
+  },
   findPathsToVASP: (walletId: string, data: PathToVASPRequest) =>
     api.post(`/graph/wallets/${walletId}/paths-to-vasp`, data),
   checkMixer: (walletId: string, max_hops?: number) =>
