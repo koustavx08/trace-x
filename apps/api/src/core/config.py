@@ -63,6 +63,28 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
 
+    # --- WS3: provider-key validation (appended, do not merge into unrelated blocks) ---
+    @property
+    def configured_blockchain_providers(self) -> list[str]:
+        """Blockchain (chain-data) providers with an API key present."""
+        providers = []
+        if self.ALCHEMY_API_KEY:
+            providers.append("alchemy")
+        if self.INFURA_API_KEY:
+            providers.append("infura")
+        return providers
+
+    @property
+    def configured_intel_providers(self) -> list[str]:
+        """Entity-intelligence providers (Chainalysis/CipherTrace) with an API key present."""
+        providers = []
+        if self.CHAINALYSIS_API_KEY:
+            providers.append("chainalysis")
+        if self.CIPHERTRACE_API_KEY:
+            providers.append("ciphertrace")
+        return providers
+    # --- end WS3 block ---
+
 
 @lru_cache
 def get_settings() -> Settings:

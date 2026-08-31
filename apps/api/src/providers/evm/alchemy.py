@@ -5,6 +5,7 @@ import structlog
 
 from .base import EVMProvider
 from ..base import BlockchainTransaction, WalletBalance
+from src.core.exceptions import ProviderNotConfiguredError
 
 logger = structlog.get_logger(__name__)
 
@@ -20,6 +21,16 @@ class AlchemyProvider(EVMProvider):
         explorer_url: str,
         timeout: float = 30.0,
     ):
+        # WS3: never construct a provider silently believing it's usable when
+        # the key is missing/blank — raise so the factory can skip
+        # registration instead of registering a provider doomed to 401 on
+        # every call.
+        if not api_key or not api_key.strip():
+            raise ProviderNotConfiguredError(
+                provider="alchemy",
+                message="ALCHEMY_API_KEY is not set; Alchemy provider is unavailable.",
+            )
+
         super().__init__(
             rpc_url=rpc_url,
             chain_id=chain_id,
@@ -31,6 +42,17 @@ class AlchemyProvider(EVMProvider):
         )
         self._alchemy_url = f"https://{chain_name.lower()}-mainnet.g.alchemy.com/v2/{api_key}"
         self._api_key = api_key
+
+    def _raise_if_invalid_key(self, error: Exception) -> None:
+        """Re-raise as ProviderNotConfiguredError when Alchemy rejected the
+        API key (401/403), instead of letting an invalid-key condition look
+        like a transient network failure."""
+        status_code = getattr(getattr(error, "response", None), "status_code", None)
+        if status_code in (401, 403):
+            raise ProviderNotConfiguredError(
+                provider="alchemy",
+                message=f"Alchemy rejected the configured API key (HTTP {status_code}).",
+            ) from error
 
     async def get_transactions_by_address(
         self,
@@ -88,7 +110,10 @@ class AlchemyProvider(EVMProvider):
 
             return transactions
 
+        except ProviderNotConfiguredError:
+            raise
         except Exception as e:
+            self._raise_if_invalid_key(e)
             logger.warning("alchemy_get_transactions_failed", address=address, error=str(e))
             return []
 
@@ -148,7 +173,10 @@ class AlchemyProvider(EVMProvider):
 
             return transactions
 
+        except ProviderNotConfiguredError:
+            raise
         except Exception as e:
+            self._raise_if_invalid_key(e)
             logger.warning("alchemy_get_token_transfers_failed", address=address, error=str(e))
             return []
 
@@ -191,6 +219,9 @@ class AlchemyProvider(EVMProvider):
                 last_updated=datetime.utcnow(),
             )
 
+        except ProviderNotConfiguredError:
+            raise
         except Exception as e:
+            self._raise_if_invalid_key(e)
             logger.warning("alchemy_get_wallet_balance_failed", address=address, error=str(e))
             return await super().get_wallet_balance(address)

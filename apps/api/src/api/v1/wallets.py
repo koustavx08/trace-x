@@ -8,6 +8,11 @@ from src.core import get_session, NotFoundError
 from src.models import Case, Wallet, AttributionStatus
 from src.schemas import WalletCreate, WalletUpdate, WalletResponse, PaginatedResponse
 
+# WS3 note: this router only does CRUD on Wallet records; it contains no
+# inline/synchronous heavy analysis calls (wallet analysis is triggered via
+# `POST /analysis/cases/{case_id}/wallets/analyze` in api/v1/analysis.py,
+# which now dispatches `wallet_analysis_task.delay(...)` to Celery instead of
+# running inline). Nothing here needed to change for the Celery wiring.
 router = APIRouter(prefix="/wallets", tags=["wallets"])
 
 
