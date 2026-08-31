@@ -51,7 +51,7 @@ jobs:
       # apps/api/pyproject.toml pins requires-python >=3.11 and
       # ruff/mypy target-version py311 — keep CI on 3.11 to match.
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: "pip"
