@@ -307,3 +307,41 @@ class Report(Base):
 
     def __repr__(self) -> str:
         return f"<Report(id={self.id}, case_id={self.case_id}, title={self.title})>"
+
+
+# --- WS1 auth hardening: AuditLog model (append-only addition) ---
+class AuditLog(Base):
+    """Persistent audit trail entry.
+
+    Backs `src.auth.AuditLogger`, which previously buffered entries
+    in-memory only and dropped them on flush.
+    """
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[PG_UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    actor_id: Mapped[PG_UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
+    )
+    action: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    resource_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    resource_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Attribute renamed to avoid colliding with SQLAlchemy's reserved
+    # `Base.metadata`, matching the existing convention used by
+    # `case_metadata` / `wallet_metadata` / `transaction_metadata` above.
+    # The underlying DB column is still named "metadata".
+    audit_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+
+    __table_args__ = (
+        Index("ix_audit_log_actor_created", "actor_id", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<AuditLog(id={self.id}, action={self.action}, actor_id={self.actor_id})>"
+# --- end AuditLog model ---

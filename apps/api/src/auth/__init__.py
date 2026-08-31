@@ -5,12 +5,15 @@ Provides JWT-based authentication, role-based access control (RBAC),
 and comprehensive audit logging for investigation activities.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from uuid import UUID, uuid4
 from enum import Enum
 import structlog
 import jwt
+import redis.asyncio as redis
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -19,13 +22,20 @@ from sqlalchemy import select
 from pydantic import BaseModel, Field, EmailStr
 
 from src.core.config import get_settings
-from src.core.database import get_session
+from src.core.database import get_session, async_session_factory
 from src.core.logging import get_logger
-from src.models import User, UserRole
+from src.models import User, UserRole, AuditLog
 from src.core.exceptions import ValidationError
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+# --- WS1 auth hardening: shared rate limiter ---
+# Defined here (not in main.py) so both main.py (middleware registration)
+# and api/v1/auth.py (per-route @limiter.limit(...) decorators) can import
+# the same Limiter instance.
+limiter = Limiter(key_func=get_remote_address)
+# --- end shared rate limiter ---
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -37,6 +47,52 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 # Security
 security = HTTPBearer(auto_error=False)
+
+# --- WS1 auth hardening: Redis-backed JTI blacklist (for /auth/logout) ---
+_redis_client: Optional["redis.Redis"] = None
+_BLACKLIST_KEY_PREFIX = "auth:blacklist:jti:"
+
+
+def _get_redis_client() -> "redis.Redis":
+    """Lazily create a shared Redis client, reusing the configured REDIS_URL."""
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    return _redis_client
+
+
+async def blacklist_token(jti: str, expires_at: datetime) -> None:
+    """Add a token's JTI to the revocation blacklist until it would have expired."""
+    # PyJWT/pydantic decode `exp` into a tz-aware (UTC) datetime, whereas the
+    # rest of this module mints tokens using naive datetime.utcnow(). Coerce
+    # both sides to aware UTC before subtracting so this works either way.
+    now = datetime.now(timezone.utc)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    ttl_seconds = int((expires_at - now).total_seconds())
+    if ttl_seconds <= 0:
+        # Already expired -- no need to blacklist, decode will reject it anyway.
+        return
+    client = _get_redis_client()
+    try:
+        await client.setex(f"{_BLACKLIST_KEY_PREFIX}{jti}", ttl_seconds, "1")
+    except Exception as exc:  # pragma: no cover - Redis unavailable
+        logger.error("token_blacklist_write_failed", jti=jti, error=str(exc))
+        raise
+
+
+async def is_token_blacklisted(jti: str) -> bool:
+    """Check whether a token's JTI has been revoked."""
+    client = _get_redis_client()
+    try:
+        return bool(await client.exists(f"{_BLACKLIST_KEY_PREFIX}{jti}"))
+    except Exception as exc:  # pragma: no cover - Redis unavailable
+        # Fail closed on auth security checks only when we can positively
+        # confirm revocation; if Redis itself is down, log and allow the
+        # request through rather than taking the whole API offline.
+        logger.error("token_blacklist_read_failed", jti=jti, error=str(exc))
+        return False
+# --- end Redis-backed JTI blacklist ---
 
 
 class TokenType(str, Enum):
@@ -67,6 +123,11 @@ class LoginRequest(BaseModel):
 
 
 class UserResponse(BaseModel):
+    # WS1 fix: without this, UserResponse.model_validate(<User ORM object>)
+    # (used by GET /auth/me) raises a pydantic ValidationError on every call,
+    # which blocked verifying the logout/blacklist flow end-to-end.
+    model_config = {"from_attributes": True}
+
     id: UUID
     email: str
     full_name: str
@@ -125,8 +186,10 @@ class AuditLogger:
     
     def __init__(self):
         self._logger = structlog.get_logger("audit")
+        # Retained only as a resilience fallback: entries that fail to
+        # persist immediately (e.g. transient DB outage) land here and are
+        # retried by _flush_buffer(), including on shutdown via close().
         self._buffer: List[AuditLogEntry] = []
-        self._buffer_size = 100
     
     async def log(
         self,
@@ -180,17 +243,57 @@ class AuditLogger:
             metadata=entry.metadata,
         )
         
-        # Buffer for batch persistence (in production, write to DB/Elasticsearch)
-        self._buffer.append(entry)
-        if len(self._buffer) >= self._buffer_size:
-            await self._flush_buffer()
-    
+        # Persist immediately to the audit_log table.
+        await self._persist(entry)
+
+    async def _persist(self, entry: AuditLogEntry) -> None:
+        """Write a single audit entry to the audit_log table.
+
+        On failure the entry is retained in the in-memory buffer so it can
+        be retried (via _flush_buffer / close) rather than silently lost.
+        """
+        action_value = (
+            entry.action.value if isinstance(entry.action, AuditAction) else str(entry.action)
+        )
+        try:
+            async with async_session_factory() as session:
+                session.add(
+                    AuditLog(
+                        id=entry.id,
+                        actor_id=entry.user_id,
+                        action=action_value,
+                        resource_type=entry.resource_type,
+                        resource_id=entry.resource_id,
+                        audit_metadata={
+                            **entry.metadata,
+                            "user_email": entry.user_email,
+                            "user_agent": entry.user_agent,
+                            "success": entry.success,
+                            "error_message": entry.error_message,
+                            "session_id": entry.session_id,
+                        },
+                        created_at=entry.timestamp,
+                        ip_address=entry.ip_address,
+                    )
+                )
+                await session.commit()
+        except Exception as exc:
+            self._logger.error(
+                "audit_persist_failed",
+                audit_id=str(entry.id),
+                action=action_value,
+                error=str(exc),
+            )
+            self._buffer.append(entry)
+
     async def _flush_buffer(self) -> None:
-        """Flush buffer to persistent storage."""
-        # In production: write to audit_log table, Elasticsearch, or SIEM
-        # For now, just clear buffer
-        self._buffer.clear()
-    
+        """Retry persisting any buffered entries that failed to write immediately."""
+        if not self._buffer:
+            return
+        pending, self._buffer = self._buffer, []
+        for entry in pending:
+            await self._persist(entry)
+
     async def close(self) -> None:
         """Flush remaining buffer on shutdown."""
         if self._buffer:
@@ -236,8 +339,8 @@ def create_refresh_token(data: dict) -> str:
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
-def decode_token(token: str) -> TokenData:
-    """Decode and validate JWT token."""
+def _decode_token_payload(token: str) -> TokenData:
+    """Decode and signature/expiry-validate a JWT, without checking the blacklist."""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         return TokenData(**payload)
@@ -245,6 +348,14 @@ def decode_token(token: str) -> TokenData:
         raise ValidationError("Token has expired")
     except jwt.InvalidTokenError as e:
         raise ValidationError(f"Invalid token: {str(e)}")
+
+
+async def decode_token(token: str) -> TokenData:
+    """Decode and validate a JWT token, rejecting revoked (blacklisted) tokens."""
+    token_data = _decode_token_payload(token)
+    if await is_token_blacklisted(token_data.jti):
+        raise ValidationError("Token has been revoked")
+    return token_data
 
 
 async def get_current_user(
@@ -259,8 +370,19 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    token_data = decode_token(credentials.credentials)
-    
+    # WS1 fix: decode_token() raises the *custom* ValidationError (422) for
+    # expired/malformed/revoked tokens. An auth dependency should surface
+    # all of those uniformly as 401, not 422 -- most importantly so a
+    # blacklisted (logged-out) token comes back as 401, as required.
+    try:
+        token_data = await decode_token(credentials.credentials)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc.message) if hasattr(exc, "message") else str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     if token_data.type != TokenType.ACCESS:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -380,8 +502,8 @@ class AuthService:
     
     async def refresh_token(self, refresh_token: str) -> TokenResponse:
         """Refresh access token using refresh token."""
-        token_data = decode_token(refresh_token)
-        
+        token_data = await decode_token(refresh_token)
+
         if token_data.type != TokenType.REFRESH:
             raise ValidationError("Invalid token type")
         
@@ -470,6 +592,40 @@ class AuthService:
         )
         
         return True
+
+    # --- WS1 auth hardening: real /auth/logout support ---
+    async def logout(
+        self,
+        access_token: str,
+        refresh_token: Optional[str] = None,
+        request: Optional[Request] = None,
+    ) -> None:
+        """Revoke the caller's access token (and refresh token, if provided).
+
+        Blacklists each token's JTI in Redis with a TTL equal to its
+        remaining lifetime, so subsequent use of either token is rejected
+        by decode_token()/get_current_user() until it would have expired
+        naturally anyway.
+        """
+        access_data = _decode_token_payload(access_token)
+        await blacklist_token(access_data.jti, access_data.exp)
+
+        if refresh_token:
+            try:
+                refresh_data = _decode_token_payload(refresh_token)
+                await blacklist_token(refresh_data.jti, refresh_data.exp)
+            except ValidationError:
+                # Refresh token already invalid/expired -- nothing to revoke.
+                pass
+
+        await audit_logger.log(
+            action=AuditAction.LOGOUT,
+            user_id=UUID(access_data.sub),
+            user_email=access_data.email,
+            request=request,
+            success=True,
+        )
+    # --- end /auth/logout support ---
 
 
 async def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthService:
