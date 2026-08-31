@@ -16,6 +16,7 @@ class APIErrorCode:
     FORBIDDEN = "FORBIDDEN"
     DATABASE_ERROR = "DATABASE_ERROR"
     EXTERNAL_SERVICE_ERROR = "EXTERNAL_SERVICE_ERROR"
+    PROVIDER_NOT_CONFIGURED = "PROVIDER_NOT_CONFIGURED"
 
 
 class TraceXException(Exception):
@@ -81,6 +82,25 @@ class ExternalServiceError(TraceXException):
             status_code=status.HTTP_502_BAD_GATEWAY,
             details=details or {"service": service},
         )
+
+
+# --- WS3: provider-availability exception (appended, do not merge into unrelated blocks) ---
+class ProviderNotConfiguredError(TraceXException):
+    """Raised when a third-party blockchain/intelligence provider (e.g. Chainalysis,
+    CipherTrace, Alchemy, Infura) is invoked without its required API key configured.
+
+    Providers must raise this at construction/use time instead of failing silently
+    (returning empty data) or crashing app startup.
+    """
+
+    def __init__(self, provider: str, message: str | None = None, details: dict[str, Any] | None = None):
+        super().__init__(
+            code=APIErrorCode.PROVIDER_NOT_CONFIGURED,
+            message=message or f"{provider} is not configured: missing API key",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            details=details or {"provider": provider},
+        )
+# --- end WS3 block ---
 
 
 async def tracex_exception_handler(request: Request, exc: TraceXException) -> JSONResponse:

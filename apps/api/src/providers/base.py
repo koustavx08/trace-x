@@ -111,6 +111,73 @@ class BlockchainProvider(ABC):
         pass
 
 
+# --- WS3: entity-intelligence provider interface (appended) ---
+# Chainalysis/CipherTrace-style services expose address risk/attribution
+# intelligence, not raw chain data (blocks/transactions/balances), so they
+# don't fit the BlockchainProvider ABC above. This is a narrower, parallel
+# interface for that category of provider.
+@dataclass
+class EntityIntelligenceResult:
+    address: str
+    chain: str
+    entity_name: Optional[str] = None
+    entity_category: Optional[str] = None
+    risk_score: Optional[float] = None
+    is_sanctioned: bool = False
+    confidence: Optional[str] = None
+    tags: Optional[List[str]] = None
+    source: str = "unknown"
+    raw: Optional[Dict[str, Any]] = None
+
+
+class EntityIntelligenceProvider(ABC):
+    @property
+    @abstractmethod
+    def provider_name(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def is_configured(self) -> bool:
+        pass
+
+    @abstractmethod
+    async def get_address_risk(self, address: str, chain: str) -> EntityIntelligenceResult:
+        pass
+
+    @abstractmethod
+    async def health_check(self) -> bool:
+        pass
+
+    @abstractmethod
+    async def close(self) -> None:
+        pass
+
+
+class EntityIntelProviderRegistry:
+    _providers: Dict[str, EntityIntelligenceProvider] = {}
+
+    @classmethod
+    def register(cls, provider: EntityIntelligenceProvider) -> None:
+        cls._providers[provider.provider_name] = provider
+        logger.info("entity_intel_provider_registered", provider=provider.provider_name)
+
+    @classmethod
+    def get(cls, name: str) -> Optional[EntityIntelligenceProvider]:
+        return cls._providers.get(name)
+
+    @classmethod
+    def list_available(cls) -> List[str]:
+        return list(cls._providers.keys())
+
+    @classmethod
+    async def close_all(cls) -> None:
+        for provider in cls._providers.values():
+            await provider.close()
+        cls._providers.clear()
+# --- end WS3 block ---
+
+
 class ProviderRegistry:
     _providers: Dict[int, BlockchainProvider] = {}
     _default_provider: Optional[BlockchainProvider] = None

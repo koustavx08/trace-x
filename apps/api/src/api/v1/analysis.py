@@ -1,5 +1,5 @@
 from uuid import UUID
-from typing import Optional
+from typing import Any, Optional
 from fastapi import APIRouter, Depends, Query, status, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
@@ -8,6 +8,16 @@ from src.core import get_session, NotFoundError, ValidationError
 from src.models import Wallet, Case
 from src.schemas import WalletCreate, WalletResponse, InvestigationRunResponse
 from src.services import wallet_analysis_service
+from src.workers.tasks import wallet_analysis_task
+from src.workers.main import celery_app
+
+# WS3 note: `graph_sync_task` and `entity_enrichment_task` (src/workers/tasks.py)
+# have no real trigger anywhere in the API layer — they're periodic/orphaned
+# today (only `periodic_entity_sync`/`cleanup_stale_investigations` run on a
+# schedule). `wallet_analysis_task` already performs graph sync + entity
+# enrichment inline as part of its own pipeline, so no new endpoint was added
+# for them here; left as documented future work rather than inventing a
+# speculative trigger endpoint.
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
@@ -22,7 +32,16 @@ class WalletAnalyzeRequest(BaseModel):
 
 class WalletAnalyzeResponse(BaseModel):
     wallet: WalletResponse
-    investigation: InvestigationRunResponse
+    task_id: str
+    status: str = "queued"
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    state: str
+    ready: bool
+    result: Optional[Any] = None
+    error: Optional[str] = None
 
 
 class TraceRequest(BaseModel):
@@ -70,6 +89,10 @@ async def analyze_wallet_in_case(
     request: WalletAnalyzeRequest,
     session: AsyncSession = Depends(get_session),
 ):
+    """Validate/register the wallet (fast, synchronous) then hand the heavy
+    transaction-fetch + graph-sync + risk-scoring pipeline off to a Celery
+    worker (`wallet_analysis_task`). Returns immediately with a task id
+    instead of blocking the request on the full analysis."""
     case = await session.get(Case, case_id)
     if not case:
         raise NotFoundError("Case", str(case_id))
@@ -81,13 +104,37 @@ async def analyze_wallet_in_case(
         label=request.label,
     )
 
-    investigation = await wallet_analysis_service.analyze_wallet(
-        wallet_id=wallet.id,
-        trace_depth=request.trace_depth,
-        max_transactions=request.max_transactions,
+    task = wallet_analysis_task.delay(
+        str(wallet.id),
+        request.trace_depth,
+        request.max_transactions,
     )
 
-    return WalletAnalyzeResponse(wallet=wallet, investigation=investigation)
+    return WalletAnalyzeResponse(wallet=wallet, task_id=task.id, status="queued")
+
+
+@router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
+async def get_analysis_task_status(task_id: str) -> TaskStatusResponse:
+    """Poll the status/result of a background analysis (or other Celery) task
+    started from this router, e.g. the task id returned by
+    `POST /analysis/cases/{case_id}/wallets/analyze`."""
+    async_result = celery_app.AsyncResult(task_id)
+
+    error = None
+    result = None
+    if async_result.ready():
+        if async_result.successful():
+            result = async_result.result
+        elif async_result.failed():
+            error = str(async_result.result)
+
+    return TaskStatusResponse(
+        task_id=task_id,
+        state=async_result.state,
+        ready=async_result.ready(),
+        result=result,
+        error=error,
+    )
 
 
 @router.post("/wallets/{wallet_id}/trace", response_model=dict)
