@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from "axios";
+import { useAuthStore } from "@/store/auth-store";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
@@ -16,6 +17,11 @@ class ApiClient {
 
     this.client.interceptors.request.use(
       (config: InternalAxiosRequestConfig) => {
+        const { accessToken } = useAuthStore.getState();
+        if (accessToken) {
+          config.headers = config.headers ?? {};
+          config.headers.Authorization = `Bearer ${accessToken}`;
+        }
         return config;
       },
       (error) => Promise.reject(error)
@@ -25,7 +31,10 @@ class ApiClient {
       (response) => response,
       (error: AxiosError) => {
         if (error.response?.status === 401) {
-          // Handle unauthorized
+          useAuthStore.getState().logout();
+          if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+            window.location.href = "/login";
+          }
         }
         return Promise.reject(error);
       }
