@@ -1,7 +1,10 @@
 """
 Authentication API endpoints.
 """
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, EmailStr
 
@@ -13,6 +16,8 @@ from src.auth import (
     UserResponse,
     get_current_user,
     require_admin,
+    limiter,
+    security,
 )
 from src.models import User
 
@@ -20,7 +25,11 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
+# NOTE (WS1): /login and /refresh are unauthenticated and were previously
+# completely unthrottled -- a brute-force exposure. Strict per-IP limits
+# via the shared `limiter` (defined in src.auth) close that gap.
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def login(
     request: Request,
     credentials: LoginRequest,
@@ -36,13 +45,39 @@ async def login(
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def refresh_token(
+    request: Request,
     refresh_token: str,
     session: AsyncSession = Depends(get_session),
 ):
     """Refresh access token using refresh token."""
     auth_service = AuthService(session)
     return await auth_service.refresh_token(refresh_token)
+
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    refresh_token: Optional[str] = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """Log out the current session by revoking its access (and refresh) token."""
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    auth_service = AuthService(session)
+    await auth_service.logout(
+        access_token=credentials.credentials,
+        refresh_token=refresh_token,
+        request=request,
+    )
+    return {"status": "logged_out"}
 
 
 @router.get("/me", response_model=UserResponse)

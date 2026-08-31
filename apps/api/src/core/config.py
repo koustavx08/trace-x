@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from functools import lru_cache
-import secrets
 
 
 class Settings(BaseSettings):
@@ -16,7 +16,13 @@ class Settings(BaseSettings):
     APP_NAME: str = "TRACE-X"
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
-    SECRET_KEY: str = secrets.token_urlsafe(32)
+    # --- WS1 auth hardening: SECRET_KEY block ---
+    # No runtime-generated fallback. A freshly generated key on every process
+    # start silently invalidates all previously issued JWTs across restarts
+    # and breaks multi-worker deploys (each worker would mint a different
+    # key). SECRET_KEY MUST come from the environment / .env file.
+    SECRET_KEY: str
+    # --- end SECRET_KEY block ---
     API_V1_PREFIX: str = "/api/v1"
 
     # Database
@@ -62,6 +68,35 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
+
+    # --- WS1 auth hardening: startup validation block ---
+    @model_validator(mode="after")
+    def _validate_production_requirements(self) -> "Settings":
+        """Fail fast at startup instead of running an insecure production deploy.
+
+        SECRET_KEY is already required with no default (pydantic-settings
+        raises before we even get here if it's unset in any environment).
+        This validator adds the production-specific checks: SECRET_KEY must
+        be a strong value (not a short/placeholder string) and DATABASE_URL
+        must not be left pointing at the local-dev default.
+        """
+        if self.APP_ENV == "production":
+            if not self.SECRET_KEY or len(self.SECRET_KEY) < 32:
+                raise ValueError(
+                    "SECRET_KEY must be set to a strong value (>=32 chars) "
+                    "via environment variables when APP_ENV=production."
+                )
+            if (
+                not self.DATABASE_URL
+                or "tracex:tracex@localhost" in self.DATABASE_URL
+            ):
+                raise ValueError(
+                    "DATABASE_URL must be explicitly configured (not the "
+                    "local-dev default) via environment variables when "
+                    "APP_ENV=production."
+                )
+        return self
+    # --- end startup validation block ---
 
 
 @lru_cache
