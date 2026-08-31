@@ -1,0 +1,73 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/frontend-ci.yml"
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/frontend-ci.yml"
+
+jobs:
+  lint-build-test:
+    name: Lint, build, test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          # Root package.json defines npm workspaces (apps/web,
+          # packages/shared); caching keys off whichever lockfile is
+          # present (root workspace lockfile, or apps/web's own as a
+          # fallback for pre-workspace state).
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
+
+      # Installs and links workspaces (apps/web + packages/shared) from
+      # the repo root. Falls back to installing inside apps/web directly
+      # if the root workspace manifest isn't present yet.
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "No root package-lock.json found; installing in apps/web instead."
+            cd apps/web && npm ci
+          fi
+
+      - name: Build shared package
+        if: hashFiles('packages/shared/package.json') != ''
+        run: npm run build --workspace=packages/shared --if-present
+
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Type-check
+        working-directory: apps/web
+        run: npm run typecheck --if-present
+
+      - name: Build
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+        run: npm run build
+
+      - name: Test
+        working-directory: apps/web
+        run: npm test -- --ci --passWithNoTests

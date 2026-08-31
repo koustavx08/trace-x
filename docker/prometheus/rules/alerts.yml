@@ -1,0 +1,54 @@
+groups:
+  - name: tracex-baseline
+    rules:
+      # Service-down: fires when a scrape target is unreachable.
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: >-
+            Prometheus has been unable to scrape {{ $labels.job }}
+            (instance {{ $labels.instance }}) for more than 2 minutes.
+
+      # High error rate: requires the backend to expose HTTP request
+      # counters (e.g. http_requests_total with a `status` or `code`
+      # label) at /api/v1/metrics. That endpoint does not exist yet as
+      # of this baseline — see docs/KNOWN_LIMITATIONS.md. This rule is
+      # written defensively (absent() guard) so it stays inert rather
+      # than erroring once the metric is missing.
+      - alert: HighErrorRate
+        expr: >-
+          (
+            sum(rate(http_requests_total{job="tracex-backend", status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="tracex-backend"}[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error rate on tracex-backend"
+          description: >-
+            More than 5% of requests to tracex-backend have returned a
+            5xx status over the last 5 minutes.
+
+      # High latency: p95 request latency, same caveat as above —
+      # depends on a http_request_duration_seconds histogram being
+      # exported by the backend.
+      - alert: HighLatency
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="tracex-backend"}[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency on tracex-backend"
+          description: >-
+            p95 request latency for tracex-backend has exceeded 2s over
+            the last 5 minutes.
