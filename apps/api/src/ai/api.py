@@ -1,42 +1,86 @@
 from typing import Dict, Any, Optional, List
 from uuid import UUID, uuid4
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
+import redis.asyncio as aioredis
 
 from src.core import get_session, NotFoundError
+from src.core.config import get_settings
 from src.models import Case
 from src.ai.schemas import AIQueryRequest, AIQueryResponse, ChatRequest, ChatResponse, ChatSession, ChatMessage
 from src.ai.service import investigation_assistant
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+_settings = get_settings()
 
 
 class ChatSessionStore:
-    _sessions: Dict[str, ChatSession] = {}
+    """Redis-backed chat session storage.
+
+    Chat history used to live in a class-level in-memory dict, which meant it
+    was lost on every process restart and wasn't shared across multiple
+    uvicorn/gunicorn workers (each worker had its own dict). Storing sessions
+    in Redis (the same REDIS_URL already used for Celery) fixes both.
+    """
+
+    _redis: Optional["aioredis.Redis"] = None
+    _KEY_PREFIX = "ai:chat_session:"
+    _TTL_SECONDS = 60 * 60 * 24 * 7  # 7 days
 
     @classmethod
-    def get_or_create(cls, session_id: Optional[str] = None) -> ChatSession:
-        if session_id and session_id in cls._sessions:
-            return cls._sessions[session_id]
+    def _get_redis(cls) -> "aioredis.Redis":
+        if cls._redis is None:
+            cls._redis = aioredis.from_url(_settings.REDIS_URL, decode_responses=True)
+        return cls._redis
+
+    @classmethod
+    def _key(cls, session_id: str) -> str:
+        return f"{cls._KEY_PREFIX}{session_id}"
+
+    @classmethod
+    async def get(cls, session_id: str) -> Optional[ChatSession]:
+        raw = await cls._get_redis().get(cls._key(session_id))
+        if not raw:
+            return None
+        return ChatSession.model_validate_json(raw)
+
+    @classmethod
+    async def _save(cls, session: ChatSession) -> None:
+        await cls._get_redis().set(
+            cls._key(session.session_id), session.model_dump_json(), ex=cls._TTL_SECONDS
+        )
+
+    @classmethod
+    async def get_or_create(cls, session_id: Optional[str] = None) -> ChatSession:
+        if session_id:
+            existing = await cls.get(session_id)
+            if existing:
+                return existing
         new_session = ChatSession(session_id=session_id or str(uuid4()))
-        cls._sessions[new_session.session_id] = new_session
+        await cls._save(new_session)
         return new_session
 
     @classmethod
-    def update(cls, session: ChatSession) -> None:
-        session.updated_at = session.updated_at.__class__.utcnow()
-        cls._sessions[session.session_id] = session
+    async def update(cls, session: ChatSession) -> None:
+        session.updated_at = datetime.utcnow()
+        await cls._save(session)
 
     @classmethod
-    def add_message(cls, session_id: str, message: ChatMessage) -> ChatSession:
-        session = cls._sessions.get(session_id)
+    async def add_message(cls, session_id: str, message: ChatMessage) -> ChatSession:
+        session = await cls.get(session_id)
         if not session:
             session = ChatSession(session_id=session_id)
-            cls._sessions[session_id] = session
         session.messages.append(message)
-        session.updated_at = session.updated_at.__class__.utcnow()
+        session.updated_at = datetime.utcnow()
+        await cls._save(session)
         return session
+
+    @classmethod
+    async def delete(cls, session_id: str) -> bool:
+        deleted = await cls._get_redis().delete(cls._key(session_id))
+        return bool(deleted)
 
 
 @router.post("/query", response_model=AIQueryResponse)
@@ -70,13 +114,13 @@ async def chat_with_assistant(
     request: ChatRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    chat_session = ChatSessionStore.get_or_create(request.session_id)
+    chat_session = await ChatSessionStore.get_or_create(request.session_id)
 
     if request.case_id:
         chat_session.case_id = request.case_id
 
     user_message = ChatMessage(role="user", content=request.message)
-    chat_session = ChatSessionStore.add_message(chat_session.session_id, user_message)
+    chat_session = await ChatSessionStore.add_message(chat_session.session_id, user_message)
 
     case_id = request.case_id or chat_session.case_id
 
@@ -95,7 +139,7 @@ async def chat_with_assistant(
             "evidence_count": len(ai_response.evidence),
         },
     )
-    chat_session = ChatSessionStore.add_message(chat_session.session_id, assistant_message)
+    chat_session = await ChatSessionStore.add_message(chat_session.session_id, assistant_message)
 
     suggested_actions = ai_response.follow_up_questions[:3]
 
@@ -110,7 +154,7 @@ async def chat_with_assistant(
 async def get_chat_history(
     session_id: str,
 ):
-    session = ChatSessionStore._sessions.get(session_id)
+    session = await ChatSessionStore.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found")
     return {
@@ -132,14 +176,21 @@ async def get_chat_history(
 async def delete_chat_history(
     session_id: str,
 ):
-    if session_id in ChatSessionStore._sessions:
-        del ChatSessionStore._sessions[session_id]
+    await ChatSessionStore.delete(session_id)
     return {"status": "deleted"}
 
 
 @router.get("/capabilities")
 async def get_ai_capabilities():
     return {
+        "mode": "live" if investigation_assistant.live_mode else "template_fallback",
+        "model": _settings.ANTHROPIC_MODEL if investigation_assistant.live_mode else None,
+        "description": (
+            "Responses are generated by the Anthropic Claude API."
+            if investigation_assistant.live_mode
+            else "ANTHROPIC_API_KEY is not configured - responses are generated from "
+            "deterministic templates over the same underlying evidence data."
+        ),
         "capabilities": [
             {
                 "name": "Risk Analysis",
@@ -235,6 +286,8 @@ async def generate_investigation_narrative(
     inv_result = await session.execute(select(InvestigationRun).where(InvestigationRun.case_id == case_id))
     investigations = list(inv_result.scalars().all())
 
+    chains = list(set(w.chain for w in wallets))
+
     narrative_parts = [
         f"# Investigation Narrative: {case.title}",
         f"**Case Number:** {case.case_number}",
@@ -299,11 +352,54 @@ async def generate_investigation_narrative(
         "*This narrative is based on automated analysis. Human review recommended for legal proceedings.*",
     ])
 
-    return {
-        "case_id": str(case_id),
-        "narrative": "\n".join(narrative_parts),
-        "generated_at": datetime.utcnow().isoformat(),
+    fallback_narrative = "\n".join(narrative_parts)
+
+    # Graceful degradation: generate_narrative() calls Claude when
+    # ANTHROPIC_API_KEY is configured and otherwise (or on any API failure)
+    # returns fallback_narrative unchanged - never a 500.
+    case_summary = {
+        "title": case.title,
+        "case_number": case.case_number,
+        "crime_type": case.crime_type,
+        "status": case.status,
+        "investigation_runs": len(investigations),
+        "completed_runs": len([i for i in investigations if i.status == "completed"]),
+    }
+    wallets_summary = [
+        {
+            "address": w.address,
+            "chain": w.chain,
+            "label": w.label,
+            "risk_score": float(w.risk_score or 0),
+            "entity_name": w.entity_name,
+            "entity_type": w.entity_type,
+            "entity_confidence": w.entity_confidence,
+        }
+        for w in wallets[:25]
+    ]
+    completed_inv = [i for i in investigations if i.status == "completed"]
+    findings = {
+        "wallet_count": len(wallets),
+        "high_risk_wallet_count": len([w for w in wallets if float(w.risk_score or 0) >= 75]),
+        "attributed_wallet_count": len(
+            [w for w in wallets if w.entity_name and w.entity_confidence in ["CONFIRMED", "HIGH_CONFIDENCE"]]
+        ),
+        "chains": chains,
+        "completed_investigations": len(completed_inv),
+        "total_transactions_analyzed": sum(
+            i.result_summary.get("transactions_found", 0) for i in completed_inv if i.result_summary
+        ),
     }
 
+    narrative = await investigation_assistant.generate_narrative(
+        case_summary=case_summary,
+        wallets_summary=wallets_summary,
+        findings=findings,
+        fallback_narrative=fallback_narrative,
+    )
 
-from datetime import datetime
+    return {
+        "case_id": str(case_id),
+        "narrative": narrative,
+        "generated_at": datetime.utcnow().isoformat(),
+    }

@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     CIPHERTRACE_API_KEY: str | None = None
     OFAC_SDN_LIST_URL: str = "https://www.treasury.gov/ofac/downloads/sdn.csv"
 
+    # --- WS2: AI / Claude Integration -----------------------------------
+    # When ANTHROPIC_API_KEY is unset, src/ai/service.py falls back to its
+    # deterministic template/regex logic instead of calling the Anthropic API.
+    ANTHROPIC_API_KEY: str | None = None
+    ANTHROPIC_MODEL: str = "claude-sonnet-5"
+    # ----------------------------------------------------------------------
+
     @property
     def is_development(self) -> bool:
         return self.APP_ENV == "development"
