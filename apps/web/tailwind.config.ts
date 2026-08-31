@@ -53,7 +53,7 @@ module.exports = {
           dark: "#0a0f1a",
           darker: "#050810",
           surface: "#111827",
-          surface-hover: "#1a2238",
+          "surface-hover": "#1a2238",
           border: "#1f2937",
           "border-light": "#374151",
         },

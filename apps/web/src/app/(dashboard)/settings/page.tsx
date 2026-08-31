@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
+import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from "@/components/ui/table";
 import { formatRelativeTime } from "@/lib/utils";
 import {
   Shield,
@@ -22,16 +22,10 @@ import {
   Save,
   AlertCircle,
   CheckCircle,
+  Plus,
+  ChevronRight,
+  Info,
 } from "lucide-react";
-
-const mockUsers = [
-  { id: "1", email: "analyst.a@tracex.gov", name: "Analyst A", role: "analyst", active: true, last_login: "2024-01-15T10:30:00Z" },
-  { id: "2", email: "analyst.b@tracex.gov", name: "Analyst B", role: "analyst", active: true, last_login: "2024-01-15T09:15:00Z" },
-  { id: "3", email: "supervisor@tracex.gov", name: "Supervisor", role: "supervisor", active: true, last_login: "2024-01-15T08:00:00Z" },
-  { id: "4", email: "admin@tracex.gov", name: "Administrator", role: "admin", active: true, last_login: "2024-01-15T07:30:00Z" },
-];
-
-const roleLabels = { analyst: "Analyst", supervisor: "Supervisor", admin: "Administrator" };
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("general");
@@ -276,13 +270,36 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="users" className="space-y-6">
+          {/*
+            TODO(backend gap): there is no user-listing endpoint yet.
+            apps/api/src/api/v1/auth.py only exposes POST /auth/users (create)
+            and GET /auth/me (current user) - there is no GET /auth/users (or
+            similar) to list/manage accounts, so this tab cannot be wired to
+            real data without a new backend route. That route is out of this
+            page's write-set to invent, so the previous hardcoded sample-user
+            table has been removed rather than left showing fake data. See
+            docs/KNOWN_LIMITATIONS.md for the tracked gap.
+          */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle>User Management</CardTitle>
-              <Button><Plus className="w-4 h-4 mr-2" />Add User</Button>
+              <Button disabled title="User creation UI pending a user-listing API">
+                <Plus className="w-4 h-4 mr-2" />Add User
+              </Button>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              <div className="flex items-start gap-3 p-4 rounded-lg bg-tracex-surface-hover/50 border border-tracex-border">
+                <Info className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium">User management is not available yet</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    The backend does not currently expose an endpoint to list or manage user
+                    accounts (only account creation and fetching the current user exist).
+                    This table will be wired up once a user-listing endpoint ships.
+                  </p>
+                </div>
+              </div>
+              <div className="overflow-x-auto mt-4 opacity-40 pointer-events-none select-none">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -295,24 +312,11 @@ export default function SettingsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {mockUsers.map((u) => (
-                      <TableRow key={u.id}>
-                        <TableCell className="font-medium">{u.name}</TableCell>
-                        <TableCell>{u.email}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{roleLabels[u.role as keyof typeof roleLabels]}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={u.active ? "success" : "secondary"}>
-                            {u.active ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{formatRelativeTime(u.last_login)}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="icon"><ChevronRight className="w-4 h-4" /></Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                        No data source connected
+                      </TableCell>
+                    </TableRow>
                   </TableBody>
                 </Table>
               </div>
