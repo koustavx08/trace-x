@@ -16,6 +16,94 @@ from sqlalchemy.pool import NullPool
 
 from src.core.config import get_settings
 from src.core.database import Base
+
+# ---------------------------------------------------------------------------
+# WS4 test-only shim: `apps/api/src/reports/` is matched by a broad `reports/`
+# rule in the repo .gitignore, so it never got committed even though
+# `src/api/v1/risk.py` does `from src.reports import report_generator,
+# ReportFormat, ReportTemplate` at import time. In a fresh checkout/worktree
+# (like this one) that makes the ENTIRE app fail to import -- including the
+# pre-existing health-check tests below, which have nothing to do with
+# reports. WS3 owns creating the real `apps/api/src/reports/generator.py`;
+# until that lands, we register a minimal in-memory stand-in module here so
+# the test suite (and CI) isn't permanently blocked. This is purely additive
+# and does not touch any file outside apps/api/tests/**. Once the real
+# module exists, this import succeeds and the whole block is a no-op.
+try:
+    import src.reports  # noqa: F401
+except ModuleNotFoundError:
+    import sys as _sys
+    import types as _types
+    from datetime import datetime as _datetime
+    from enum import Enum as _Enum
+
+    class ReportFormat(str, _Enum):
+        JSON = "json"
+        HTML = "html"
+        PDF = "pdf"
+
+    class ReportTemplate(str, _Enum):
+        EXECUTIVE_SUMMARY = "executive_summary"
+        TECHNICAL_FINDINGS = "technical_findings"
+        EVIDENCE_PACKAGE = "evidence_package"
+        LEGAL_BRIEF = "legal_brief"
+
+    class _StubSection:
+        def __init__(self, title, content, order):
+            self.title = title
+            self.content = content
+            self.order = order
+
+    class _StubReport:
+        def __init__(self, title, sections, format, file_content, generated_at):
+            self.title = title
+            self.sections = sections
+            self.format = format
+            self.file_content = file_content
+            self.generated_at = generated_at
+
+    class _StubReportGenerator:
+        """Minimal stand-in for the not-yet-committed real report generator.
+
+        Produces JSON-ish bytes regardless of requested format -- this is a
+        test-time shim, NOT a claim that PDF/HTML generation works. See
+        tests/test_reports.py for tests that document this gap and are
+        expected to need a fixup pass once WS3's real generator lands.
+        """
+
+        async def generate_report(
+            self,
+            case_id,
+            investigation_run_id=None,
+            title=None,
+            template=ReportTemplate.TECHNICAL_FINDINGS,
+            format=ReportFormat.JSON,
+            generated_by="system",
+        ):
+            resolved_title = title or f"Investigation Report {case_id}"
+            sections = [
+                _StubSection("Executive Summary", "Stub content for tests.", 1),
+                _StubSection("Wallet Analysis", "Stub content for tests.", 2),
+            ]
+            content = (
+                '{"case_id": "%s", "template": "%s", "stub": true}'
+                % (case_id, getattr(template, "value", template))
+            ).encode()
+            return _StubReport(
+                title=resolved_title,
+                sections=sections,
+                format=format,
+                file_content=content,
+                generated_at=_datetime.utcnow(),
+            )
+
+    _reports_pkg = _types.ModuleType("src.reports")
+    _reports_pkg.ReportFormat = ReportFormat
+    _reports_pkg.ReportTemplate = ReportTemplate
+    _reports_pkg.report_generator = _StubReportGenerator()
+    _sys.modules["src.reports"] = _reports_pkg
+# ---------------------------------------------------------------------------
+
 from src.main import app
 
 
