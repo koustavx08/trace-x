@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-import redis.asyncio as redis
-from neo4j import AsyncGraphDatabase
-import structlog
+from datetime import UTC
 
-from src.core import get_settings, get_session
+import redis.asyncio as redis
+import structlog
+from fastapi import APIRouter, Depends
+from neo4j import AsyncGraphDatabase
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core import get_session, get_settings
 from src.schemas import HealthResponse
 
 logger = structlog.get_logger(__name__)
@@ -54,12 +56,12 @@ async def health_check(session: AsyncSession = Depends(get_session)) -> HealthRe
         services["neo4j"] = "disconnected"
         overall_status = "degraded"
 
-    from datetime import datetime, timezone
-    
+    from datetime import datetime
+
     return HealthResponse(
         status=overall_status,
         version="0.1.0",
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         services=services,
     )
 

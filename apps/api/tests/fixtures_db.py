@@ -21,7 +21,8 @@ skip cleanly (not "pass" falsely, not cascade-error) when one isn't
 available, while still exercising the real DB code path whenever Postgres
 *is* reachable (e.g. in CI / a docker-compose'd dev environment).
 """
-from typing import AsyncGenerator
+
+from collections.abc import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient

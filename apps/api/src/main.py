@@ -1,15 +1,23 @@
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from .core import get_settings, setup_logging, init_db, close_db, register_exception_handlers, get_logger
 from .api.v1 import api_router
+from .auth import audit_logger, limiter
+from .core import (
+    close_db,
+    get_logger,
+    get_settings,
+    init_db,
+    register_exception_handlers,
+    setup_logging,
+)
 from .graph.client import Neo4jClient
 from .providers.factory import ProviderFactory
-from .auth import audit_logger, limiter
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -78,7 +86,7 @@ app.add_middleware(
 # are declared where those routes live (api/v1/auth.py) via
 # @limiter.limit(...), using the shared `limiter` instance from src.auth.
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 app.add_middleware(SlowAPIMiddleware)
 # --- end rate-limit middleware registration ---
 

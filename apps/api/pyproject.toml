@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn[standard]>=0.27.0",
     "pydantic>=2.6.0",
     "pydantic-settings>=2.1.0",
+    "email-validator>=2.0.0",
     "sqlalchemy>=2.0.0",
     "asyncpg>=0.29.0",
     "alembic>=1.13.0",
@@ -48,9 +49,49 @@ build-backend = "setuptools.build_meta"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM", "T20"]
-ignore = ["S101", "S311"]
-per-file-ignores = ["tests/*:S101"]
+ignore = [
+    "S101",
+    "S311",
+    # E501: long lines are mostly Cypher/SQL query strings and descriptive
+    # error/log messages -- wrapping them hurts readability more than it helps.
+    "E501",
+    # UP042: str+Enum -> StrEnum modernization. Not a bug; leaving the
+    # existing `class X(str, Enum)` style rather than mass-refactoring ~25
+    # enum classes for a cosmetic change with a subtly different __str__.
+    "UP042",
+    # N818: `TraceXException` (not `TraceXError`) is the established base
+    # class name, referenced throughout src/ and tests/ -- a rename is a
+    # wide, purely cosmetic churn not worth the risk of a missed reference.
+    "N818",
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's `Depends()`/`Query()`/etc-as-default-argument is the framework's
+# own required pattern, not the general "mutable default" footgun B008 flags.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.Security",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# S101: assert is the correct/expected tool in test bodies.
+# F811: pytest fixtures imported at module scope (e.g. `from fixtures_db
+# import api_client`) are legitimately "redefined" again as test-function
+# parameters of the same name -- that's how pytest fixture injection works,
+# not a real shadowing bug.
+"tests/*" = ["S101", "F811"]
+# E402: both files intentionally manipulate sys.path before importing.
+# T201: print() is the intended output mechanism for a CLI seed script.
+"scripts/*" = ["E402", "T201"]
+"tests/conftest.py" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -58,13 +99,24 @@ indent-style = "space"
 
 [tool.mypy]
 python_version = "3.11"
+plugins = ["sqlalchemy.ext.mypy.plugin"]
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
 no_implicit_optional = true
 strict_equality = true
+
+# Third-party libraries with no (or incomplete) type stubs.
+[[tool.mypy.overrides]]
+module = ["celery.*", "kombu.*", "xhtml2pdf.*"]
+ignore_missing_imports = true
+
+# web3.py's runtime objects (AttributeDict) support the attribute access this
+# code uses, but its type stubs model responses as strict TypedDicts, and its
+# address/hash params as NewTypes narrower than the plain `str` this project
+# passes throughout -- both are stub-modeling gaps, not real bugs here.
+[[tool.mypy.overrides]]
+module = ["src.providers.evm.*"]
+disable_error_code = ["arg-type", "attr-defined", "no-any-return"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

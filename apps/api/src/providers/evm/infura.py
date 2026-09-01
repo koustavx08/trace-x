@@ -1,11 +1,11 @@
-from typing import Optional, List, Dict, Any
-from datetime import datetime
 import asyncio
-import httpx
+from datetime import datetime
+from typing import Any
+
 import structlog
 
-from .base import EVMProvider
 from ..base import BlockchainTransaction, WalletBalance
+from .base import EVMProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -18,7 +18,7 @@ class InfuraProvider(EVMProvider):
         self,
         rpc_url: str,
         api_key: str,
-        api_secret: Optional[str],
+        api_secret: str | None,
         chain_id: int,
         chain_name: str,
         symbol: str,
@@ -45,7 +45,7 @@ class InfuraProvider(EVMProvider):
     def _topic_to_address(self, topic: str) -> str:
         return self._to_checksum_address("0x" + topic[-40:])
 
-    async def _eth_get_logs(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _eth_get_logs(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         payload = {
             "jsonrpc": "2.0",
             "id": 1,
@@ -59,7 +59,7 @@ class InfuraProvider(EVMProvider):
             raise RuntimeError(data["error"].get("message", "eth_getLogs error"))
         return data.get("result", [])
 
-    def _log_to_transaction(self, log: Dict[str, Any]) -> BlockchainTransaction:
+    def _log_to_transaction(self, log: dict[str, Any]) -> BlockchainTransaction:
         topics = log.get("topics", [])
         from_addr = self._topic_to_address(topics[1]) if len(topics) > 1 else ""
         to_addr = self._topic_to_address(topics[2]) if len(topics) > 2 else ""
@@ -89,10 +89,10 @@ class InfuraProvider(EVMProvider):
         self,
         address: str,
         start_block: int = 0,
-        end_block: Optional[int] = None,
+        end_block: int | None = None,
         page: int = 1,
         page_size: int = 100,
-    ) -> List[BlockchainTransaction]:
+    ) -> list[BlockchainTransaction]:
         try:
             checksum_addr = self._to_checksum_address(address)
 
@@ -107,7 +107,9 @@ class InfuraProvider(EVMProvider):
             count_response.raise_for_status()
             count_data = count_response.json()
             if "error" in count_data:
-                raise RuntimeError(count_data["error"].get("message", "eth_getTransactionCount error"))
+                raise RuntimeError(
+                    count_data["error"].get("message", "eth_getTransactionCount error")
+                )
 
             # Plain Infura JSON-RPC has no address-indexed transaction-history
             # endpoint (unlike Alchemy's alchemy_getAssetTransfers). The best
@@ -122,17 +124,18 @@ class InfuraProvider(EVMProvider):
             )
 
             seen: set = set()
-            tx_hashes: List[str] = []
+            tx_hashes: list[str] = []
             for tx in transfer_logs:
                 if tx.tx_hash and tx.tx_hash not in seen:
                     seen.add(tx.tx_hash)
                     tx_hashes.append(tx.tx_hash)
 
             offset = (page - 1) * page_size
-            page_hashes = tx_hashes[offset: offset + page_size]
+            page_hashes = tx_hashes[offset : offset + page_size]
 
             transactions = [
-                tx for tx in await asyncio.gather(*(self.get_transaction(h) for h in page_hashes))
+                tx
+                for tx in await asyncio.gather(*(self.get_transaction(h) for h in page_hashes))
                 if tx is not None
             ]
 
@@ -145,10 +148,10 @@ class InfuraProvider(EVMProvider):
     async def get_token_transfers(
         self,
         address: str,
-        token_address: Optional[str] = None,
+        token_address: str | None = None,
         start_block: int = 0,
-        end_block: Optional[int] = None,
-    ) -> List[BlockchainTransaction]:
+        end_block: int | None = None,
+    ) -> list[BlockchainTransaction]:
         try:
             checksum_addr = self._to_checksum_address(address)
             topic_addr = self._pad_topic(checksum_addr)
@@ -156,7 +159,7 @@ class InfuraProvider(EVMProvider):
             from_block = hex(start_block) if start_block > 0 else "0x0"
             to_block = hex(end_block) if end_block else "latest"
 
-            base_params: Dict[str, Any] = {"fromBlock": from_block, "toBlock": to_block}
+            base_params: dict[str, Any] = {"fromBlock": from_block, "toBlock": to_block}
             if token_address:
                 base_params["address"] = self._to_checksum_address(token_address)
 
@@ -168,7 +171,7 @@ class InfuraProvider(EVMProvider):
                 self._eth_get_logs(received_params),
             )
 
-            logs_by_hash: Dict[str, Dict[str, Any]] = {}
+            logs_by_hash: dict[str, dict[str, Any]] = {}
             for log in [*sent_logs, *received_logs]:
                 tx_hash = log.get("transactionHash")
                 if tx_hash:

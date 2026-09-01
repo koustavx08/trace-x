@@ -1,16 +1,16 @@
 from uuid import UUID
-from typing import Optional
+
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-from src.core import get_session, NotFoundError
+from src.core import NotFoundError, get_session
 from src.models import Case, CaseStatus, CrimeType
 from src.schemas import (
     CaseCreate,
-    CaseUpdate,
     CaseResponse,
+    CaseUpdate,
     PaginatedResponse,
 )
 
@@ -18,9 +18,11 @@ router = APIRouter(prefix="/cases", tags=["cases"])
 
 
 @router.post("", response_model=CaseResponse, status_code=status.HTTP_201_CREATED)
-async def create_case(case_data: CaseCreate, session: AsyncSession = Depends(get_session)) -> CaseResponse:
-    from datetime import datetime
+async def create_case(
+    case_data: CaseCreate, session: AsyncSession = Depends(get_session)
+) -> CaseResponse:
     import random
+    from datetime import datetime
 
     case_number = f"TRX-{datetime.utcnow().strftime('%Y%m%d')}-{random.randint(1000, 9999):04d}"
 
@@ -31,7 +33,7 @@ async def create_case(case_data: CaseCreate, session: AsyncSession = Depends(get
         description=case_data.description,
         status=case_data.status,
         assigned_to=case_data.assigned_to,
-        metadata=case_data.metadata,
+        case_metadata=case_data.metadata,
     )
     session.add(case)
     await session.flush()
@@ -43,9 +45,10 @@ async def create_case(case_data: CaseCreate, session: AsyncSession = Depends(get
 async def list_cases(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: Optional[CaseStatus] = None,
-    crime_type: Optional[CrimeType] = None,
-    assigned_to: Optional[UUID] = None,
+    status: CaseStatus | None = None,
+    crime_type: CrimeType | None = None,
+    assigned_to: UUID | None = None,
+    search: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> PaginatedResponse:
     query = select(Case).order_by(Case.created_at.desc())
@@ -56,6 +59,11 @@ async def list_cases(
         query = query.where(Case.crime_type == crime_type)
     if assigned_to:
         query = query.where(Case.assigned_to == assigned_to)
+    if search:
+        like = f"%{search}%"
+        query = query.where(
+            Case.case_number.ilike(like) | Case.title.ilike(like)
+        )
 
     count_query = select(func.count()).select_from(query.subquery())
     total = await session.scalar(count_query) or 0

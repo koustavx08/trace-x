@@ -1,11 +1,11 @@
-from typing import Optional, List, Dict, Any
 from datetime import datetime
-import httpx
+
 import structlog
 
-from .base import EVMProvider
-from ..base import BlockchainTransaction, WalletBalance
 from src.core.exceptions import ProviderNotConfiguredError
+
+from ..base import BlockchainTransaction, WalletBalance
+from .base import EVMProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -58,10 +58,10 @@ class AlchemyProvider(EVMProvider):
         self,
         address: str,
         start_block: int = 0,
-        end_block: Optional[int] = None,
+        end_block: int | None = None,
         page: int = 1,
         page_size: int = 100,
-    ) -> List[BlockchainTransaction]:
+    ) -> list[BlockchainTransaction]:
         try:
             checksum_addr = self._to_checksum_address(address)
 
@@ -94,15 +94,32 @@ class AlchemyProvider(EVMProvider):
             for transfer in transfers:
                 tx = BlockchainTransaction(
                     tx_hash=transfer.get("hash", ""),
-                    block_number=int(transfer.get("blockNum", "0"), 16) if transfer.get("blockNum") else 0,
-                    timestamp=datetime.fromisoformat(transfer.get("metadata", {}).get("blockTimestamp", "").replace("Z", "+00:00")) if transfer.get("metadata", {}).get("blockTimestamp") else datetime.utcnow(),
+                    block_number=int(transfer.get("blockNum", "0"), 16)
+                    if transfer.get("blockNum")
+                    else 0,
+                    timestamp=datetime.fromisoformat(
+                        transfer.get("metadata", {})
+                        .get("blockTimestamp", "")
+                        .replace("Z", "+00:00")
+                    )
+                    if transfer.get("metadata", {}).get("blockTimestamp")
+                    else datetime.utcnow(),
                     from_address=transfer.get("from", ""),
                     to_address=transfer.get("to", ""),
                     value=str(transfer.get("value", 0)),
-                    value_usd=transfer.get("value") * transfer.get("erc20Metadata", {}).get("price", 0) if transfer.get("erc20Metadata", {}).get("price") else None,
-                    token_address=transfer.get("rawContract", {}).get("address") if transfer.get("category") in ["erc20", "erc721", "erc1155"] else None,
-                    token_symbol=transfer.get("erc20Metadata", {}).get("symbol") if transfer.get("erc20Metadata") else None,
-                    token_decimals=transfer.get("erc20Metadata", {}).get("decimals") if transfer.get("erc20Metadata") else None,
+                    value_usd=transfer.get("value")
+                    * transfer.get("erc20Metadata", {}).get("price", 0)
+                    if transfer.get("erc20Metadata", {}).get("price")
+                    else None,
+                    token_address=transfer.get("rawContract", {}).get("address")
+                    if transfer.get("category") in ["erc20", "erc721", "erc1155"]
+                    else None,
+                    token_symbol=transfer.get("erc20Metadata", {}).get("symbol")
+                    if transfer.get("erc20Metadata")
+                    else None,
+                    token_decimals=transfer.get("erc20Metadata", {}).get("decimals")
+                    if transfer.get("erc20Metadata")
+                    else None,
                     method=transfer.get("function", None),
                     metadata={"alchemy_category": transfer.get("category")},
                 )
@@ -120,10 +137,10 @@ class AlchemyProvider(EVMProvider):
     async def get_token_transfers(
         self,
         address: str,
-        token_address: Optional[str] = None,
+        token_address: str | None = None,
         start_block: int = 0,
-        end_block: Optional[int] = None,
-    ) -> List[BlockchainTransaction]:
+        end_block: int | None = None,
+    ) -> list[BlockchainTransaction]:
         try:
             checksum_addr = self._to_checksum_address(address)
 
@@ -158,12 +175,23 @@ class AlchemyProvider(EVMProvider):
             for transfer in transfers:
                 tx = BlockchainTransaction(
                     tx_hash=transfer.get("hash", ""),
-                    block_number=int(transfer.get("blockNum", "0"), 16) if transfer.get("blockNum") else 0,
-                    timestamp=datetime.fromisoformat(transfer.get("metadata", {}).get("blockTimestamp", "").replace("Z", "+00:00")) if transfer.get("metadata", {}).get("blockTimestamp") else datetime.utcnow(),
+                    block_number=int(transfer.get("blockNum", "0"), 16)
+                    if transfer.get("blockNum")
+                    else 0,
+                    timestamp=datetime.fromisoformat(
+                        transfer.get("metadata", {})
+                        .get("blockTimestamp", "")
+                        .replace("Z", "+00:00")
+                    )
+                    if transfer.get("metadata", {}).get("blockTimestamp")
+                    else datetime.utcnow(),
                     from_address=transfer.get("from", ""),
                     to_address=transfer.get("to", ""),
                     value=str(transfer.get("value", 0)),
-                    value_usd=transfer.get("value") * transfer.get("erc20Metadata", {}).get("price", 0) if transfer.get("erc20Metadata", {}).get("price") else None,
+                    value_usd=transfer.get("value")
+                    * transfer.get("erc20Metadata", {}).get("price", 0)
+                    if transfer.get("erc20Metadata", {}).get("price")
+                    else None,
                     token_address=transfer.get("rawContract", {}).get("address"),
                     token_symbol=transfer.get("erc20Metadata", {}).get("symbol"),
                     token_decimals=transfer.get("erc20Metadata", {}).get("decimals"),
@@ -200,13 +228,15 @@ class AlchemyProvider(EVMProvider):
 
             for token in token_balances:
                 if int(token.get("tokenBalance", "0"), 16) > 0:
-                    tokens.append({
-                        "contract_address": token.get("contractAddress"),
-                        "symbol": token.get("symbol"),
-                        "name": token.get("name"),
-                        "decimals": token.get("decimals"),
-                        "balance": token.get("tokenBalance"),
-                    })
+                    tokens.append(
+                        {
+                            "contract_address": token.get("contractAddress"),
+                            "symbol": token.get("symbol"),
+                            "name": token.get("name"),
+                            "decimals": token.get("decimals"),
+                            "balance": token.get("tokenBalance"),
+                        }
+                    )
 
             eth_balance_wei = self._w3.eth.get_balance(checksum_addr)
             eth_balance = self._w3.from_wei(eth_balance_wei, "ether")

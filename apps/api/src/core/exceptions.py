@@ -1,8 +1,9 @@
 from typing import Any
+
+import structlog
 from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-import structlog
 
 logger = structlog.get_logger(__name__)
 
@@ -93,13 +94,17 @@ class ProviderNotConfiguredError(TraceXException):
     (returning empty data) or crashing app startup.
     """
 
-    def __init__(self, provider: str, message: str | None = None, details: dict[str, Any] | None = None):
+    def __init__(
+        self, provider: str, message: str | None = None, details: dict[str, Any] | None = None
+    ):
         super().__init__(
             code=APIErrorCode.PROVIDER_NOT_CONFIGURED,
             message=message or f"{provider} is not configured: missing API key",
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             details=details or {"provider": provider},
         )
+
+
 # --- end WS3 block ---
 
 

@@ -1,17 +1,16 @@
 from uuid import UUID
-from typing import Optional, List
-from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, Field
 
-from src.core import get_session, NotFoundError
-from src.models import Wallet, Case
+from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core import NotFoundError, get_session
 from src.graph.client import Neo4jClient
-from src.graph.repository import graph_repository
+from src.graph.models import ConfidenceLevel, EntityType, GraphEntity, GraphTransaction, GraphWallet
 from src.graph.queries import graph_queries
-from src.graph.models import GraphWallet, GraphTransaction, GraphEntity, EntityType, ConfidenceLevel
+from src.graph.repository import graph_repository
 from src.intelligence import entity_intelligence
-from src.services import wallet_analysis_service
+from src.models import Wallet
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
@@ -34,7 +33,7 @@ class EntityLookupRequest(BaseModel):
 
 
 class SubgraphRequest(BaseModel):
-    addresses: List[str]
+    addresses: list[str]
     chain: str
     depth: int = Field(2, ge=1, le=3)
 
@@ -67,13 +66,17 @@ async def sync_wallet_to_graph(
         first_seen=wallet.created_at,
         last_seen=wallet.updated_at,
         entity_name=wallet.entity_name,
-        entity_type=wallet.entity_type,
-        entity_confidence=ConfidenceLevel(wallet.entity_confidence) if wallet.entity_confidence else ConfidenceLevel.UNKNOWN,
+        entity_type=EntityType(wallet.entity_type) if wallet.entity_type else None,
+        entity_confidence=ConfidenceLevel(wallet.entity_confidence)
+        if wallet.entity_confidence
+        else ConfidenceLevel.UNKNOWN,
     )
     await graph_repository.upsert_wallet(graph_wallet)
 
-    from src.models import Transaction
     from sqlalchemy import select
+
+    from src.models import Transaction
+
     result = await session.execute(select(Transaction).where(Transaction.wallet_id == wallet_id))
     transactions = result.scalars().all()
 
@@ -91,16 +94,22 @@ async def sync_wallet_to_graph(
             token_symbol=tx.token_symbol,
             method=tx.method,
             is_suspicious=tx.is_suspicious,
-            metadata=tx.metadata,
+            metadata=tx.transaction_metadata or {},
         )
         await graph_repository.upsert_transaction(graph_tx)
-        await graph_repository.link_wallet_transaction(wallet.address, wallet.chain, tx.tx_hash, "sent")
-        await graph_repository.link_wallet_transaction(tx.to_address, wallet.chain, tx.tx_hash, "received")
+        await graph_repository.link_wallet_transaction(
+            wallet.address, wallet.chain, tx.tx_hash, "sent"
+        )
+        await graph_repository.link_wallet_transaction(
+            tx.to_address, wallet.chain, tx.tx_hash, "received"
+        )
 
     if wallet.entity_name and wallet.entity_confidence:
         entity = GraphEntity(
             name=wallet.entity_name,
-            entity_type=wallet.entity_type,
+            entity_type=EntityType(wallet.entity_type)
+            if wallet.entity_type
+            else EntityType.UNKNOWN,
             address=wallet.address,
             chain=wallet.chain,
             confidence=ConfidenceLevel(wallet.entity_confidence),
@@ -241,6 +250,7 @@ async def get_temporal_flow(
         raise NotFoundError("Wallet", str(wallet_id))
 
     from datetime import datetime
+
     flow = await graph_queries.get_temporal_flow(
         address=wallet.address,
         chain=wallet.chain,

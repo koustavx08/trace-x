@@ -1,15 +1,16 @@
 from fastapi import APIRouter
 
-from .health import router as health_router
+from src.ai import ai_router
+
+from .analysis import router as analysis_router
+from .auth import router as auth_router
 from .cases import router as cases_router
-from .wallets import router as wallets_router
+from .graph import router as graph_router
+from .health import router as health_router
 from .investigations import router as investigations_router
 from .reports import router as reports_router
-from .analysis import router as analysis_router
-from .graph import router as graph_router
 from .risk import router as risk_router
-from .auth import router as auth_router
-from src.ai import ai_router
+from .wallets import router as wallets_router
 
 api_router = APIRouter()
 

@@ -14,13 +14,12 @@ currently discard their RPC result / are unconditional `[]`). Those tests
 are written defensively (skip if not present yet) so they document the gap
 without failing the suite.
 """
-from datetime import datetime, timezone
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.providers.base import (
-    BlockchainProvider,
     BlockchainTransaction,
     ChainInfo,
     ProviderRegistry,
@@ -28,7 +27,6 @@ from src.providers.base import (
 )
 from src.providers.evm.alchemy import AlchemyProvider
 from src.providers.evm.infura import InfuraProvider
-
 
 ADDRESS = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1"
 
@@ -59,6 +57,7 @@ def _make_infura_provider() -> InfuraProvider:
 # ---------------------------------------------------------------------------
 # ProviderRegistry (pure in-memory logic)
 # ---------------------------------------------------------------------------
+
 
 class TestProviderRegistry:
     def setup_method(self):
@@ -107,6 +106,7 @@ class TestProviderRegistry:
 # ---------------------------------------------------------------------------
 # EVMProvider base behavior (via the Alchemy subclass) with mocked Web3
 # ---------------------------------------------------------------------------
+
 
 class TestEVMProviderBase:
     def test_chain_id_and_name_properties(self):
@@ -166,6 +166,7 @@ class TestEVMProviderBase:
 # ---------------------------------------------------------------------------
 # AlchemyProvider.get_transactions_by_address / get_token_transfers (mocked httpx)
 # ---------------------------------------------------------------------------
+
 
 def _mock_response(json_data):
     response = MagicMock()
@@ -244,6 +245,7 @@ class TestAlchemyProviderTransactions:
 # InfuraProvider -- documents current (incomplete) behavior for WS3 fixup
 # ---------------------------------------------------------------------------
 
+
 class TestInfuraProviderCurrentBehavior:
     async def test_get_transactions_by_address_currently_always_empty(self):
         """KNOWN GAP: InfuraProvider.get_transactions_by_address makes an
@@ -274,6 +276,7 @@ class TestInfuraProviderCurrentBehavior:
 # ---------------------------------------------------------------------------
 # ProviderNotConfiguredError / new WS3 providers -- not landed in this worktree
 # ---------------------------------------------------------------------------
+
 
 class TestWS3ProvidersNotYetLanded:
     def test_provider_not_configured_error_not_yet_added(self):

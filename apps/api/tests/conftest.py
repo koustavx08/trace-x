@@ -1,17 +1,18 @@
 # conftest.py - pytest configuration with proper path setup
-import sys
 import os
+import sys
 
 # Add the src directory to the path BEFORE any other imports
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-src_path = os.path.join(project_root, 'src')
+src_path = os.path.join(project_root, "src")
 sys.path.insert(0, src_path)
 
 # Now we can import pytest and other modules
-import pytest
 import asyncio
-from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from collections.abc import AsyncGenerator
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from src.core.config import get_settings
@@ -86,8 +87,9 @@ except ModuleNotFoundError:
                 _StubSection("Wallet Analysis", "Stub content for tests.", 2),
             ]
             content = (
-                '{"case_id": "%s", "template": "%s", "stub": true}'
-                % (case_id, getattr(template, "value", template))
+                '{{"case_id": "{}", "template": "{}", "stub": true}}'.format(
+                    case_id, getattr(template, "value", template)
+                )
             ).encode()
             return _StubReport(
                 title=resolved_title,
@@ -103,8 +105,6 @@ except ModuleNotFoundError:
     _reports_pkg.report_generator = _StubReportGenerator()
     _sys.modules["src.reports"] = _reports_pkg
 # ---------------------------------------------------------------------------
-
-from src.main import app
 
 
 @pytest.fixture(scope="session")

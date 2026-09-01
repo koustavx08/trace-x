@@ -1,21 +1,22 @@
-from typing import List, Dict, Any, Optional, AsyncGenerator
+import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-import structlog
-import json
-import re
+from typing import Any
 
 import anthropic
+import structlog
 
-from src.core.config import get_settings
-from ..graph.repository import graph_repository
-from ..graph.queries import graph_queries
-from ..graph.models import ConfidenceLevel, EntityType
-from ..analytics.risk_engine import risk_scoring_engine
-from ..analytics.attribution_engine import attribution_engine
-from src.models import Case, Wallet, InvestigationRun, Transaction
 from src.core import get_session_context
+from src.core.config import get_settings
+from src.models import Case
+
+from ..analytics.attribution_engine import attribution_engine
+from ..analytics.risk_engine import risk_scoring_engine
+from ..graph.models import ConfidenceLevel, EntityType
+from ..graph.queries import graph_queries
+from ..graph.repository import graph_repository
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -38,7 +39,7 @@ class Evidence:
     evidence_type: str
     description: str
     confidence: ConfidenceLevel
-    data: Dict[str, Any]
+    data: dict[str, Any]
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
 
@@ -47,9 +48,9 @@ class AIResponse:
     answer: str
     query_type: QueryType
     confidence: ConfidenceLevel
-    evidence: List[Evidence]
-    follow_up_questions: List[str]
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    evidence: list[Evidence]
+    follow_up_questions: list[str]
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 SYSTEM_PROMPT = (
@@ -112,7 +113,7 @@ CLASSIFY_TOOL = {
 
 
 class InvestigationAssistant:
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logger.bind(component="investigation_assistant")
         self._query_patterns = self._compile_patterns()
         self.model = settings.ANTHROPIC_MODEL
@@ -123,7 +124,7 @@ class InvestigationAssistant:
         # yet), self._client stays None and every LLM call site below falls
         # back to the original regex/template logic instead of raising - a
         # missing key must never turn into a 500.
-        self._client: Optional[anthropic.AsyncAnthropic] = (
+        self._client: anthropic.AsyncAnthropic | None = (
             anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
             if settings.ANTHROPIC_API_KEY
             else None
@@ -134,7 +135,7 @@ class InvestigationAssistant:
         """True when running against the real Claude API, False in template-fallback mode."""
         return self._client is not None
 
-    def _compile_patterns(self) -> Dict[QueryType, List[re.Pattern]]:
+    def _compile_patterns(self) -> dict[QueryType, list[re.Pattern]]:
         return {
             QueryType.RISK_SUMMARY: [
                 re.compile(r"(risk|score|danger|threat).*(wallet|address)", re.I),
@@ -149,7 +150,9 @@ class InvestigationAssistant:
                 re.compile(r"(suspicious|anomal|unusual).*(transaction|flow|movement)", re.I),
             ],
             QueryType.FUND_FLOW: [
-                re.compile(r"(flow|trace|path|hop|movement|transfer).*(fund|money|eth|value)", re.I),
+                re.compile(
+                    r"(flow|trace|path|hop|movement|transfer).*(fund|money|eth|value)", re.I
+                ),
                 re.compile(r"(where did|where.*from|where.*to|follow the money)", re.I),
             ],
             QueryType.ENTITY_LOOKUP: [
@@ -161,7 +164,9 @@ class InvestigationAssistant:
                 re.compile(r"(tell me about|describe).*(case|investigation)", re.I),
             ],
             QueryType.TIMELINE: [
-                re.compile(r"(timeline|when|chronolog|history|sequence).*(transaction|event)", re.I),
+                re.compile(
+                    r"(timeline|when|chronolog|history|sequence).*(transaction|event)", re.I
+                ),
                 re.compile(r"(transaction|event).*(timeline|chronolog|history|sequence)", re.I),
                 re.compile(r"(first|last|recent).*(transaction|activity)", re.I),
             ],
@@ -171,7 +176,7 @@ class InvestigationAssistant:
             ],
         }
 
-    def _match_query_type(self, query: str) -> Optional[QueryType]:
+    def _match_query_type(self, query: str) -> QueryType | None:
         """Returns the matched QueryType, or None if no pattern matched."""
         for query_type, patterns in self._query_patterns.items():
             for pattern in patterns:
@@ -182,7 +187,7 @@ class InvestigationAssistant:
     def classify_query(self, query: str) -> QueryType:
         return self._match_query_type(query) or QueryType.CASE_OVERVIEW
 
-    def extract_entities(self, query: str) -> Dict[str, Any]:
+    def extract_entities(self, query: str) -> dict[str, Any]:
         entities = {}
 
         address_match = re.search(r"(0x[a-fA-F0-9]{40})", query)
@@ -203,7 +208,7 @@ class InvestigationAssistant:
 
         return entities
 
-    async def _classify_and_extract_llm(self, query: str) -> Optional[Dict[str, Any]]:
+    async def _classify_and_extract_llm(self, query: str) -> dict[str, Any] | None:
         """Structured intent classification + entity extraction via Claude tool-use.
 
         Returns None (never raises) if the client isn't configured or the call
@@ -223,10 +228,10 @@ class InvestigationAssistant:
                 tools=[CLASSIFY_TOOL],
                 tool_choice={"type": "tool", "name": "classify_investigation_query"},
                 messages=[{"role": "user", "content": query}],
-            )
+            )  # type: ignore[call-overload]
             for block in response.content:
                 if block.type == "tool_use":
-                    return block.input
+                    return dict(block.input)
         except Exception as e:
             self.logger.warning("llm_classify_failed", error=str(e))
         return None
@@ -235,7 +240,7 @@ class InvestigationAssistant:
         self,
         query: str,
         query_type: QueryType,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         fallback_answer: str,
     ) -> str:
         """Turn gathered evidence into a natural-language answer via Claude.
@@ -272,22 +277,18 @@ class InvestigationAssistant:
     async def answer_query(
         self,
         query: str,
-        case_id: Optional[str] = None,
-        wallet_id: Optional[str] = None,
+        case_id: str | None = None,
+        wallet_id: str | None = None,
     ) -> AIResponse:
         llm_extraction = await self._classify_and_extract_llm(query)
-        matched_type: Optional[QueryType]
+        matched_type: QueryType | None
         if llm_extraction:
             try:
                 query_type = QueryType(llm_extraction.get("query_type"))
             except ValueError:
                 query_type = QueryType.CASE_OVERVIEW
             matched_type = query_type
-            entities = {
-                k: v
-                for k, v in llm_extraction.items()
-                if k != "query_type" and v
-            }
+            entities = {k: v for k, v in llm_extraction.items() if k != "query_type" and v}
         else:
             # Fallback path (also the only path when ANTHROPIC_API_KEY is unset):
             # the original compiled-regex classifier and entity extractor.
@@ -318,15 +319,17 @@ class InvestigationAssistant:
             QueryType.COMPARISON: self._handle_comparison,
         }
 
-        handler = handlers.get(query_type, self._handle_general) if matched_type else self._handle_general
+        handler = (
+            handlers.get(query_type, self._handle_general) if matched_type else self._handle_general
+        )
         return await handler(query, case_id, wallet_id, address, chain)
 
     async def _handle_risk_summary(
         self,
         query: str,
-        case_id: Optional[str],
-        wallet_id: Optional[str],
-        address: Optional[str],
+        case_id: str | None,
+        wallet_id: str | None,
+        address: str | None,
         chain: str,
     ) -> AIResponse:
         if wallet_id:
@@ -356,16 +359,27 @@ class InvestigationAssistant:
                 "risk_level": assessment.risk_level.value,
                 "summary": assessment.summary,
                 "critical_factors": [
-                    {"name": f.name, "severity": f.severity.value, "description": getattr(f, "description", "")}
+                    {
+                        "name": f.name,
+                        "severity": f.severity.value,
+                        "description": getattr(f, "description", ""),
+                    }
                     for f in critical
                 ],
                 "high_factors": [
-                    {"name": f.name, "severity": f.severity.value, "description": getattr(f, "description", "")}
+                    {
+                        "name": f.name,
+                        "severity": f.severity.value,
+                        "description": getattr(f, "description", ""),
+                    }
                     for f in high
                 ],
             }
             answer = await self._compose_answer(
-                query, QueryType.RISK_SUMMARY, {"wallet": address or wallet_id, **evidence_data}, answer
+                query,
+                QueryType.RISK_SUMMARY,
+                {"wallet": address or wallet_id, **evidence_data},
+                answer,
             )
 
             evidence = [
@@ -374,7 +388,10 @@ class InvestigationAssistant:
                     evidence_type="weighted_factor_analysis",
                     description=f"Analyzed {len(factors)} risk factors with confidence-weighted scoring",
                     confidence=ConfidenceLevel.HIGH_CONFIDENCE,
-                    data={"overall_score": assessment.overall_score, "risk_level": assessment.risk_level.value},
+                    data={
+                        "overall_score": assessment.overall_score,
+                        "risk_level": assessment.risk_level.value,
+                    },
                 )
             ]
 
@@ -433,9 +450,9 @@ class InvestigationAssistant:
     async def _handle_attribution(
         self,
         query: str,
-        case_id: Optional[str],
-        wallet_id: Optional[str],
-        address: Optional[str],
+        case_id: str | None,
+        wallet_id: str | None,
+        address: str | None,
         chain: str,
     ) -> AIResponse:
         target_wallet_id = wallet_id
@@ -444,7 +461,9 @@ class InvestigationAssistant:
         if not target_wallet_id and target_address:
             async with get_session_context() as session:
                 from sqlalchemy import select
+
                 from src.models import Wallet
+
                 result = await session.execute(
                     select(Wallet).where(Wallet.address == target_address, Wallet.chain == chain)
                 )
@@ -479,7 +498,7 @@ class InvestigationAssistant:
             answer = (
                 f"Funds from wallet {target_address or target_wallet_id} trace to "
                 f"**{vasp['entity_name']}** ({vasp['entity_type']}) with "
-                f"{vasp['confidence']} confidence ({vasp['confidence_score']*100:.0f}%). "
+                f"{vasp['confidence']} confidence ({vasp['confidence_score'] * 100:.0f}%). "
                 f"Distance: {vasp['distance_hops']} hops, Total value: {vasp['total_value_eth']:.4f} ETH. "
                 f"Total attributions found: {attribution['summary']['exchanges_found']} exchanges, "
                 f"{attribution['summary']['mixers_found']} mixers, "
@@ -488,14 +507,17 @@ class InvestigationAssistant:
             confidence = ConfidenceLevel(vasp["confidence"])
 
         answer = await self._compose_answer(
-            query, QueryType.ATTRIBUTION, {"wallet": target_address or target_wallet_id, **attribution}, answer
+            query,
+            QueryType.ATTRIBUTION,
+            {"wallet": target_address or target_wallet_id, **attribution},
+            answer,
         )
 
         evidence = [
             Evidence(
                 source="attribution_engine",
                 evidence_type="graph_traversal_with_entity_intelligence",
-                description=f"Shortest-path analysis to known entities with confidence propagation",
+                description="Shortest-path analysis to known entities with confidence propagation",
                 confidence=confidence,
                 data=attribution,
             )
@@ -518,9 +540,9 @@ class InvestigationAssistant:
     async def _handle_pattern_detection(
         self,
         query: str,
-        case_id: Optional[str],
-        wallet_id: Optional[str],
-        address: Optional[str],
+        case_id: str | None,
+        wallet_id: str | None,
+        address: str | None,
         chain: str,
     ) -> AIResponse:
         patterns_found = []
@@ -528,10 +550,10 @@ class InvestigationAssistant:
         if wallet_id:
             async with get_session_context() as session:
                 from src.models import Wallet
+
                 wallet = await session.get(Wallet, wallet_id)
                 if wallet:
                     chain = wallet.chain
-                    address = wallet.address
 
         if case_id:
             patterns = await graph_queries.detect_peel_chains(chain=chain)
@@ -544,20 +566,28 @@ class InvestigationAssistant:
             patterns_found.extend([{"type": "rapid_movement", **p} for p in patterns])
 
         if not patterns_found:
-            answer = f"No suspicious patterns detected on {chain} within the current analysis window."
+            answer = (
+                f"No suspicious patterns detected on {chain} within the current analysis window."
+            )
             confidence = ConfidenceLevel.PROBABLE
         else:
-            by_type = {}
+            by_type: dict[str, int] = {}
             for p in patterns_found:
                 t = p.get("type", "unknown")
                 by_type[t] = by_type.get(t, 0) + 1
 
             answer = f"Detected {len(patterns_found)} suspicious patterns on {chain}: "
-            answer += ", ".join([f"{count} {typ.replace('_', ' ')}" for typ, count in by_type.items()])
+            answer += ", ".join(
+                [f"{count} {typ.replace('_', ' ')}" for typ, count in by_type.items()]
+            )
             answer += ". Top finding: "
 
-            top = max(patterns_found, key=lambda x: x.get("total_value", 0) if isinstance(x, dict) else 0)
-            answer += f"{top.get('type', 'unknown')} with {top.get('total_value', 'N/A')} ETH involved."
+            top = max(
+                patterns_found, key=lambda x: x.get("total_value", 0) if isinstance(x, dict) else 0
+            )
+            answer += (
+                f"{top.get('type', 'unknown')} with {top.get('total_value', 'N/A')} ETH involved."
+            )
 
             confidence = ConfidenceLevel.HIGH_CONFIDENCE
 
@@ -595,9 +625,9 @@ class InvestigationAssistant:
     async def _handle_fund_flow(
         self,
         query: str,
-        case_id: Optional[str],
-        wallet_id: Optional[str],
-        address: Optional[str],
+        case_id: str | None,
+        wallet_id: str | None,
+        address: str | None,
         chain: str,
     ) -> AIResponse:
         if not wallet_id and not address:
@@ -613,9 +643,19 @@ class InvestigationAssistant:
         if not target_address and wallet_id:
             async with get_session_context() as session:
                 from src.models import Wallet
+
                 wallet = await session.get(Wallet, wallet_id)
                 if wallet:
                     target_address = wallet.address
+
+        if not target_address:
+            return AIResponse(
+                answer=f"Could not find a wallet with ID {wallet_id}.",
+                query_type=QueryType.FUND_FLOW,
+                confidence=ConfidenceLevel.UNKNOWN,
+                evidence=[],
+                follow_up_questions=["Provide a valid wallet address or ID."],
+            )
 
         trace = await graph_repository.get_wallet_stats(target_address, chain)
         paths = await graph_repository.find_paths_to_entities(
@@ -695,9 +735,9 @@ class InvestigationAssistant:
     async def _handle_entity_lookup(
         self,
         query: str,
-        case_id: Optional[str],
-        wallet_id: Optional[str],
-        address: Optional[str],
+        case_id: str | None,
+        wallet_id: str | None,
+        address: str | None,
         chain: str,
     ) -> AIResponse:
         if not address:
@@ -709,39 +749,56 @@ class InvestigationAssistant:
                 follow_up_questions=["Provide an Ethereum address to look up."],
             )
 
-        entity = await graph_repository.get_wallet(address, chain)
+        wallet = await graph_repository.get_wallet(address, chain)
 
-        if not entity:
-            from src.intelligence import entity_intelligence
-            entity = await entity_intelligence.lookup_entity(address, chain)
-
-        if not entity:
-            answer = f"No entity information found for {address} on {chain}."
-            confidence = ConfidenceLevel.UNKNOWN
-        else:
+        if wallet:
             answer = (
                 f"Address: {address}\n"
                 f"Chain: {chain}\n"
-                f"Label: {entity.label or 'None'}\n"
-                f"Risk Score: {entity.risk_score}/100\n"
+                f"Label: {wallet.label or 'None'}\n"
+                f"Risk Score: {wallet.risk_score}/100\n"
             )
-            if hasattr(entity, 'entity_name') and entity.entity_name:
-                answer += f"Entity: {entity.entity_name} ({entity.entity_type.value if entity.entity_type else 'Unknown'})\n"
-                answer += f"Confidence: {entity.entity_confidence.value if entity.entity_confidence else 'Unknown'}"
+            if wallet.entity_name:
+                answer += f"Entity: {wallet.entity_name} ({wallet.entity_type.value if wallet.entity_type else 'Unknown'})\n"
+                answer += f"Confidence: {wallet.entity_confidence.value if wallet.entity_confidence else 'Unknown'}"
             confidence = ConfidenceLevel.HIGH_CONFIDENCE
+            entity_context = wallet.to_dict()
+            evidence_source = "graph_repository"
+        else:
+            from src.intelligence import entity_intelligence
 
-        entity_context = entity.to_dict() if hasattr(entity, "to_dict") else {}
+            graph_entity = await entity_intelligence.lookup_entity(address, chain)
+
+            if not graph_entity:
+                answer = f"No entity information found for {address} on {chain}."
+                confidence = ConfidenceLevel.UNKNOWN
+                entity_context = {}
+                evidence_source = "graph_repository"
+            else:
+                answer = (
+                    f"Address: {address}\n"
+                    f"Chain: {chain}\n"
+                    f"Entity: {graph_entity.name} ({graph_entity.entity_type.value})\n"
+                    f"Confidence: {graph_entity.confidence.value}"
+                )
+                confidence = ConfidenceLevel.HIGH_CONFIDENCE
+                entity_context = graph_entity.to_dict()
+                evidence_source = "entity_intelligence"
+
         answer = await self._compose_answer(
-            query, QueryType.ENTITY_LOOKUP, {"address": address, "chain": chain, "entity": entity_context}, answer
+            query,
+            QueryType.ENTITY_LOOKUP,
+            {"address": address, "chain": chain, "entity": entity_context},
+            answer,
         )
 
         evidence = [
             Evidence(
-                source="graph_repository",
+                source=evidence_source,
                 evidence_type="entity_registry_lookup",
                 description="Direct entity registry query",
                 confidence=confidence,
-                data=entity.to_dict() if hasattr(entity, 'to_dict') else {},
+                data=entity_context,
             )
         ]
 
@@ -756,9 +813,9 @@ class InvestigationAssistant:
     async def _handle_case_overview(
         self,
         query: str,
-        case_id: Optional[str],
-        wallet_id: Optional[str],
-        address: Optional[str],
+        case_id: str | None,
+        wallet_id: str | None,
+        address: str | None,
         chain: str,
     ) -> AIResponse:
         if not case_id:
@@ -782,11 +839,15 @@ class InvestigationAssistant:
                 )
 
             from sqlalchemy import select
-            from src.models import Wallet, InvestigationRun
+
+            from src.models import InvestigationRun, Wallet
+
             wallets_result = await session.execute(select(Wallet).where(Wallet.case_id == case_id))
             wallets = list(wallets_result.scalars().all())
 
-            inv_result = await session.execute(select(InvestigationRun).where(InvestigationRun.case_id == case_id))
+            inv_result = await session.execute(
+                select(InvestigationRun).where(InvestigationRun.case_id == case_id)
+            )
             investigations = list(inv_result.scalars().all())
 
         completed = len([i for i in investigations if i.status == "completed"])
@@ -800,7 +861,7 @@ class InvestigationAssistant:
             f"Wallets: {len(wallets)} | Investigations: {len(investigations)} "
             f"({completed} completed, {running} running)\n"
             f"High-risk wallets: {high_risk}\n"
-            f"Chains: {', '.join(set(w.chain for w in wallets))}\n"
+            f"Chains: {', '.join({w.chain for w in wallets})}\n"
         )
 
         case_context = {
@@ -813,7 +874,7 @@ class InvestigationAssistant:
             "completed_investigations": completed,
             "running_investigations": running,
             "high_risk_wallets": high_risk,
-            "chains": list(set(w.chain for w in wallets)),
+            "chains": list({w.chain for w in wallets}),
         }
         answer = await self._compose_answer(query, QueryType.CASE_OVERVIEW, case_context, answer)
 
@@ -848,9 +909,9 @@ class InvestigationAssistant:
     async def _handle_timeline(
         self,
         query: str,
-        case_id: Optional[str],
-        wallet_id: Optional[str],
-        address: Optional[str],
+        case_id: str | None,
+        wallet_id: str | None,
+        address: str | None,
         chain: str,
     ) -> AIResponse:
         if not wallet_id and not address:
@@ -866,10 +927,20 @@ class InvestigationAssistant:
         if wallet_id:
             async with get_session_context() as session:
                 from src.models import Wallet
+
                 wallet = await session.get(Wallet, wallet_id)
                 if wallet:
                     target_address = wallet.address
                     chain = wallet.chain
+
+        if not target_address:
+            return AIResponse(
+                answer=f"Could not find a wallet with ID {wallet_id}.",
+                query_type=QueryType.TIMELINE,
+                confidence=ConfidenceLevel.UNKNOWN,
+                evidence=[],
+                follow_up_questions=["Provide a valid wallet address or ID."],
+            )
 
         flow = await graph_queries.get_temporal_flow(
             address=target_address,
@@ -926,14 +997,16 @@ class InvestigationAssistant:
     async def _handle_comparison(
         self,
         query: str,
-        case_id: Optional[str],
-        wallet_id: Optional[str],
-        address: Optional[str],
+        case_id: str | None,
+        wallet_id: str | None,
+        address: str | None,
         chain: str,
     ) -> AIResponse:
-        answer = "Comparison analysis requires two wallets or cases to compare. Please specify both."
+        answer = (
+            "Comparison analysis requires two wallets or cases to compare. Please specify both."
+        )
         confidence = ConfidenceLevel.UNKNOWN
-        evidence = []
+        evidence: list[Evidence] = []
 
         return AIResponse(
             answer=answer,
@@ -946,9 +1019,9 @@ class InvestigationAssistant:
     async def _handle_general(
         self,
         query: str,
-        case_id: Optional[str],
-        wallet_id: Optional[str],
-        address: Optional[str],
+        case_id: str | None,
+        wallet_id: str | None,
+        address: str | None,
         chain: str,
     ) -> AIResponse:
         answer = (
@@ -977,8 +1050,10 @@ class InvestigationAssistant:
 
     async def _get_wallet_risk(self, wallet_id: str):
         async with get_session_context() as session:
-            from src.models import Wallet, Transaction
             from sqlalchemy import select
+
+            from src.models import Transaction, Wallet
+
             wallet = await session.get(Wallet, wallet_id)
             if not wallet:
                 return None
@@ -988,38 +1063,50 @@ class InvestigationAssistant:
             )
             transactions = result.scalars().all()
 
-            graph_wallet = type('GraphWallet', (), {
-                'address': wallet.address,
-                'chain': wallet.chain,
-                'label': wallet.label,
-                'risk_score': float(wallet.risk_score or 0),
-                'first_seen': wallet.created_at,
-                'last_seen': wallet.updated_at,
-                'tx_count': len(transactions),
-            })()
+            graph_wallet = type(
+                "GraphWallet",
+                (),
+                {
+                    "address": wallet.address,
+                    "chain": wallet.chain,
+                    "label": wallet.label,
+                    "risk_score": float(wallet.risk_score or 0),
+                    "first_seen": wallet.created_at,
+                    "last_seen": wallet.updated_at,
+                    "tx_count": len(transactions),
+                },
+            )()
 
             graph_transactions = []
             for tx in transactions:
-                graph_transactions.append(type('GraphTransaction', (), {
-                    'tx_hash': tx.tx_hash,
-                    'block_number': tx.block_number,
-                    'timestamp': tx.timestamp,
-                    'from_address': tx.from_address,
-                    'to_address': tx.to_address,
-                    'value': tx.value,
-                    'value_usd': tx.value_usd,
-                    'token_address': tx.token_address,
-                    'token_symbol': tx.token_symbol,
-                    'method': tx.method,
-                    'is_suspicious': tx.is_suspicious,
-                })())
+                graph_transactions.append(
+                    type(
+                        "GraphTransaction",
+                        (),
+                        {
+                            "tx_hash": tx.tx_hash,
+                            "block_number": tx.block_number,
+                            "timestamp": tx.timestamp,
+                            "from_address": tx.from_address,
+                            "to_address": tx.to_address,
+                            "value": tx.value,
+                            "value_usd": tx.value_usd,
+                            "token_address": tx.token_address,
+                            "token_symbol": tx.token_symbol,
+                            "method": tx.method,
+                            "is_suspicious": tx.is_suspicious,
+                        },
+                    )()
+                )
 
             graph_context = {}
             try:
                 graph_context["mixer_interactions"] = await graph_queries.find_mixer_interactions(
                     address=wallet.address, chain=wallet.chain, max_hops=4
                 )
-                graph_context["peel_chains"] = await graph_queries.detect_peel_chains(chain=wallet.chain)
+                graph_context["peel_chains"] = await graph_queries.detect_peel_chains(
+                    chain=wallet.chain
+                )
             except Exception:
                 pass
 
@@ -1038,14 +1125,16 @@ class InvestigationAssistant:
                 graph_context=graph_context,
             )
 
-    async def _get_case_risk_summary(self, case_id: str) -> Dict[str, Any]:
+    async def _get_case_risk_summary(self, case_id: str) -> dict[str, Any]:
         async with get_session_context() as session:
             case = await session.get(Case, case_id)
             if not case:
                 return {}
 
             from sqlalchemy import select
+
             from src.models import Wallet
+
             result = await session.execute(select(Wallet).where(Wallet.case_id == case_id))
             wallets = list(result.scalars().all())
 
@@ -1054,14 +1143,18 @@ class InvestigationAssistant:
         low_risk = len([w for w in wallets if 20 <= float(w.risk_score or 0) < 40])
         info_risk = len([w for w in wallets if float(w.risk_score or 0) < 20])
 
-        attributed = [w for w in wallets if w.entity_name and w.entity_confidence in ["CONFIRMED", "HIGH_CONFIDENCE"]]
+        attributed = [
+            w
+            for w in wallets
+            if w.entity_name and w.entity_confidence in ["CONFIRMED", "HIGH_CONFIDENCE"]
+        ]
         probable = [w for w in wallets if w.entity_name and w.entity_confidence == "PROBABLE"]
 
         return {
             "case_id": str(case.id),
             "case_number": case.case_number,
             "total_wallets": len(wallets),
-            "chains": list(set(w.chain for w in wallets)),
+            "chains": list({w.chain for w in wallets}),
             "risk_distribution": {
                 "critical": high_risk,
                 "high": 0,
@@ -1074,14 +1167,18 @@ class InvestigationAssistant:
                 "probable": len(probable),
                 "unattributed": len(wallets) - len(attributed) - len(probable),
             },
-            "average_risk_score": round(sum(float(w.risk_score or 0) for w in wallets) / len(wallets), 1) if wallets else 0,
+            "average_risk_score": round(
+                sum(float(w.risk_score or 0) for w in wallets) / len(wallets), 1
+            )
+            if wallets
+            else 0,
         }
 
     async def generate_narrative(
         self,
-        case_summary: Dict[str, Any],
-        wallets_summary: List[Dict[str, Any]],
-        findings: Dict[str, Any],
+        case_summary: dict[str, Any],
+        wallets_summary: list[dict[str, Any]],
+        findings: dict[str, Any],
         fallback_narrative: str,
     ) -> str:
         """Generate an investigation narrative via Claude over structured case data.
@@ -1124,10 +1221,12 @@ class InvestigationAssistant:
             self.logger.warning("llm_generate_narrative_failed", error=str(e))
             return fallback_narrative
 
-    async def _resolve_case_id(self, case_number: str) -> Optional[str]:
+    async def _resolve_case_id(self, case_number: str) -> str | None:
         async with get_session_context() as session:
             from sqlalchemy import select
+
             from src.models import Case
+
             result = await session.execute(select(Case).where(Case.case_number == case_number))
             case = result.scalar_one_or_none()
             return str(case.id) if case else None

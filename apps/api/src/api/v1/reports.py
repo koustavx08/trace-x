@@ -1,23 +1,24 @@
+from typing import Any
 from uuid import UUID
-from typing import Any, Optional
-from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from pydantic import BaseModel, Field
 
-from src.core import get_session, NotFoundError
+from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core import NotFoundError, get_session
 from src.models import Report
-from src.schemas import ReportCreate, ReportResponse, PaginatedResponse
-from src.workers.tasks import report_generation_task
+from src.schemas import PaginatedResponse, ReportCreate, ReportResponse
 from src.workers.main import celery_app
+from src.workers.tasks import report_generation_task
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
 class ReportGenerateRequest(BaseModel):
     case_id: UUID
-    investigation_run_id: Optional[UUID] = None
-    title: Optional[str] = Field(None, max_length=255)
+    investigation_run_id: UUID | None = None
+    title: str | None = Field(None, max_length=255)
     template: str = Field("technical_findings")
     format: str = Field("pdf", pattern="^(pdf|json|html)$")
 
@@ -31,11 +32,13 @@ class ReportTaskStatusResponse(BaseModel):
     task_id: str
     state: str
     ready: bool
-    result: Optional[Any] = None
-    error: Optional[str] = None
+    result: Any | None = None
+    error: str | None = None
 
 
-@router.post("/generate", response_model=ReportGenerateResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/generate", response_model=ReportGenerateResponse, status_code=status.HTTP_202_ACCEPTED
+)
 async def generate_report(request: ReportGenerateRequest) -> ReportGenerateResponse:
     """Kick off report generation (build content from case/investigation
     data + render to PDF/JSON/HTML) as a background Celery task instead of
@@ -115,7 +118,7 @@ async def create_report(
 
 @router.get("", response_model=PaginatedResponse)
 async def list_reports(
-    case_id: Optional[UUID] = None,
+    case_id: UUID | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
@@ -144,7 +147,9 @@ async def list_reports(
 
 
 @router.get("/{report_id}", response_model=ReportResponse)
-async def get_report(report_id: UUID, session: AsyncSession = Depends(get_session)) -> ReportResponse:
+async def get_report(
+    report_id: UUID, session: AsyncSession = Depends(get_session)
+) -> ReportResponse:
     result = await session.execute(select(Report).where(Report.id == report_id))
     report = result.scalar_one_or_none()
     if not report:

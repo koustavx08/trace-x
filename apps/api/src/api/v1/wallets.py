@@ -1,12 +1,12 @@
 from uuid import UUID
-from typing import Optional
-from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
 
-from src.core import get_session, NotFoundError
-from src.models import Case, Wallet, AttributionStatus
-from src.schemas import WalletCreate, WalletUpdate, WalletResponse, PaginatedResponse
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core import NotFoundError, get_session
+from src.models import AttributionStatus, Case, Wallet
+from src.schemas import PaginatedResponse, WalletCreate, WalletResponse, WalletUpdate
 
 # WS3 note: this router only does CRUD on Wallet records; it contains no
 # inline/synchronous heavy analysis calls (wallet analysis is triggered via
@@ -37,7 +37,7 @@ async def create_wallet(
         entity_name=wallet_data.entity_name,
         entity_confidence=wallet_data.entity_confidence,
         first_seen_tx_hash=wallet_data.first_seen_tx_hash,
-        metadata=wallet_data.metadata,
+        wallet_metadata=wallet_data.metadata,
     )
     session.add(wallet)
     await session.flush()
@@ -47,9 +47,9 @@ async def create_wallet(
 
 @router.get("", response_model=PaginatedResponse)
 async def list_wallets(
-    case_id: Optional[UUID] = None,
-    chain: Optional[str] = None,
-    attribution_status: Optional[AttributionStatus] = None,
+    case_id: UUID | None = None,
+    chain: str | None = None,
+    attribution_status: AttributionStatus | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
@@ -82,7 +82,9 @@ async def list_wallets(
 
 
 @router.get("/{wallet_id}", response_model=WalletResponse)
-async def get_wallet(wallet_id: UUID, session: AsyncSession = Depends(get_session)) -> WalletResponse:
+async def get_wallet(
+    wallet_id: UUID, session: AsyncSession = Depends(get_session)
+) -> WalletResponse:
     result = await session.execute(select(Wallet).where(Wallet.id == wallet_id))
     wallet = result.scalar_one_or_none()
     if not wallet:

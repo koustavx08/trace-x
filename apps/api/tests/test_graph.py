@@ -11,6 +11,7 @@ directly and deterministically. Endpoints that also look up a `Wallet` row
 first still need a reachable `tracex_test` Postgres database and skip
 cleanly if one isn't available (see tests/fixtures_db.py).
 """
+
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -39,6 +40,7 @@ async def _create_case_and_wallet(api_client):
 # ---------------------------------------------------------------------------
 # Endpoints that don't need a Postgres-backed Wallet lookup
 # ---------------------------------------------------------------------------
+
 
 class TestGraphEndpointsNoWalletLookup:
     async def test_get_subgraph(self, monkeypatch, api_client):
@@ -143,6 +145,7 @@ class TestGraphEndpointsNoWalletLookup:
 # ---------------------------------------------------------------------------
 # Endpoints that look up a Wallet row (need Postgres) + mocked graph calls
 # ---------------------------------------------------------------------------
+
 
 class TestGraphEndpointsWithWalletLookup:
     async def test_sync_wallet_to_graph_unknown_wallet_404(self, api_client):

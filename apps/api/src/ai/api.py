@@ -1,16 +1,23 @@
-from typing import Dict, Any, Optional, List
-from uuid import UUID, uuid4
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
-import redis.asyncio as aioredis
+from typing import Optional
+from uuid import UUID, uuid4
 
-from src.core import get_session, NotFoundError
+import redis.asyncio as aioredis
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.ai.schemas import (
+    AIQueryRequest,
+    AIQueryResponse,
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    ChatSession,
+)
+from src.ai.service import investigation_assistant
+from src.core import NotFoundError, get_session
 from src.core.config import get_settings
 from src.models import Case
-from src.ai.schemas import AIQueryRequest, AIQueryResponse, ChatRequest, ChatResponse, ChatSession, ChatMessage
-from src.ai.service import investigation_assistant
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 _settings = get_settings()
@@ -40,7 +47,7 @@ class ChatSessionStore:
         return f"{cls._KEY_PREFIX}{session_id}"
 
     @classmethod
-    async def get(cls, session_id: str) -> Optional[ChatSession]:
+    async def get(cls, session_id: str) -> ChatSession | None:
         raw = await cls._get_redis().get(cls._key(session_id))
         if not raw:
             return None
@@ -53,7 +60,7 @@ class ChatSessionStore:
         )
 
     @classmethod
-    async def get_or_create(cls, session_id: Optional[str] = None) -> ChatSession:
+    async def get_or_create(cls, session_id: str | None = None) -> ChatSession:
         if session_id:
             existing = await cls.get(session_id)
             if existing:
@@ -99,11 +106,16 @@ async def query_investigation_assistant(
         wallet_id=request.wallet_id,
     )
 
+    # src.ai.service defines its own QueryType/ConfidenceLevel/Evidence rather
+    # than reusing these schemas classes; pydantic validates str-enum fields
+    # by value (safe, since both enums share the same members) and Evidence
+    # via schemas.Evidence's from_attributes=True, so this is a real but
+    # harmless cross-module type mismatch.
     return AIQueryResponse(
         answer=response.answer,
-        query_type=response.query_type,
-        confidence=response.confidence,
-        evidence=response.evidence,
+        query_type=response.query_type,  # type: ignore[arg-type]
+        confidence=response.confidence,  # type: ignore[arg-type]
+        evidence=response.evidence,  # type: ignore[arg-type]
         follow_up_questions=response.follow_up_questions,
         metadata=response.metadata,
     )
@@ -257,7 +269,10 @@ async def get_ai_capabilities():
         ],
         "confidence_levels": [
             {"level": "CONFIRMED", "description": "Verified on-chain + off-chain correlation"},
-            {"level": "HIGH_CONFIDENCE", "description": "Strong heuristic + multiple corroborating signals"},
+            {
+                "level": "HIGH_CONFIDENCE",
+                "description": "Strong heuristic + multiple corroborating signals",
+            },
             {"level": "PROBABLE", "description": "Single strong signal or multiple weak signals"},
             {"level": "UNKNOWN", "description": "Insufficient evidence"},
         ],
@@ -267,7 +282,7 @@ async def get_ai_capabilities():
 @router.post("/generate-narrative")
 async def generate_investigation_narrative(
     case_id: UUID,
-    wallet_ids: Optional[List[UUID]] = None,
+    wallet_ids: list[UUID] | None = None,
     session: AsyncSession = Depends(get_session),
 ):
     case = await session.get(Case, case_id)
@@ -275,7 +290,8 @@ async def generate_investigation_narrative(
         raise NotFoundError("Case", str(case_id))
 
     from sqlalchemy import select
-    from src.models import Wallet, InvestigationRun
+
+    from src.models import InvestigationRun, Wallet
 
     wallet_query = select(Wallet).where(Wallet.case_id == case_id)
     if wallet_ids:
@@ -283,10 +299,12 @@ async def generate_investigation_narrative(
     result = await session.execute(wallet_query)
     wallets = list(result.scalars().all())
 
-    inv_result = await session.execute(select(InvestigationRun).where(InvestigationRun.case_id == case_id))
+    inv_result = await session.execute(
+        select(InvestigationRun).where(InvestigationRun.case_id == case_id)
+    )
     investigations = list(inv_result.scalars().all())
 
-    chains = list(set(w.chain for w in wallets))
+    chains = list({w.chain for w in wallets})
 
     narrative_parts = [
         f"# Investigation Narrative: {case.title}",
@@ -296,7 +314,7 @@ async def generate_investigation_narrative(
         f"**Investigation Period:** {len(investigations)} runs ({len([i for i in investigations if i.status == 'completed'])} completed)",
         "",
         "## Executive Summary",
-        f"This investigation analyzed **{len(wallets)} wallet addresses** across **{len(set(w.chain for w in wallets))} blockchain(s)**. "
+        f"This investigation analyzed **{len(wallets)} wallet addresses** across **{len({w.chain for w in wallets})} blockchain(s)**. "
         f"**{len([w for w in wallets if float(w.risk_score or 0) >= 75])} wallets** were classified as high risk (score ≥ 75). "
         f"**{len([w for w in wallets if w.entity_name and w.entity_confidence in ['CONFIRMED', 'HIGH_CONFIDENCE']])} wallets** "
         f"were attributed to known entities with high confidence.",
@@ -305,7 +323,15 @@ async def generate_investigation_narrative(
     ]
 
     for w in wallets[:10]:
-        risk_level = "CRITICAL" if float(w.risk_score or 0) >= 75 else "HIGH" if float(w.risk_score or 0) >= 50 else "MEDIUM" if float(w.risk_score or 0) >= 25 else "LOW"
+        risk_level = (
+            "CRITICAL"
+            if float(w.risk_score or 0) >= 75
+            else "HIGH"
+            if float(w.risk_score or 0) >= 50
+            else "MEDIUM"
+            if float(w.risk_score or 0) >= 25
+            else "LOW"
+        )
         entity_info = f" → **{w.entity_name}** ({w.entity_confidence})" if w.entity_name else ""
         narrative_parts.append(
             f"- **{w.address[:10]}...{w.address[-8:]}** ({w.chain}) — {w.label or 'Unlabeled'} — "
@@ -315,42 +341,62 @@ async def generate_investigation_narrative(
     if len(wallets) > 10:
         narrative_parts.append(f"- ... and {len(wallets) - 10} more wallets")
 
-    narrative_parts.extend([
-        "",
-        "## Key Findings",
-    ])
+    narrative_parts.extend(
+        [
+            "",
+            "## Key Findings",
+        ]
+    )
 
     high_risk_wallets = [w for w in wallets if float(w.risk_score or 0) >= 75]
     if high_risk_wallets:
-        narrative_parts.append(f"- **{len(high_risk_wallets)} high-risk wallets** identified requiring priority attention")
+        narrative_parts.append(
+            f"- **{len(high_risk_wallets)} high-risk wallets** identified requiring priority attention"
+        )
 
-    attributed = [w for w in wallets if w.entity_name and w.entity_confidence in ["CONFIRMED", "HIGH_CONFIDENCE"]]
+    attributed = [
+        w
+        for w in wallets
+        if w.entity_name and w.entity_confidence in ["CONFIRMED", "HIGH_CONFIDENCE"]
+    ]
     if attributed:
         exchanges = [w for w in attributed if w.entity_type == "exchange"]
         mixers = [w for w in attributed if w.entity_type == "mixer"]
-        narrative_parts.append(f"- **{len(exchanges)} exchange attributions** (confirmed/high confidence)")
+        narrative_parts.append(
+            f"- **{len(exchanges)} exchange attributions** (confirmed/high confidence)"
+        )
         if mixers:
-            narrative_parts.append(f"- **{len(mixers)} mixer interactions** detected — high risk indicator")
+            narrative_parts.append(
+                f"- **{len(mixers)} mixer interactions** detected — high risk indicator"
+            )
 
-    narrative_parts.append(f"- **Cross-chain activity** detected across {len(chains)} chains: {', '.join(chains)}")
+    narrative_parts.append(
+        f"- **Cross-chain activity** detected across {len(chains)} chains: {', '.join(chains)}"
+    )
 
     completed_inv = [i for i in investigations if i.status == "completed"]
     if completed_inv:
-        total_txs = sum(i.result_summary.get("transactions_found", 0) for i in completed_inv if i.result_summary)
-        narrative_parts.append(f"- **{len(completed_inv)} completed investigations** analyzed {total_txs} transactions total")
+        total_txs = sum(
+            i.result_summary.get("transactions_found", 0) for i in completed_inv if i.result_summary
+        )
+        narrative_parts.append(
+            f"- **{len(completed_inv)} completed investigations** analyzed {total_txs} transactions total"
+        )
 
-    narrative_parts.extend([
-        "",
-        "## Recommendations",
-        "1. **Priority**: Focus on high-risk wallets with confirmed exchange attributions for subpoena/legal action",
-        "2. **Expand tracing**: Increase trace depth for wallets that did not reach VASP endpoints",
-        "3. **Monitor**: Set up continuous monitoring for mixer interactions and new wallet creation",
-        "4. **Coordinate**: Share confirmed VASP attributions with relevant law enforcement / compliance teams",
-        "",
-        "---",
-        f"*Generated by TRACE-X AI Assistant on {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}*",
-        "*This narrative is based on automated analysis. Human review recommended for legal proceedings.*",
-    ])
+    narrative_parts.extend(
+        [
+            "",
+            "## Recommendations",
+            "1. **Priority**: Focus on high-risk wallets with confirmed exchange attributions for subpoena/legal action",
+            "2. **Expand tracing**: Increase trace depth for wallets that did not reach VASP endpoints",
+            "3. **Monitor**: Set up continuous monitoring for mixer interactions and new wallet creation",
+            "4. **Coordinate**: Share confirmed VASP attributions with relevant law enforcement / compliance teams",
+            "",
+            "---",
+            f"*Generated by TRACE-X AI Assistant on {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}*",
+            "*This narrative is based on automated analysis. Human review recommended for legal proceedings.*",
+        ]
+    )
 
     fallback_narrative = "\n".join(narrative_parts)
 
@@ -382,7 +428,11 @@ async def generate_investigation_narrative(
         "wallet_count": len(wallets),
         "high_risk_wallet_count": len([w for w in wallets if float(w.risk_score or 0) >= 75]),
         "attributed_wallet_count": len(
-            [w for w in wallets if w.entity_name and w.entity_confidence in ["CONFIRMED", "HIGH_CONFIDENCE"]]
+            [
+                w
+                for w in wallets
+                if w.entity_name and w.entity_confidence in ["CONFIRMED", "HIGH_CONFIDENCE"]
+            ]
         ),
         "chains": chains,
         "completed_investigations": len(completed_inv),

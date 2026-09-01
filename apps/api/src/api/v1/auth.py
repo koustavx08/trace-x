@@ -1,24 +1,23 @@
 """
 Authentication API endpoints.
 """
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, EmailStr
 
-from src.core import get_session, get_logger
 from src.auth import (
     AuthService,
     LoginRequest,
     TokenResponse,
     UserResponse,
     get_current_user,
-    require_admin,
     limiter,
+    require_admin,
     security,
 )
+from src.core import get_logger, get_session
 from src.models import User
 
 logger = get_logger(__name__)
@@ -59,8 +58,8 @@ async def refresh_token(
 @router.post("/logout")
 async def logout(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    refresh_token: Optional[str] = None,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    refresh_token: str | None = None,
     session: AsyncSession = Depends(get_session),
 ):
     """Log out the current session by revoking its access (and refresh) token."""
@@ -100,14 +99,15 @@ async def create_user(
 ):
     """Create new user (admin only)."""
     from src.models import UserRole
+
     try:
         user_role = UserRole(role)
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid role: {role}. Valid roles: {[r.value for r in UserRole]}",
-        )
-    
+        ) from exc
+
     auth_service = AuthService(session)
     user = await auth_service.create_user(
         email=email,

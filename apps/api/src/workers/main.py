@@ -1,7 +1,9 @@
 """
 Celery worker configuration for background task processing.
 """
+
 import os
+
 from celery import Celery
 from kombu import Queue
 
@@ -40,9 +42,11 @@ celery_app.conf.update(
 )
 
 # Auto-discover tasks
-celery_app.autodiscover_tasks([
-    "src.workers.tasks",
-])
+celery_app.autodiscover_tasks(
+    [
+        "src.workers.tasks",
+    ]
+)
 
 if __name__ == "__main__":
     celery_app.start()

@@ -1,9 +1,16 @@
-from typing import Optional, List, Dict, Any, Set
-from datetime import datetime
+from typing import Any
+
 import structlog
 
 from .client import Neo4jClient
-from .models import GraphWallet, GraphTransaction, GraphEntity, GraphPath, ConfidenceLevel, EntityType
+from .models import (
+    ConfidenceLevel,
+    EntityType,
+    GraphEntity,
+    GraphPath,
+    GraphTransaction,
+    GraphWallet,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -57,7 +64,7 @@ class GraphRepository:
             "entity_type": wallet.entity_type.value if wallet.entity_type else None,
             "entity_confidence": wallet.entity_confidence.value,
         }
-        result = await self._client.execute_write(query, params)
+        await self._client.execute_write(query, params)
         return wallet
 
     async def upsert_transaction(self, tx: GraphTransaction) -> GraphTransaction:
@@ -104,7 +111,9 @@ class GraphRepository:
         await self._client.execute_write(query, params)
         return tx
 
-    async def link_wallet_transaction(self, wallet_address: str, chain: str, tx_hash: str, direction: str) -> None:
+    async def link_wallet_transaction(
+        self, wallet_address: str, chain: str, tx_hash: str, direction: str
+    ) -> None:
         if direction == "sent":
             query = """
             MATCH (w:Wallet {address: $address, chain: $chain})
@@ -117,11 +126,14 @@ class GraphRepository:
             MATCH (t:Transaction {tx_hash: $tx_hash, chain: $chain})
             MERGE (t)-[:RECEIVED {timestamp: datetime()}]->(w)
             """
-        await self._client.execute_write(query, {
-            "address": wallet_address.lower(),
-            "chain": chain,
-            "tx_hash": tx_hash.lower(),
-        })
+        await self._client.execute_write(
+            query,
+            {
+                "address": wallet_address.lower(),
+                "chain": chain,
+                "tx_hash": tx_hash.lower(),
+            },
+        )
 
     async def upsert_entity(self, entity: GraphEntity) -> GraphEntity:
         query = """
@@ -162,24 +174,31 @@ class GraphRepository:
         await self._client.execute_write(query, params)
         return entity
 
-    async def link_wallet_entity(self, wallet_address: str, chain: str, entity_address: str) -> None:
+    async def link_wallet_entity(
+        self, wallet_address: str, chain: str, entity_address: str
+    ) -> None:
         query = """
         MATCH (w:Wallet {address: $wallet_address, chain: $chain})
         MATCH (e:Entity {address: $entity_address, chain: $chain})
         MERGE (w)-[:BELONGS_TO {confidence: e.confidence, linked_at: datetime()}]->(e)
         """
-        await self._client.execute_write(query, {
-            "wallet_address": wallet_address.lower(),
-            "chain": chain,
-            "entity_address": entity_address.lower(),
-        })
+        await self._client.execute_write(
+            query,
+            {
+                "wallet_address": wallet_address.lower(),
+                "chain": chain,
+                "entity_address": entity_address.lower(),
+            },
+        )
 
-    async def get_wallet(self, address: str, chain: str) -> Optional[GraphWallet]:
+    async def get_wallet(self, address: str, chain: str) -> GraphWallet | None:
         query = """
         MATCH (w:Wallet {address: $address, chain: $chain})
         RETURN w
         """
-        result = await self._client.execute_query(query, {"address": address.lower(), "chain": chain})
+        result = await self._client.execute_query(
+            query, {"address": address.lower(), "chain": chain}
+        )
         if not result:
             return None
         record = result[0]
@@ -197,10 +216,14 @@ class GraphRepository:
             metadata=w.get("metadata", {}),
             entity_name=w.get("entity_name"),
             entity_type=EntityType(w["entity_type"]) if w.get("entity_type") else None,
-            entity_confidence=ConfidenceLevel(w["entity_confidence"]) if w.get("entity_confidence") else ConfidenceLevel.UNKNOWN,
+            entity_confidence=ConfidenceLevel(w["entity_confidence"])
+            if w.get("entity_confidence")
+            else ConfidenceLevel.UNKNOWN,
         )
 
-    async def get_wallet_neighbors(self, address: str, chain: str, depth: int = 1, limit: int = 100) -> List[GraphWallet]:
+    async def get_wallet_neighbors(
+        self, address: str, chain: str, depth: int = 1, limit: int = 100
+    ) -> list[GraphWallet]:
         query = f"""
         MATCH (w:Wallet {{address: $address, chain: $chain}})
         CALL apoc.path.subgraphNodes(w, {{
@@ -211,34 +234,40 @@ class GraphRepository:
         RETURN node
         LIMIT $limit
         """
-        result = await self._client.execute_query(query, {"address": address.lower(), "chain": chain, "limit": limit})
+        result = await self._client.execute_query(
+            query, {"address": address.lower(), "chain": chain, "limit": limit}
+        )
         wallets = []
         for record in result:
             n = record["node"]
-            wallets.append(GraphWallet(
-                address=n["address"],
-                chain=n["chain"],
-                label=n.get("label"),
-                risk_score=n.get("risk_score", 0.0),
-                entity_name=n.get("entity_name"),
-                entity_type=EntityType(n["entity_type"]) if n.get("entity_type") else None,
-                entity_confidence=ConfidenceLevel(n["entity_confidence"]) if n.get("entity_confidence") else ConfidenceLevel.UNKNOWN,
-            ))
+            wallets.append(
+                GraphWallet(
+                    address=n["address"],
+                    chain=n["chain"],
+                    label=n.get("label"),
+                    risk_score=n.get("risk_score", 0.0),
+                    entity_name=n.get("entity_name"),
+                    entity_type=EntityType(n["entity_type"]) if n.get("entity_type") else None,
+                    entity_confidence=ConfidenceLevel(n["entity_confidence"])
+                    if n.get("entity_confidence")
+                    else ConfidenceLevel.UNKNOWN,
+                )
+            )
         return wallets
 
     async def find_paths_to_entities(
         self,
         start_address: str,
         chain: str,
-        entity_types: Optional[List[EntityType]] = None,
+        entity_types: list[EntityType] | None = None,
         max_depth: int = 6,
         min_confidence: ConfidenceLevel = ConfidenceLevel.PROBABLE,
         limit: int = 10,
-    ) -> List[GraphPath]:
+    ) -> list[GraphPath]:
         entity_filter = ""
         if entity_types:
-            types_str = "|".join([t.value for t in entity_types])
-            entity_filter = f"AND e.entity_type IN [{','.join([f'\"{t}\"' for t in entity_types])}]"
+            quoted_types = ", ".join(f'"{t.value}"' for t in entity_types)
+            entity_filter = f"AND e.entity_type IN [{quoted_types}]"
 
         confidence_order = {
             ConfidenceLevel.CONFIRMED: 4,
@@ -264,13 +293,16 @@ class GraphRepository:
         ORDER BY weight DESC
         LIMIT $limit
         """
-        result = await self._client.execute_query(query, {
-            "start_address": start_address.lower(),
-            "chain": chain,
-            "max_depth": max_depth,
-            "min_conf": min_conf_val,
-            "limit": limit,
-        })
+        result = await self._client.execute_query(
+            query,
+            {
+                "start_address": start_address.lower(),
+                "chain": chain,
+                "max_depth": max_depth,
+                "min_conf": min_conf_val,
+                "limit": limit,
+            },
+        )
 
         paths = []
         for record in result:
@@ -286,33 +318,43 @@ class GraphRepository:
                 elif "Entity" in node.labels:
                     nodes.append(f"Entity:{node['chain']}:{node['address']}")
                 if i > 0:
-                    prev = path.nodes[i-1]
-                    rel = path.relationships[i-1]
-                    edges.append({
-                        "from": f"Wallet:{prev['chain']}:{prev['address']}" if "Wallet" in prev.labels else f"Entity:{prev['chain']}:{prev['address']}",
-                        "to": f"Wallet:{node['chain']}:{node['address']}" if "Wallet" in node.labels else f"Entity:{node['chain']}:{node['address']}",
-                        "value": rel.get("value", 0),
-                        "tx_hash": rel.get("tx_hash", ""),
-                    })
+                    prev = path.nodes[i - 1]
+                    rel = path.relationships[i - 1]
+                    edges.append(
+                        {
+                            "from": f"Wallet:{prev['chain']}:{prev['address']}"
+                            if "Wallet" in prev.labels
+                            else f"Entity:{prev['chain']}:{prev['address']}",
+                            "to": f"Wallet:{node['chain']}:{node['address']}"
+                            if "Wallet" in node.labels
+                            else f"Entity:{node['chain']}:{node['address']}",
+                            "value": rel.get("value", 0),
+                            "tx_hash": rel.get("tx_hash", ""),
+                        }
+                    )
 
-            paths.append(GraphPath(
-                nodes=nodes,
-                edges=edges,
-                total_value=weight,
-                length=len(nodes) - 1,
-                confidence=ConfidenceLevel(end["confidence"]),
-                endpoint_entity=GraphEntity(
-                    name=end["name"],
-                    entity_type=EntityType(end["entity_type"]),
-                    address=end["address"],
-                    chain=end["chain"],
+            paths.append(
+                GraphPath(
+                    nodes=nodes,
+                    edges=edges,
+                    total_value=weight,
+                    length=len(nodes) - 1,
                     confidence=ConfidenceLevel(end["confidence"]),
-                    source=end.get("source", "unknown"),
-                ),
-            ))
+                    endpoint_entity=GraphEntity(
+                        name=end["name"],
+                        entity_type=EntityType(end["entity_type"]),
+                        address=end["address"],
+                        chain=end["chain"],
+                        confidence=ConfidenceLevel(end["confidence"]),
+                        source=end.get("source", "unknown"),
+                    ),
+                )
+            )
         return paths
 
-    async def get_subgraph(self, addresses: List[str], chain: str, depth: int = 2) -> Dict[str, Any]:
+    async def get_subgraph(
+        self, addresses: list[str], chain: str, depth: int = 2
+    ) -> dict[str, Any]:
         addr_list = [a.lower() for a in addresses]
         query = """
         MATCH (w:Wallet)
@@ -323,59 +365,70 @@ class GraphRepository:
         }) YIELD nodes, relationships
         RETURN nodes, relationships
         """
-        result = await self._client.execute_query(query, {
-            "addresses": addr_list,
-            "chain": chain,
-            "depth": depth,
-        })
+        result = await self._client.execute_query(
+            query,
+            {
+                "addresses": addr_list,
+                "chain": chain,
+                "depth": depth,
+            },
+        )
 
         nodes = []
         edges = []
         for record in result:
             for node in record["nodes"]:
                 if "Wallet" in node.labels:
-                    nodes.append({
-                        "id": f"Wallet:{node['chain']}:{node['address']}",
-                        "type": "wallet",
-                        "address": node["address"],
-                        "chain": node["chain"],
-                        "label": node.get("label"),
-                        "risk_score": node.get("risk_score", 0),
-                        "entity_name": node.get("entity_name"),
-                        "entity_confidence": node.get("entity_confidence"),
-                    })
+                    nodes.append(
+                        {
+                            "id": f"Wallet:{node['chain']}:{node['address']}",
+                            "type": "wallet",
+                            "address": node["address"],
+                            "chain": node["chain"],
+                            "label": node.get("label"),
+                            "risk_score": node.get("risk_score", 0),
+                            "entity_name": node.get("entity_name"),
+                            "entity_confidence": node.get("entity_confidence"),
+                        }
+                    )
                 elif "Entity" in node.labels:
-                    nodes.append({
-                        "id": f"Entity:{node['chain']}:{node['address']}",
-                        "type": "entity",
-                        "name": node["name"],
-                        "entity_type": node["entity_type"],
-                        "address": node["address"],
-                        "chain": node["chain"],
-                        "confidence": node["confidence"],
-                    })
+                    nodes.append(
+                        {
+                            "id": f"Entity:{node['chain']}:{node['address']}",
+                            "type": "entity",
+                            "name": node["name"],
+                            "entity_type": node["entity_type"],
+                            "address": node["address"],
+                            "chain": node["chain"],
+                            "confidence": node["confidence"],
+                        }
+                    )
                 elif "Transaction" in node.labels:
-                    nodes.append({
-                        "id": f"Transaction:{node['chain']}:{node['tx_hash']}",
-                        "type": "transaction",
-                        "tx_hash": node["tx_hash"],
-                        "value": node.get("value"),
-                        "value_usd": node.get("value_usd"),
-                    })
+                    nodes.append(
+                        {
+                            "id": f"Transaction:{node['chain']}:{node['tx_hash']}",
+                            "type": "transaction",
+                            "tx_hash": node["tx_hash"],
+                            "value": node.get("value"),
+                            "value_usd": node.get("value_usd"),
+                        }
+                    )
 
             for rel in record["relationships"]:
                 start_id = rel.start_node.id
                 end_id = rel.end_node.id
-                edges.append({
-                    "from": start_id,
-                    "to": end_id,
-                    "type": rel.type,
-                    "properties": dict(rel),
-                })
+                edges.append(
+                    {
+                        "from": start_id,
+                        "to": end_id,
+                        "type": rel.type,
+                        "properties": dict(rel),
+                    }
+                )
 
         return {"nodes": nodes, "edges": edges}
 
-    async def detect_clusters(self, chain: str, min_cluster_size: int = 3) -> List[Dict[str, Any]]:
+    async def detect_clusters(self, chain: str, min_cluster_size: int = 3) -> list[dict[str, Any]]:
         query = """
         MATCH (w:Wallet {chain: $chain})
         WHERE w.tx_count > 5
@@ -384,18 +437,21 @@ class GraphRepository:
         WITH community, collect(nodeId) as nodes
         WHERE size(nodes) >= $min_size
         MATCH (w:Wallet) WHERE id(w) IN nodes
-        RETURN community, nodes, 
+        RETURN community, nodes,
                avg(w.risk_score) as avg_risk,
                collect(w.address)[0..5] as sample_addresses
         ORDER BY avg_risk DESC
         """
-        result = await self._client.execute_query(query, {
-            "chain": chain,
-            "min_size": min_cluster_size,
-        })
+        result = await self._client.execute_query(
+            query,
+            {
+                "chain": chain,
+                "min_size": min_cluster_size,
+            },
+        )
         return [dict(r) for r in result]
 
-    async def get_wallet_stats(self, address: str, chain: str) -> Dict[str, Any]:
+    async def get_wallet_stats(self, address: str, chain: str) -> dict[str, Any]:
         query = """
         MATCH (w:Wallet {address: $address, chain: $chain})
         OPTIONAL MATCH (w)-[:SENT]->(t:Transaction)
@@ -406,7 +462,9 @@ class GraphRepository:
                sum(CASE WHEN t.value IS NOT NULL THEN toFloat(t.value) ELSE 0 END) as total_sent,
                sum(CASE WHEN t2.value IS NOT NULL THEN toFloat(t2.value) ELSE 0 END) as total_received
         """
-        result = await self._client.execute_query(query, {"address": address.lower(), "chain": chain})
+        result = await self._client.execute_query(
+            query, {"address": address.lower(), "chain": chain}
+        )
         if not result:
             return {}
         record = result[0]

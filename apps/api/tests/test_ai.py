@@ -14,21 +14,21 @@ returning Claude-backed prose instead of templated strings; the
 place ("live-vs-template mode") that is expected to need a fixup once
 `ANTHROPIC_API_KEY` support exists.
 """
+
 from uuid import uuid4
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
 from fixtures_db import api_client, db_session  # noqa: F401
+from httpx import ASGITransport, AsyncClient
 
 from src.ai.service import InvestigationAssistant, QueryType, investigation_assistant
 from src.graph.models import ConfidenceLevel
 from src.main import app
 
-
 # ---------------------------------------------------------------------------
 # Pure logic: query classification / entity extraction (no DB, no network)
 # ---------------------------------------------------------------------------
+
 
 class TestClassifyQuery:
     @pytest.mark.parametrize(
@@ -84,6 +84,7 @@ class TestExtractEntities:
 # answer_query() paths that don't require the database (early-return branches)
 # ---------------------------------------------------------------------------
 
+
 class TestAnswerQueryNoDB:
     async def test_risk_summary_without_wallet_or_case_asks_for_more_info(self):
         response = await investigation_assistant.answer_query(query="how risky is this wallet")
@@ -127,6 +128,7 @@ class TestAnswerQueryNoDB:
 # HTTP endpoint tests that don't require the database
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 async def plain_client():
     transport = ASGITransport(app=app)
@@ -161,7 +163,6 @@ class TestAIEndpointsNoDB:
         """WS2: '/ai/capabilities should report live-vs-template mode
         honestly.' Not implemented yet in this worktree -- there is no
         live/template mode flag in the response at all."""
-        import src.ai.api as ai_api_module
 
         # Defensive: this will need updating to actually call the endpoint
         # and assert on a `mode`/`live` field once WS2 adds one.
@@ -179,6 +180,7 @@ class TestAIEndpointsNoDB:
         pattern. Not autouse: the query/capabilities tests above don't touch
         Redis and should keep running without it."""
         import redis.asyncio as aioredis
+
         from src.core.config import get_settings
 
         client = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
@@ -190,9 +192,7 @@ class TestAIEndpointsNoDB:
             await client.aclose()
 
     async def test_chat_roundtrip_creates_and_retrieves_history(self, plain_client, _require_redis):
-        chat_response = await plain_client.post(
-            "/api/v1/ai/chat", json={"message": "hello there"}
-        )
+        chat_response = await plain_client.post("/api/v1/ai/chat", json={"message": "hello there"})
         assert chat_response.status_code == 200
         session_id = chat_response.json()["session_id"]
         assert chat_response.json()["message"]["role"] == "assistant"
@@ -209,9 +209,7 @@ class TestAIEndpointsNoDB:
         assert response.status_code == 404
 
     async def test_chat_history_delete(self, plain_client, _require_redis):
-        chat_response = await plain_client.post(
-            "/api/v1/ai/chat", json={"message": "delete me"}
-        )
+        chat_response = await plain_client.post("/api/v1/ai/chat", json={"message": "delete me"})
         session_id = chat_response.json()["session_id"]
 
         delete_response = await plain_client.delete(f"/api/v1/ai/chat/history/{session_id}")
@@ -224,6 +222,7 @@ class TestAIEndpointsNoDB:
 # ---------------------------------------------------------------------------
 # HTTP endpoint tests that require the database
 # ---------------------------------------------------------------------------
+
 
 class TestAIEndpointsWithDB:
     async def test_query_endpoint_unknown_case_id_returns_404(self, api_client):

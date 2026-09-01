@@ -1,22 +1,25 @@
+import enum
 from datetime import datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
+
 from sqlalchemy import (
-    String,
-    Text,
+    JSON,
     DateTime,
-    Enum as SQLEnum,
     ForeignKey,
     Index,
-    Numeric,
     Integer,
-    JSON,
+    Numeric,
+    String,
+    Text,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import (
+    Enum as SQLEnum,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base
-import enum
 
 
 class CaseStatus(str, enum.Enum):
@@ -58,9 +61,7 @@ class InvestigationStatus(str, enum.Enum):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
-    )
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -90,9 +91,7 @@ class User(Base):
 class Case(Base):
     __tablename__ = "cases"
 
-    id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
-    )
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     case_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     crime_type: Mapped[CrimeType] = mapped_column(
@@ -102,7 +101,7 @@ class Case(Base):
     status: Mapped[CaseStatus] = mapped_column(
         SQLEnum(CaseStatus), default=CaseStatus.OPEN, nullable=False
     )
-    assigned_to: Mapped[PG_UUID | None] = mapped_column(
+    assigned_to: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
     case_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -141,11 +140,12 @@ class Case(Base):
 class Wallet(Base):
     __tablename__ = "wallets"
 
-    id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
-    )
-    case_id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    case_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("cases.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     address: Mapped[str] = mapped_column(String(66), nullable=False, index=True)
     chain: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
@@ -189,11 +189,12 @@ class Wallet(Base):
 class Transaction(Base):
     __tablename__ = "transactions"
 
-    id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
-    )
-    wallet_id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("wallets.id", ondelete="CASCADE"), nullable=False, index=True
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    wallet_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("wallets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     tx_hash: Mapped[str] = mapped_column(String(66), nullable=False, index=True)
     block_number: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -226,14 +227,18 @@ class Transaction(Base):
 class InvestigationRun(Base):
     __tablename__ = "investigation_runs"
 
-    id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    case_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("cases.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
-    case_id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    wallet_id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("wallets.id", ondelete="CASCADE"), nullable=False, index=True
+    wallet_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("wallets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     status: Mapped[InvestigationStatus] = mapped_column(
         SQLEnum(InvestigationStatus), default=InvestigationStatus.PENDING, nullable=False
@@ -270,13 +275,14 @@ class InvestigationRun(Base):
 class Report(Base):
     __tablename__ = "reports"
 
-    id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    case_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("cases.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
-    case_id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    investigation_run_id: Mapped[PG_UUID | None] = mapped_column(
+    investigation_run_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("investigation_runs.id"), nullable=True
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -284,7 +290,7 @@ class Report(Base):
     findings: Mapped[dict] = mapped_column(JSON, nullable=False)
     risk_assessment: Mapped[dict] = mapped_column(JSON, nullable=False)
     graph_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    generated_by: Mapped[PG_UUID] = mapped_column(
+    generated_by: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
     format: Mapped[str] = mapped_column(String(10), default="json", nullable=False)
@@ -302,9 +308,7 @@ class Report(Base):
     case: Mapped[Case] = relationship("Case", back_populates="reports")
     investigation_run: Mapped["InvestigationRun | None"] = relationship()
 
-    __table_args__ = (
-        Index("ix_reports_case_created", "case_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_reports_case_created", "case_id", "created_at"),)
 
     def __repr__(self) -> str:
         return f"<Report(id={self.id}, case_id={self.case_id}, title={self.title})>"
@@ -320,10 +324,8 @@ class AuditLog(Base):
 
     __tablename__ = "audit_log"
 
-    id: Mapped[PG_UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
-    )
-    actor_id: Mapped[PG_UUID | None] = mapped_column(
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    actor_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
     action: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
@@ -339,10 +341,10 @@ class AuditLog(Base):
     )
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
-    __table_args__ = (
-        Index("ix_audit_log_actor_created", "actor_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_audit_log_actor_created", "actor_id", "created_at"),)
 
     def __repr__(self) -> str:
         return f"<AuditLog(id={self.id}, action={self.action}, actor_id={self.actor_id})>"
+
+
 # --- end AuditLog model ---

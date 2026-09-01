@@ -1,14 +1,15 @@
 from uuid import UUID
-from typing import Optional, List
-from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, Field
 
-from src.core import get_session, NotFoundError
-from src.models import Wallet, Case, InvestigationRun
-from src.analytics import risk_scoring_engine, attribution_engine, RiskAssessment, VASPAttribution
-from src.graph.repository import graph_repository
-from src.reports import report_generator, ReportFormat, ReportTemplate
+from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.analytics import attribution_engine, risk_scoring_engine
+from src.core import NotFoundError, get_session
+from src.graph.models import ConfidenceLevel, GraphTransaction, GraphWallet
+from src.graph.queries import graph_queries
+from src.models import Case, InvestigationRun, Report, Wallet
+from src.reports import ReportFormat, ReportTemplate, report_generator
 
 router = APIRouter(prefix="/risk", tags=["risk"])
 
@@ -16,7 +17,7 @@ router = APIRouter(prefix="/risk", tags=["risk"])
 class RiskAssessmentResponse(BaseModel):
     overall_score: float
     risk_level: str
-    factors: List[dict]
+    factors: list[dict]
     summary: str
     methodology: str
     assessed_at: str
@@ -24,15 +25,15 @@ class RiskAssessmentResponse(BaseModel):
 
 class AttributionResponse(BaseModel):
     attributed: bool
-    nearest_vasp: Optional[dict]
-    all_attributions: List[dict]
+    nearest_vasp: dict | None
+    all_attributions: list[dict]
     summary: dict
 
 
 class ReportGenerateRequest(BaseModel):
     case_id: UUID
-    investigation_run_id: Optional[UUID] = None
-    title: Optional[str] = None
+    investigation_run_id: UUID | None = None
+    title: str | None = None
     template: ReportTemplate = ReportTemplate.TECHNICAL_FINDINGS
     format: ReportFormat = ReportFormat.JSON
     generated_by: str = "analyst"
@@ -55,30 +56,44 @@ async def assess_wallet_risk(
     if not wallet:
         raise NotFoundError("Wallet", str(wallet_id))
 
-    from src.models import Transaction
     from sqlalchemy import select
-    result = await session.execute(
-        select(Transaction).where(Transaction.wallet_id == wallet_id)
-    )
+
+    from src.models import Transaction
+
+    result = await session.execute(select(Transaction).where(Transaction.wallet_id == wallet_id))
     transactions = result.scalars().all()
 
-    graph_wallet = wallet
-    graph_transactions = []
-    for tx in transactions:
-        graph_transactions.append(type('GraphTransaction', (), {
-            'tx_hash': tx.tx_hash,
-            'block_number': tx.block_number,
-            'timestamp': tx.timestamp,
-            'from_address': tx.from_address,
-            'to_address': tx.to_address,
-            'value': tx.value,
-            'value_usd': tx.value_usd,
-            'token_address': tx.token_address,
-            'token_symbol': tx.token_symbol,
-            'method': tx.method,
-            'is_suspicious': tx.is_suspicious,
-            'metadata': tx.metadata,
-        })())
+    graph_transactions = [
+        GraphTransaction(
+            tx_hash=tx.tx_hash,
+            chain=wallet.chain,
+            block_number=tx.block_number,
+            timestamp=tx.timestamp,
+            from_address=tx.from_address,
+            to_address=tx.to_address,
+            value=tx.value,
+            value_usd=tx.value_usd,
+            token_address=tx.token_address,
+            token_symbol=tx.token_symbol,
+            method=tx.method,
+            is_suspicious=tx.is_suspicious,
+            metadata=tx.transaction_metadata or {},
+        )
+        for tx in transactions
+    ]
+    graph_wallet = GraphWallet(
+        address=wallet.address,
+        chain=wallet.chain,
+        label=wallet.label,
+        risk_score=float(wallet.risk_score),
+        first_seen=wallet.created_at,
+        last_seen=wallet.updated_at,
+        tx_count=len(graph_transactions),
+        entity_name=wallet.entity_name,
+        entity_confidence=ConfidenceLevel(wallet.entity_confidence)
+        if wallet.entity_confidence
+        else ConfidenceLevel.UNKNOWN,
+    )
 
     graph_context = {}
     try:
@@ -130,7 +145,7 @@ async def get_wallet_attribution(
     return AttributionResponse(**result)
 
 
-@router.post("/wallets/{wallet_id}/attribute", response_model=List[dict])
+@router.post("/wallets/{wallet_id}/attribute", response_model=list[dict])
 async def attribute_wallet(
     wallet_id: UUID,
     max_hops: int = Query(6, ge=1, le=10),
@@ -149,7 +164,9 @@ async def attribute_wallet(
     return [a.to_dict() for a in attributions]
 
 
-@router.post("/reports/generate", response_model=ReportGenerateResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/reports/generate", response_model=ReportGenerateResponse, status_code=status.HTTP_201_CREATED
+)
 async def generate_report(
     request: ReportGenerateRequest,
     session: AsyncSession = Depends(get_session),
@@ -165,8 +182,10 @@ async def generate_report(
 
     report = await report_generator.generate_report(
         case_id=str(request.case_id),
-        investigation_run_id=str(request.investigation_run_id) if request.investigation_run_id else None,
-        title=request.title,
+        investigation_run_id=str(request.investigation_run_id)
+        if request.investigation_run_id
+        else None,
+        title=request.title or f"{case.title} - Investigation Report",
         template=request.template,
         format=request.format,
         generated_by=request.generated_by,
@@ -178,13 +197,13 @@ async def generate_report(
         title=report.title,
         summary=report.sections[0].content[:500] if report.sections else "",
         findings={
-            "sections": [
-                {"title": s.title, "order": s.order} for s in report.sections
-            ],
+            "sections": [{"title": s.title, "order": s.order} for s in report.sections],
         },
         risk_assessment={},
         graph_snapshot={},
-        generated_by=UUID(request.generated_by) if request.generated_by != "system" else UUID("00000000-0000-0000-0000-000000000000"),
+        generated_by=UUID(request.generated_by)
+        if request.generated_by != "system"
+        else UUID("00000000-0000-0000-0000-000000000000"),
         format=request.format.value,
     )
     session.add(db_report)
@@ -210,6 +229,7 @@ async def download_report(
         raise NotFoundError("Report", str(report_id))
 
     from fastapi.responses import Response
+
     content = b"Report content would be here - stored in object storage in production"
     media_type = {
         "pdf": "application/pdf",
@@ -236,6 +256,7 @@ async def get_case_risk_summary(
         raise NotFoundError("Case", str(case_id))
 
     from sqlalchemy import select
+
     result = await session.execute(select(Wallet).where(Wallet.case_id == case_id))
     wallets = result.scalars().all()
 
@@ -247,10 +268,14 @@ async def get_case_risk_summary(
     low_risk = len([w for w in wallets if 20 <= float(w.risk_score or 0) < 40])
     info_risk = len([w for w in wallets if float(w.risk_score or 0) < 20])
 
-    attributed = [w for w in wallets if w.entity_name and w.entity_confidence in ["CONFIRMED", "HIGH_CONFIDENCE"]]
+    attributed = [
+        w
+        for w in wallets
+        if w.entity_name and w.entity_confidence in ["CONFIRMED", "HIGH_CONFIDENCE"]
+    ]
     probable = [w for w in wallets if w.entity_name and w.entity_confidence == "PROBABLE"]
 
-    chains = list(set(w.chain for w in wallets))
+    chains = list({w.chain for w in wallets})
 
     return {
         "case_id": str(case_id),
@@ -269,7 +294,11 @@ async def get_case_risk_summary(
             "probable": len(probable),
             "unattributed": len(wallets) - len(attributed) - len(probable),
         },
-        "average_risk_score": round(sum(float(w.risk_score or 0) for w in wallets) / len(wallets), 1) if wallets else 0,
+        "average_risk_score": round(
+            sum(float(w.risk_score or 0) for w in wallets) / len(wallets), 1
+        )
+        if wallets
+        else 0,
         "top_risk_wallets": [
             {"address": w.address, "risk_score": w.risk_score, "label": w.label}
             for w in sorted(wallets, key=lambda x: float(x.risk_score or 0), reverse=True)[:5]

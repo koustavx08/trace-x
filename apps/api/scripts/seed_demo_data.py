@@ -6,18 +6,14 @@ All data is explicitly marked as SYNTHETIC.
 """
 
 import asyncio
-import json
 import random
+import sys
 from datetime import datetime, timedelta
 from decimal import Decimal
-from uuid import uuid4, UUID
-
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy import select
-
-import sys
-import os
 from pathlib import Path
+from uuid import uuid4
+
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # Add the project root to the path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -25,13 +21,22 @@ sys.path.insert(0, str(PROJECT_ROOT / "apps" / "api"))
 
 from src.core.config import get_settings
 from src.core.database import Base
-from src.models import (
-    User, Case, Wallet, Transaction, InvestigationRun, Report,
-    CaseStatus, CrimeType, UserRole, AttributionStatus, InvestigationStatus
-)
 from src.graph.client import Neo4jClient
+from src.graph.models import ConfidenceLevel, EntityType, GraphEntity, GraphTransaction, GraphWallet
 from src.graph.repository import graph_repository
-from src.graph.models import GraphWallet, GraphTransaction, GraphEntity, EntityType, ConfidenceLevel
+from src.models import (
+    AttributionStatus,
+    Case,
+    CaseStatus,
+    CrimeType,
+    InvestigationRun,
+    InvestigationStatus,
+    Report,
+    Transaction,
+    User,
+    UserRole,
+    Wallet,
+)
 
 settings = get_settings()
 
@@ -112,11 +117,35 @@ DEMO_CASES = [
             },
         ],
         "transactions": [
-            {"from_idx": 0, "to_idx": 1, "value_eth": 50000, "method": "flash_loan", "suspicious": True},
+            {
+                "from_idx": 0,
+                "to_idx": 1,
+                "value_eth": 50000,
+                "method": "flash_loan",
+                "suspicious": True,
+            },
             {"from_idx": 1, "to_idx": 2, "value_eth": 49800, "method": "swap", "suspicious": True},
-            {"from_idx": 2, "to_idx": 3, "value_eth": 49500, "method": "deposit", "suspicious": True},
-            {"from_idx": 3, "to_idx": 4, "value_eth": 49000, "method": "bridge", "suspicious": True},
-            {"from_idx": 4, "to_idx": 5, "value_eth": 48500, "method": "deposit", "suspicious": True},
+            {
+                "from_idx": 2,
+                "to_idx": 3,
+                "value_eth": 49500,
+                "method": "deposit",
+                "suspicious": True,
+            },
+            {
+                "from_idx": 3,
+                "to_idx": 4,
+                "value_eth": 49000,
+                "method": "bridge",
+                "suspicious": True,
+            },
+            {
+                "from_idx": 4,
+                "to_idx": 5,
+                "value_eth": 48500,
+                "method": "deposit",
+                "suspicious": True,
+            },
         ],
     },
     {
@@ -179,7 +208,13 @@ DEMO_CASES = [
             },
         ],
         "transactions": [
-            {"from_idx": 0, "to_idx": 1, "value_eth": 850, "method": "coinjoin", "suspicious": True},
+            {
+                "from_idx": 0,
+                "to_idx": 1,
+                "value_eth": 850,
+                "method": "coinjoin",
+                "suspicious": True,
+            },
             {"from_idx": 1, "to_idx": 2, "value_eth": 420, "method": "deposit", "suspicious": True},
             {"from_idx": 1, "to_idx": 3, "value_eth": 430, "method": "deposit", "suspicious": True},
             {"from_idx": 0, "to_idx": 4, "value_eth": 100, "method": "bridge", "suspicious": False},
@@ -247,9 +282,27 @@ DEMO_CASES = [
         ],
         "transactions": [
             {"from_idx": 3, "to_idx": 4, "value_eth": 10000, "method": "wrap", "suspicious": False},
-            {"from_idx": 4, "to_idx": 0, "value_eth": 5000, "method": "deposit", "suspicious": True},
-            {"from_idx": 4, "to_idx": 1, "value_eth": 3000, "method": "deposit", "suspicious": True},
-            {"from_idx": 4, "to_idx": 2, "value_eth": 2000, "method": "deposit", "suspicious": True},
+            {
+                "from_idx": 4,
+                "to_idx": 0,
+                "value_eth": 5000,
+                "method": "deposit",
+                "suspicious": True,
+            },
+            {
+                "from_idx": 4,
+                "to_idx": 1,
+                "value_eth": 3000,
+                "method": "deposit",
+                "suspicious": True,
+            },
+            {
+                "from_idx": 4,
+                "to_idx": 2,
+                "value_eth": 2000,
+                "method": "deposit",
+                "suspicious": True,
+            },
         ],
     },
     {
@@ -296,7 +349,13 @@ DEMO_CASES = [
         ],
         "transactions": [
             {"from_idx": 0, "to_idx": 1, "value_eth": 250, "method": "bridge", "suspicious": True},
-            {"from_idx": 1, "to_idx": 2, "value_eth": 245, "method": "transfer", "suspicious": False},
+            {
+                "from_idx": 1,
+                "to_idx": 2,
+                "value_eth": 245,
+                "method": "transfer",
+                "suspicious": False,
+            },
         ],
     },
     {
@@ -351,9 +410,21 @@ DEMO_CASES = [
             },
         ],
         "transactions": [
-            {"from_idx": 0, "to_idx": 1, "value_eth": 5000, "method": "privacy_transfer", "suspicious": True},
+            {
+                "from_idx": 0,
+                "to_idx": 1,
+                "value_eth": 5000,
+                "method": "privacy_transfer",
+                "suspicious": True,
+            },
             {"from_idx": 1, "to_idx": 2, "value_eth": 4900, "method": "bridge", "suspicious": True},
-            {"from_idx": 2, "to_idx": 3, "value_eth": 4800, "method": "deposit", "suspicious": True},
+            {
+                "from_idx": 2,
+                "to_idx": 3,
+                "value_eth": 4800,
+                "method": "deposit",
+                "suspicious": True,
+            },
         ],
     },
 ]
@@ -364,45 +435,272 @@ DEMO_CASES = [
 
 DEMO_ENTITIES = [
     # Major Exchanges (CONFIRMED)
-    {"name": "Binance", "entity_type": EntityType.EXCHANGE, "address": "0x28C6c06298d514Db089934071355E5743bf21d60", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    {"name": "Binance", "entity_type": EntityType.EXCHANGE, "address": "0x21a31Ee1afC51d94C2eF3CAaDB94D5c86C1F9e3d", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    {"name": "Binance", "entity_type": EntityType.EXCHANGE, "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    {"name": "Coinbase", "entity_type": EntityType.EXCHANGE, "address": "0xA9d1e08C7793af67e9d92fe308d5697FB81d3E43", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    {"name": "Coinbase", "entity_type": EntityType.EXCHANGE, "address": "0x503828976D22510aad0201ac7EC88293211D23Da", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    {"name": "Kraken", "entity_type": EntityType.EXCHANGE, "address": "0x2910543Af39abA0Cd09dBb2D50200b3E800A63D2", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    {"name": "Kraken", "entity_type": EntityType.EXCHANGE, "address": "0x0A869d79a7052c7f1b55a8EBabAa43105310D4D2", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    {"name": "OKX", "entity_type": EntityType.EXCHANGE, "address": "0x8A96747c82B41E8B7A0000000000000000000000", "chain": "Ethereum", "confidence": ConfidenceLevel.HIGH_CONFIDENCE, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    {"name": "Bybit", "entity_type": EntityType.EXCHANGE, "address": "0x159939f79D0B3D4e752912fA658A4D3776c9b5e3", "chain": "Ethereum", "confidence": ConfidenceLevel.HIGH_CONFIDENCE, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    {"name": "Huobi", "entity_type": EntityType.EXCHANGE, "address": "0x0000000000000000000000000000000000001010", "chain": "Ethereum", "confidence": ConfidenceLevel.HIGH_CONFIDENCE, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    {"name": "KuCoin", "entity_type": EntityType.EXCHANGE, "address": "0x0000000000000000000000000000000000001011", "chain": "Ethereum", "confidence": ConfidenceLevel.HIGH_CONFIDENCE, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    {"name": "Gate.io", "entity_type": EntityType.EXCHANGE, "address": "0x0000000000000000000000000000000000001012", "chain": "Ethereum", "confidence": ConfidenceLevel.PROBABLE, "source": "exchange_directory", "tags": ["cex", "kyc"]},
-    
+    {
+        "name": "Binance",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0x28C6c06298d514Db089934071355E5743bf21d60",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
+    {
+        "name": "Binance",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0x21a31Ee1afC51d94C2eF3CAaDB94D5c86C1F9e3d",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
+    {
+        "name": "Binance",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
+    {
+        "name": "Coinbase",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0xA9d1e08C7793af67e9d92fe308d5697FB81d3E43",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
+    {
+        "name": "Coinbase",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0x503828976D22510aad0201ac7EC88293211D23Da",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
+    {
+        "name": "Kraken",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0x2910543Af39abA0Cd09dBb2D50200b3E800A63D2",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
+    {
+        "name": "Kraken",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0x0A869d79a7052c7f1b55a8EBabAa43105310D4D2",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
+    {
+        "name": "OKX",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0x8A96747c82B41E8B7A0000000000000000000000",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
+    {
+        "name": "Bybit",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0x159939f79D0B3D4e752912fA658A4D3776c9b5e3",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
+    {
+        "name": "Huobi",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0x0000000000000000000000000000000000001010",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
+    {
+        "name": "KuCoin",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0x0000000000000000000000000000000000001011",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
+    {
+        "name": "Gate.io",
+        "entity_type": EntityType.EXCHANGE,
+        "address": "0x0000000000000000000000000000000000001012",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.PROBABLE,
+        "source": "exchange_directory",
+        "tags": ["cex", "kyc"],
+    },
     # Mixers (CONFIRMED/HIGH)
-    {"name": "Tornado Cash", "entity_type": EntityType.MIXER, "address": "0x722122dF12D4e14e13Ac3b6895a86e84145b6967", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "mixer_directory", "tags": ["mixer", "privacy", "high_risk"]},
-    {"name": "Tornado Cash", "entity_type": EntityType.MIXER, "address": "0x169455c72558a2D9A2C4a5b8F6e9e8D7a6B5c4D3", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "mixer_directory", "tags": ["mixer", "privacy", "high_risk"]},
-    {"name": "Wasabi Wallet", "entity_type": EntityType.MIXER, "address": "0x0000000000000000000000000000000000001010", "chain": "Ethereum", "confidence": ConfidenceLevel.PROBABLE, "source": "mixer_directory", "tags": ["mixer", "coinjoin", "privacy"]},
-    {"name": "Railgun", "entity_type": EntityType.MIXER, "address": "0x0000000000000000000000000000000000001013", "chain": "Ethereum", "confidence": ConfidenceLevel.HIGH_CONFIDENCE, "source": "mixer_directory", "tags": ["mixer", "privacy", "zk"]},
-    
+    {
+        "name": "Tornado Cash",
+        "entity_type": EntityType.MIXER,
+        "address": "0x722122dF12D4e14e13Ac3b6895a86e84145b6967",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "mixer_directory",
+        "tags": ["mixer", "privacy", "high_risk"],
+    },
+    {
+        "name": "Tornado Cash",
+        "entity_type": EntityType.MIXER,
+        "address": "0x169455c72558a2D9A2C4a5b8F6e9e8D7a6B5c4D3",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "mixer_directory",
+        "tags": ["mixer", "privacy", "high_risk"],
+    },
+    {
+        "name": "Wasabi Wallet",
+        "entity_type": EntityType.MIXER,
+        "address": "0x0000000000000000000000000000000000001010",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.PROBABLE,
+        "source": "mixer_directory",
+        "tags": ["mixer", "coinjoin", "privacy"],
+    },
+    {
+        "name": "Railgun",
+        "entity_type": EntityType.MIXER,
+        "address": "0x0000000000000000000000000000000000001013",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
+        "source": "mixer_directory",
+        "tags": ["mixer", "privacy", "zk"],
+    },
     # Bridges (CONFIRMED/HIGH)
-    {"name": "Polygon Bridge", "entity_type": EntityType.BRIDGE, "address": "0xA0c68C638235ee32657e8f720a23ceC1bFc77C77", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "bridge_directory", "tags": ["bridge", "cross_chain"]},
-    {"name": "Polygon Bridge", "entity_type": EntityType.BRIDGE, "address": "0x0000000000000000000000000000000000001010", "chain": "Polygon", "confidence": ConfidenceLevel.CONFIRMED, "source": "bridge_directory", "tags": ["bridge", "cross_chain"]},
-    {"name": "Arbitrum Bridge", "entity_type": EntityType.BRIDGE, "address": "0x831517E7E53A5A6cC7A8A8A8A8A8A8A8A8A8A8A8", "chain": "Ethereum", "confidence": ConfidenceLevel.HIGH_CONFIDENCE, "source": "bridge_directory", "tags": ["bridge", "l2"]},
-    {"name": "Optimism Bridge", "entity_type": EntityType.BRIDGE, "address": "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1", "chain": "Ethereum", "confidence": ConfidenceLevel.HIGH_CONFIDENCE, "source": "bridge_directory", "tags": ["bridge", "l2"]},
-    {"name": "BSC Bridge", "entity_type": EntityType.BRIDGE, "address": "0x0000000000000000000000000000000000001014", "chain": "Ethereum", "confidence": ConfidenceLevel.PROBABLE, "source": "bridge_directory", "tags": ["bridge", "cross_chain"]},
-    
+    {
+        "name": "Polygon Bridge",
+        "entity_type": EntityType.BRIDGE,
+        "address": "0xA0c68C638235ee32657e8f720a23ceC1bFc77C77",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "bridge_directory",
+        "tags": ["bridge", "cross_chain"],
+    },
+    {
+        "name": "Polygon Bridge",
+        "entity_type": EntityType.BRIDGE,
+        "address": "0x0000000000000000000000000000000000001010",
+        "chain": "Polygon",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "bridge_directory",
+        "tags": ["bridge", "cross_chain"],
+    },
+    {
+        "name": "Arbitrum Bridge",
+        "entity_type": EntityType.BRIDGE,
+        "address": "0x831517E7E53A5A6cC7A8A8A8A8A8A8A8A8A8A8A8",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
+        "source": "bridge_directory",
+        "tags": ["bridge", "l2"],
+    },
+    {
+        "name": "Optimism Bridge",
+        "entity_type": EntityType.BRIDGE,
+        "address": "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
+        "source": "bridge_directory",
+        "tags": ["bridge", "l2"],
+    },
+    {
+        "name": "BSC Bridge",
+        "entity_type": EntityType.BRIDGE,
+        "address": "0x0000000000000000000000000000000000001014",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.PROBABLE,
+        "source": "bridge_directory",
+        "tags": ["bridge", "cross_chain"],
+    },
     # DeFi Protocols
-    {"name": "Uniswap V3", "entity_type": EntityType.DEFI, "address": "0x1F98431c8aD98523631AE4a59f267346ea31F984", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "defi_directory", "tags": ["defi", "dex"]},
-    {"name": "Uniswap V2", "entity_type": EntityType.DEFI, "address": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "defi_directory", "tags": ["defi", "dex"]},
-    {"name": "Aave V3", "entity_type": EntityType.DEFI, "address": "0x87870B93F8aD8E5F8a8A8A8A8A8A8A8A8A8A8A8A", "chain": "Ethereum", "confidence": ConfidenceLevel.HIGH_CONFIDENCE, "source": "defi_directory", "tags": ["defi", "lending"]},
-    
+    {
+        "name": "Uniswap V3",
+        "entity_type": EntityType.DEFI,
+        "address": "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "defi_directory",
+        "tags": ["defi", "dex"],
+    },
+    {
+        "name": "Uniswap V2",
+        "entity_type": EntityType.DEFI,
+        "address": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "defi_directory",
+        "tags": ["defi", "dex"],
+    },
+    {
+        "name": "Aave V3",
+        "entity_type": EntityType.DEFI,
+        "address": "0x87870B93F8aD8E5F8a8A8A8A8A8A8A8A8A8A8A8A",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
+        "source": "defi_directory",
+        "tags": ["defi", "lending"],
+    },
     # Stablecoins/Tokens
-    {"name": "USDC (Ethereum)", "entity_type": EntityType.DEFI, "address": "0xA0b86a33E6441b8C4C8C8C8C8C8C8C8C8C8C8C", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "token_registry", "tags": ["stablecoin", "usdc"]},
-    {"name": "USDC (Polygon)", "entity_type": EntityType.DEFI, "address": "0xA0b86a33E6441b8C4C8C8C8C8C8C8C8C8C8C8C", "chain": "Polygon", "confidence": ConfidenceLevel.CONFIRMED, "source": "token_registry", "tags": ["stablecoin", "usdc"]},
-    {"name": "DAI Stablecoin", "entity_type": EntityType.DEFI, "address": "0x6B175474E89094C44Da98b954EedeAC495271d0F", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "token_registry", "tags": ["stablecoin", "dai"]},
-    {"name": "WETH", "entity_type": EntityType.DEFI, "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "token_registry", "tags": ["wrapped", "eth"]},
-    
+    {
+        "name": "USDC (Ethereum)",
+        "entity_type": EntityType.DEFI,
+        "address": "0xA0b86a33E6441b8C4C8C8C8C8C8C8C8C8C8C8C",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "token_registry",
+        "tags": ["stablecoin", "usdc"],
+    },
+    {
+        "name": "USDC (Polygon)",
+        "entity_type": EntityType.DEFI,
+        "address": "0xA0b86a33E6441b8C4C8C8C8C8C8C8C8C8C8C8C",
+        "chain": "Polygon",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "token_registry",
+        "tags": ["stablecoin", "usdc"],
+    },
+    {
+        "name": "DAI Stablecoin",
+        "entity_type": EntityType.DEFI,
+        "address": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "token_registry",
+        "tags": ["stablecoin", "dai"],
+    },
+    {
+        "name": "WETH",
+        "entity_type": EntityType.DEFI,
+        "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "token_registry",
+        "tags": ["wrapped", "eth"],
+    },
     # Sanctions (OFAC)
-    {"name": "OFAC: Sanctioned Entity A", "entity_type": EntityType.SANCTIONED, "address": "0x0000000000000000000000000000000000001015", "chain": "Ethereum", "confidence": ConfidenceLevel.CONFIRMED, "source": "ofac_sdn", "tags": ["sanctions", "ofac", "high_risk"]},
+    {
+        "name": "OFAC: Sanctioned Entity A",
+        "entity_type": EntityType.SANCTIONED,
+        "address": "0x0000000000000000000000000000000000001015",
+        "chain": "Ethereum",
+        "confidence": ConfidenceLevel.CONFIRMED,
+        "source": "ofac_sdn",
+        "tags": ["sanctions", "ofac", "high_risk"],
+    },
 ]
 
 # ============================================================
@@ -410,10 +708,30 @@ DEMO_ENTITIES = [
 # ============================================================
 
 DEMO_USERS = [
-    {"email": "analyst.a@tracex.gov", "full_name": "Analyst A", "role": UserRole.ANALYST, "is_active": True},
-    {"email": "analyst.b@tracex.gov", "full_name": "Analyst B", "role": UserRole.ANALYST, "is_active": True},
-    {"email": "supervisor@tracex.gov", "full_name": "Supervisor", "role": UserRole.SUPERVISOR, "is_active": True},
-    {"email": "admin@tracex.gov", "full_name": "Administrator", "role": UserRole.ADMIN, "is_active": True},
+    {
+        "email": "analyst.a@tracex.gov",
+        "full_name": "Analyst A",
+        "role": UserRole.ANALYST,
+        "is_active": True,
+    },
+    {
+        "email": "analyst.b@tracex.gov",
+        "full_name": "Analyst B",
+        "role": UserRole.ANALYST,
+        "is_active": True,
+    },
+    {
+        "email": "supervisor@tracex.gov",
+        "full_name": "Supervisor",
+        "role": UserRole.SUPERVISOR,
+        "is_active": True,
+    },
+    {
+        "email": "admin@tracex.gov",
+        "full_name": "Administrator",
+        "role": UserRole.ADMIN,
+        "is_active": True,
+    },
 ]
 
 
@@ -421,10 +739,10 @@ async def seed_database():
     """Seed PostgreSQL with demo data."""
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
     async_session = async_sessionmaker(engine, expire_on_commit=False)
-    
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+
     async with async_session() as session:
         # Create users
         user_map = {}
@@ -440,15 +758,15 @@ async def seed_database():
             user_map[udata["email"]] = user
         await session.flush()
         print(f"Created {len(user_map)} demo users")
-        
+
         # Create cases with wallets and transactions
         case_map = {}
         wallet_map = {}
-        
+
         for cdata in DEMO_CASES:
             # Find assigned user
             assigned_user = user_map.get("analyst.a@tracex.gov")
-            
+
             case = Case(
                 id=uuid4(),
                 case_number=cdata["case_number"],
@@ -462,7 +780,7 @@ async def seed_database():
             await session.flush()
             case_map[cdata["case_number"]] = case
             print(f"Created case: {cdata['case_number']} - {cdata['title']}")
-            
+
             # Create wallets
             case_wallets = []
             for idx, wdata in enumerate(cdata["wallets"]):
@@ -483,12 +801,12 @@ async def seed_database():
                 wallet_key = f"{cdata['case_number']}:{idx}"
                 wallet_map[wallet_key] = wallet
             await session.flush()
-            
+
             # Create transactions
             for tdata in cdata.get("transactions", []):
                 from_wallet = case_wallets[tdata["from_idx"]]
                 to_wallet = case_wallets[tdata["to_idx"]]
-                
+
                 tx = Transaction(
                     id=uuid4(),
                     wallet_id=from_wallet.id,
@@ -505,7 +823,7 @@ async def seed_database():
                     metadata={"source": SYNTHETIC_MARKER},
                 )
                 session.add(tx)
-                
+
                 # Also add reverse transaction for to_wallet
                 tx2 = Transaction(
                     id=uuid4(),
@@ -523,24 +841,28 @@ async def seed_database():
                     metadata={"source": SYNTHETIC_MARKER},
                 )
                 session.add(tx2)
-        
+
         # Create investigation runs
         for cdata in DEMO_CASES:
             case = case_map[cdata["case_number"]]
             case_wallets = [w for w in wallet_map.values() if w.case_id == case.id]
-            
+
             for idx, wallet in enumerate(case_wallets[:3]):  # First 3 wallets per case
-                status = InvestigationStatus.COMPLETED if idx == 0 else (
-                    InvestigationStatus.RUNNING if idx == 1 else InvestigationStatus.PENDING
+                status = (
+                    InvestigationStatus.COMPLETED
+                    if idx == 0
+                    else (InvestigationStatus.RUNNING if idx == 1 else InvestigationStatus.PENDING)
                 )
-                
+
                 inv = InvestigationRun(
                     id=uuid4(),
                     case_id=case.id,
                     wallet_id=wallet.id,
                     status=status,
                     started_at=datetime.utcnow() - timedelta(hours=random.randint(1, 48)),
-                    completed_at=datetime.utcnow() - timedelta(hours=random.randint(0, 12)) if status == InvestigationStatus.COMPLETED else None,
+                    completed_at=datetime.utcnow() - timedelta(hours=random.randint(0, 12))
+                    if status == InvestigationStatus.COMPLETED
+                    else None,
                     config={"trace_depth": 5, "max_transactions": 1000, "demo": True},
                     result_summary={
                         "transactions_found": random.randint(50, 500),
@@ -548,11 +870,13 @@ async def seed_database():
                         "total_value_eth": str(random.randint(100, 50000)),
                         "chains_analyzed": [wallet.chain],
                         "demo": True,
-                    } if status == InvestigationStatus.COMPLETED else None,
+                    }
+                    if status == InvestigationStatus.COMPLETED
+                    else None,
                     metadata={"source": SYNTHETIC_MARKER},
                 )
                 session.add(inv)
-        
+
         # Create reports
         for cdata in DEMO_CASES:
             if cdata["status"] in [CaseStatus.CLOSED, CaseStatus.IN_PROGRESS]:
@@ -580,7 +904,7 @@ async def seed_database():
                     metadata={"source": SYNTHETIC_MARKER},
                 )
                 session.add(report)
-        
+
         await session.commit()
         print("Database seeding completed!")
 
@@ -588,17 +912,16 @@ async def seed_database():
 async def seed_neo4j():
     """Seed Neo4j with demo graph data."""
     await Neo4jClient.initialize()
-    
+
     async with Neo4jClient.session() as session:
         # Clear existing demo data
         await session.run(
-            "MATCH (n) WHERE n.metadata.source = $marker DETACH DELETE n",
-            marker=SYNTHETIC_MARKER
+            "MATCH (n) WHERE n.metadata.source = $marker DETACH DELETE n", marker=SYNTHETIC_MARKER
         )
-        
+
         # Create wallets
         for cdata in DEMO_CASES:
-            for idx, wdata in enumerate(cdata["wallets"]):
+            for _idx, wdata in enumerate(cdata["wallets"]):
                 wallet = GraphWallet(
                     address=wdata["address"],
                     chain=wdata["chain"],
@@ -610,12 +933,16 @@ async def seed_neo4j():
                     total_received=random.randint(10, 10000),
                     tx_count=random.randint(5, 500),
                     entity_name=wdata.get("entity_name"),
-                    entity_type=EntityType.EXCHANGE if wdata.get("entity_name") else EntityType.UNKNOWN,
-                    entity_confidence=ConfidenceLevel(wdata["entity_confidence"]) if wdata.get("entity_confidence") else ConfidenceLevel.UNKNOWN,
+                    entity_type=EntityType.EXCHANGE
+                    if wdata.get("entity_name")
+                    else EntityType.UNKNOWN,
+                    entity_confidence=ConfidenceLevel(wdata["entity_confidence"])
+                    if wdata.get("entity_confidence")
+                    else ConfidenceLevel.UNKNOWN,
                     metadata={"source": SYNTHETIC_MARKER, "case_number": cdata["case_number"]},
                 )
                 await graph_repository.upsert_wallet(wallet)
-                
+
                 # Link to entity if attributed
                 if wdata.get("entity_name") and wdata.get("entity_confidence"):
                     entity = GraphEntity(
@@ -629,8 +956,10 @@ async def seed_neo4j():
                         metadata={"source": SYNTHETIC_MARKER},
                     )
                     await graph_repository.upsert_entity(entity)
-                    await graph_repository.link_wallet_entity(wdata["address"], wdata["chain"], wdata["address"])
-        
+                    await graph_repository.link_wallet_entity(
+                        wdata["address"], wdata["chain"], wdata["address"]
+                    )
+
         # Create entities
         for edata in DEMO_ENTITIES:
             entity = GraphEntity(
@@ -644,14 +973,14 @@ async def seed_neo4j():
                 metadata={"source": SYNTHETIC_MARKER},
             )
             await graph_repository.upsert_entity(entity)
-        
+
         # Create transactions and links
         for cdata in DEMO_CASES:
-            case_wallets = [w for w in cdata["wallets"]]
+            case_wallets = list(cdata["wallets"])
             for tdata in cdata.get("transactions", []):
                 from_w = case_wallets[tdata["from_idx"]]
                 to_w = case_wallets[tdata["to_idx"]]
-                
+
                 tx = GraphTransaction(
                     tx_hash=f"0x{uuid4().hex[:64]}",
                     chain=from_w["chain"],
@@ -667,9 +996,13 @@ async def seed_neo4j():
                     metadata={"source": SYNTHETIC_MARKER, "case_number": cdata["case_number"]},
                 )
                 await graph_repository.upsert_transaction(tx)
-                await graph_repository.link_wallet_transaction(from_w["address"], from_w["chain"], tx.tx_hash, "sent")
-                await graph_repository.link_wallet_transaction(to_w["address"], to_w["chain"], tx.tx_hash, "received")
-    
+                await graph_repository.link_wallet_transaction(
+                    from_w["address"], from_w["chain"], tx.tx_hash, "sent"
+                )
+                await graph_repository.link_wallet_transaction(
+                    to_w["address"], to_w["chain"], tx.tx_hash, "received"
+                )
+
     print("Neo4j seeding completed!")
 
 
@@ -679,10 +1012,10 @@ async def main():
     print("=" * 60)
     print("Seeding SYNTHETIC demo data for SIH 2026 demonstration")
     print("=" * 60)
-    
+
     await seed_database()
     await seed_neo4j()
-    
+
     print("=" * 60)
     print("All demo data seeded successfully!")
     print("=" * 60)

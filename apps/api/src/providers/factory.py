@@ -1,13 +1,13 @@
-from typing import Optional, Dict
 import structlog
 
-from .base import ProviderRegistry, EntityIntelProviderRegistry
-from .evm.alchemy import AlchemyProvider
-from .evm.infura import InfuraProvider
-from .chainalysis import ChainalysisProvider
-from .ciphertrace import CiphertraceProvider
 from src.core.config import get_settings
 from src.core.exceptions import ProviderNotConfiguredError
+
+from .base import EntityIntelProviderRegistry, ProviderRegistry
+from .chainalysis import ChainalysisProvider
+from .ciphertrace import CiphertraceProvider
+from .evm.alchemy import AlchemyProvider
+from .evm.infura import InfuraProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -28,7 +28,8 @@ class ProviderFactory:
             # can't crash app startup.
             try:
                 ethalchemy = AlchemyProvider(
-                    rpc_url=settings.ETHEREUM_RPC_URL or f"https://eth-mainnet.g.alchemy.com/v2/{settings.ALCHEMY_API_KEY}",
+                    rpc_url=settings.ETHEREUM_RPC_URL
+                    or f"https://eth-mainnet.g.alchemy.com/v2/{settings.ALCHEMY_API_KEY}",
                     api_key=settings.ALCHEMY_API_KEY,
                     chain_id=1,
                     chain_name="Ethereum",
@@ -40,7 +41,8 @@ class ProviderFactory:
                 logger.info("ethereum_alchemy_provider_registered")
 
                 polygonalchemy = AlchemyProvider(
-                    rpc_url=settings.POLYGON_RPC_URL or f"https://polygon-mainnet.g.alchemy.com/v2/{settings.ALCHEMY_API_KEY}",
+                    rpc_url=settings.POLYGON_RPC_URL
+                    or f"https://polygon-mainnet.g.alchemy.com/v2/{settings.ALCHEMY_API_KEY}",
                     api_key=settings.ALCHEMY_API_KEY,
                     chain_id=137,
                     chain_name="Polygon",
@@ -116,8 +118,8 @@ class ProviderFactory:
         return ProviderRegistry.get_default()
 
     @classmethod
-    def list_chains(cls):
-        return ProviderRegistry.list_chains()
+    async def list_chains(cls):
+        return await ProviderRegistry.list_chains()
 
     # --- WS3: entity-intelligence provider accessors (appended) ---
     @classmethod
@@ -127,6 +129,7 @@ class ProviderFactory:
     @classmethod
     def list_entity_intel_providers(cls):
         return EntityIntelProviderRegistry.list_available()
+
     # --- end WS3 block ---
 
     @classmethod

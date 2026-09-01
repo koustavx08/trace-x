@@ -1,16 +1,16 @@
 from abc import abstractmethod
-from typing import Optional, List, Dict, Any
 from datetime import datetime
+from typing import Any
+
 import httpx
 import structlog
 from web3 import Web3
-from web3.types import RPCEndpoint
 
 from ..base import (
     BlockchainProvider,
     BlockchainTransaction,
-    WalletBalance,
     ChainInfo,
+    WalletBalance,
 )
 
 logger = structlog.get_logger(__name__)
@@ -24,7 +24,7 @@ class EVMProvider(BlockchainProvider):
         chain_name: str,
         symbol: str,
         explorer_url: str,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout: float = 30.0,
         max_retries: int = 3,
     ):
@@ -60,7 +60,7 @@ class EVMProvider(BlockchainProvider):
     async def get_latest_block(self) -> int:
         return self._w3.eth.block_number
 
-    async def get_block(self, block_number: int) -> Optional[Dict[str, Any]]:
+    async def get_block(self, block_number: int) -> dict[str, Any] | None:
         try:
             block = self._w3.eth.get_block(block_number, full_transactions=False)
             return dict(block) if block else None
@@ -68,7 +68,7 @@ class EVMProvider(BlockchainProvider):
             logger.warning("get_block_failed", block_number=block_number, error=str(e))
             return None
 
-    async def get_transaction(self, tx_hash: str) -> Optional[BlockchainTransaction]:
+    async def get_transaction(self, tx_hash: str) -> BlockchainTransaction | None:
         try:
             tx = self._w3.eth.get_transaction(tx_hash)
             if not tx:
@@ -99,10 +99,10 @@ class EVMProvider(BlockchainProvider):
         self,
         address: str,
         start_block: int = 0,
-        end_block: Optional[int] = None,
+        end_block: int | None = None,
         page: int = 1,
         page_size: int = 100,
-    ) -> List[BlockchainTransaction]:
+    ) -> list[BlockchainTransaction]:
         pass
 
     async def get_wallet_balance(self, address: str) -> WalletBalance:
@@ -132,10 +132,10 @@ class EVMProvider(BlockchainProvider):
     async def get_token_transfers(
         self,
         address: str,
-        token_address: Optional[str] = None,
+        token_address: str | None = None,
         start_block: int = 0,
-        end_block: Optional[int] = None,
-    ) -> List[BlockchainTransaction]:
+        end_block: int | None = None,
+    ) -> list[BlockchainTransaction]:
         pass
 
     async def validate_address(self, address: str) -> bool:

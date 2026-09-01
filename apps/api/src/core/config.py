@@ -1,6 +1,7 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import model_validator
 from functools import lru_cache
+
+from pydantic import model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -93,16 +94,14 @@ class Settings(BaseSettings):
                     "SECRET_KEY must be set to a strong value (>=32 chars) "
                     "via environment variables when APP_ENV=production."
                 )
-            if (
-                not self.DATABASE_URL
-                or "tracex:tracex@localhost" in self.DATABASE_URL
-            ):
+            if not self.DATABASE_URL or "tracex:tracex@localhost" in self.DATABASE_URL:
                 raise ValueError(
                     "DATABASE_URL must be explicitly configured (not the "
                     "local-dev default) via environment variables when "
                     "APP_ENV=production."
                 )
         return self
+
     # --- end startup validation block ---
 
     # --- WS3: provider-key validation (appended, do not merge into unrelated blocks) ---
@@ -125,9 +124,13 @@ class Settings(BaseSettings):
         if self.CIPHERTRACE_API_KEY:
             providers.append("ciphertrace")
         return providers
+
     # --- end WS3 block ---
 
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    # SECRET_KEY (and other required fields) come from the environment/.env
+    # file at runtime via pydantic-settings, not from a literal call argument
+    # -- mypy has no way to see that, hence the ignore.
+    return Settings()  # type: ignore[call-arg]

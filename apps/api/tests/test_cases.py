@@ -5,6 +5,7 @@ Needs a reachable `tracex_test` Postgres database (skips cleanly via
 fixtures_db.api_client/db_session if one isn't available -- see
 tests/fixtures_db.py for why).
 """
+
 from uuid import uuid4
 
 from fixtures_db import api_client, db_session  # noqa: F401
@@ -41,9 +42,7 @@ class TestCaseCRUD:
         assert body["status"] == "open"
 
     async def test_create_case_requires_title(self, api_client):
-        response = await api_client.post(
-            "/api/v1/cases", json={"description": "missing title"}
-        )
+        response = await api_client.post("/api/v1/cases", json={"description": "missing title"})
         assert response.status_code == 422
 
     async def test_create_case_rejects_invalid_crime_type(self, api_client):
@@ -67,13 +66,9 @@ class TestCaseCRUD:
 
     async def test_list_cases_pagination(self, api_client):
         for i in range(5):
-            await api_client.post(
-                "/api/v1/cases", json=_case_payload(title=f"Pagination Case {i}")
-            )
+            await api_client.post("/api/v1/cases", json=_case_payload(title=f"Pagination Case {i}"))
 
-        response = await api_client.get(
-            "/api/v1/cases", params={"page": 1, "page_size": 2}
-        )
+        response = await api_client.get("/api/v1/cases", params={"page": 1, "page_size": 2})
         assert response.status_code == 200
         body = response.json()
         assert body["page"] == 1
@@ -96,9 +91,7 @@ class TestCaseCRUD:
         await api_client.post(
             "/api/v1/cases", json=_case_payload(crime_type="ransomware", title="Ransomware Case")
         )
-        response = await api_client.get(
-            "/api/v1/cases", params={"crime_type": "ransomware"}
-        )
+        response = await api_client.get("/api/v1/cases", params={"crime_type": "ransomware"})
         assert response.status_code == 200
         assert all(item["crime_type"] == "ransomware" for item in response.json()["items"])
 
@@ -117,15 +110,11 @@ class TestCaseCRUD:
         case_id = create_resp.json()["id"]
         original_title = create_resp.json()["title"]
 
-        response = await api_client.patch(
-            f"/api/v1/cases/{case_id}", json={"status": "closed"}
-        )
+        response = await api_client.patch(f"/api/v1/cases/{case_id}", json={"status": "closed"})
         assert response.json()["title"] == original_title
 
     async def test_update_case_not_found(self, api_client):
-        response = await api_client.patch(
-            f"/api/v1/cases/{uuid4()}", json={"status": "closed"}
-        )
+        response = await api_client.patch(f"/api/v1/cases/{uuid4()}", json={"status": "closed"})
         assert response.status_code == 404
 
     async def test_delete_case(self, api_client):

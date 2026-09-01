@@ -23,11 +23,10 @@ so the suite doesn't fail outright against pre-WS1 code, but will need a
 short fixup pass (replace the xfail/skip branch with a real assertion)
 once WS1 lands.
 """
-import asyncio
+
 from uuid import uuid4
 
 import pytest
-
 from fixtures_db import api_client, db_session  # noqa: F401
 
 from src.auth import (
@@ -36,16 +35,18 @@ from src.auth import (
     AuditLogger,
     AuthService,
     TokenType,
-    audit_logger as _module_audit_logger,
+    _decode_token_payload,
     create_access_token,
     create_refresh_token,
     decode_token,
-    _decode_token_payload,
     hash_password,
     require_admin,
     require_analyst,
     require_supervisor,
     verify_password,
+)
+from src.auth import (
+    audit_logger as _module_audit_logger,
 )
 from src.core.exceptions import ValidationError
 from src.models import User, UserRole
@@ -67,6 +68,7 @@ def _make_user(role: UserRole, *, active: bool = True) -> User:
 # ---------------------------------------------------------------------------
 # Password hashing
 # ---------------------------------------------------------------------------
+
 
 class TestPasswordHashing:
     def test_hash_password_is_not_plaintext(self):
@@ -90,6 +92,7 @@ class TestPasswordHashing:
 # ---------------------------------------------------------------------------
 # JWT token create/decode
 # ---------------------------------------------------------------------------
+
 
 class TestTokens:
     """Exercises signature/expiry decoding via `_decode_token_payload`, the
@@ -129,6 +132,7 @@ class TestTokens:
 # ---------------------------------------------------------------------------
 # RBAC dependency functions (require_admin / require_supervisor / require_analyst)
 # ---------------------------------------------------------------------------
+
 
 class TestRBAC:
     @pytest.mark.parametrize(
@@ -180,6 +184,7 @@ class TestRBAC:
 # ---------------------------------------------------------------------------
 # Audit logging (current in-memory implementation)
 # ---------------------------------------------------------------------------
+
 
 class TestAuditLoggerCurrentBehavior:
     """AuditLogger now persists each entry immediately to the audit_log table
@@ -252,6 +257,7 @@ class TestAuditLoggerCurrentBehavior:
 # AuthService (business logic layer) -- needs a real DB
 # ---------------------------------------------------------------------------
 
+
 class TestAuthServiceWithDB:
     async def test_login_with_valid_credentials_returns_tokens(self, db_session):
         auth_service = AuthService(db_session)
@@ -317,6 +323,7 @@ class TestAuthServiceWithDB:
 # ---------------------------------------------------------------------------
 # HTTP-level endpoint tests
 # ---------------------------------------------------------------------------
+
 
 class TestAuthEndpoints:
     async def test_login_endpoint_success(self, api_client, db_session):
@@ -401,6 +408,7 @@ class TestAuthEndpoints:
 # ---------------------------------------------------------------------------
 # WS1-dependent behavior, written defensively
 # ---------------------------------------------------------------------------
+
 
 class TestWS1NotYetLanded:
     async def test_logout_endpoint(self, api_client, db_session):

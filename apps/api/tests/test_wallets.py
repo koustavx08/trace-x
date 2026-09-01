@@ -5,6 +5,7 @@ Needs a reachable `tracex_test` Postgres database (skips cleanly via
 fixtures_db.api_client/db_session if one isn't available -- see
 tests/fixtures_db.py for why).
 """
+
 from uuid import uuid4
 
 from fixtures_db import api_client, db_session  # noqa: F401
@@ -99,7 +100,9 @@ class TestWalletCRUD:
         await api_client.post(
             "/api/v1/wallets",
             params={"case_id": case["id"]},
-            json=_wallet_payload(chain="polygon", address="0x1111111111111111111111111111111111111a"),
+            json=_wallet_payload(
+                chain="polygon", address="0x1111111111111111111111111111111111111a"
+            ),
         )
         response = await api_client.get("/api/v1/wallets", params={"chain": "polygon"})
         assert response.status_code == 200
@@ -116,9 +119,7 @@ class TestWalletCRUD:
             "/api/v1/wallets", params={"attribution_status": "confirmed"}
         )
         assert response.status_code == 200
-        assert all(
-            item["attribution_status"] == "confirmed" for item in response.json()["items"]
-        )
+        assert all(item["attribution_status"] == "confirmed" for item in response.json()["items"])
 
     async def test_update_wallet_label_and_risk_score(self, api_client):
         case = await _create_case(api_client)
@@ -137,9 +138,7 @@ class TestWalletCRUD:
         assert body["risk_score"] == 92.5
 
     async def test_update_wallet_not_found(self, api_client):
-        response = await api_client.patch(
-            f"/api/v1/wallets/{uuid4()}", json={"label": "x"}
-        )
+        response = await api_client.patch(f"/api/v1/wallets/{uuid4()}", json={"label": "x"})
         assert response.status_code == 404
 
     async def test_delete_wallet(self, api_client):

@@ -11,6 +11,7 @@ PDF rendering uses `xhtml2pdf` (pure-Python, built on `reportlab`) to convert
 the same HTML rendition produced by `_render_html` into a real PDF document,
 rather than returning raw HTML bytes mislabeled as PDF.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from io import BytesIO
-from typing import Any, Optional
 from uuid import UUID
 
 import structlog
@@ -47,7 +47,7 @@ class ReportSection:
     title: str
     content: str
     order: int = 0
-    data: Optional[dict] = None
+    data: dict | None = None
 
 
 @dataclass
@@ -57,7 +57,7 @@ class GeneratedReport:
     format: ReportFormat
     sections: list[ReportSection] = field(default_factory=list)
     generated_at: datetime = field(default_factory=datetime.utcnow)
-    file_content: Optional[bytes] = None
+    file_content: bytes | None = None
     content_type: str = "application/json"
 
 
@@ -69,7 +69,7 @@ class ReportGenerator:
         self,
         case_id: str,
         title: str,
-        investigation_run_id: Optional[str] = None,
+        investigation_run_id: str | None = None,
         template: str = ReportTemplate.TECHNICAL_FINDINGS.value,
         format: str = ReportFormat.PDF.value,
         generated_by: str = "system",
@@ -85,9 +85,7 @@ class ReportGenerator:
             if investigation_run_id:
                 investigation = await session.get(InvestigationRun, UUID(investigation_run_id))
 
-            wallets_result = await session.execute(
-                select(Wallet).where(Wallet.case_id == case.id)
-            )
+            wallets_result = await session.execute(select(Wallet).where(Wallet.case_id == case.id))
             wallets = wallets_result.scalars().all()
 
             sections = self._build_sections(case, investigation, wallets)
@@ -136,14 +134,15 @@ class ReportGenerator:
         for w in wallets:
             attribution = getattr(w.attribution_status, "value", w.attribution_status)
             wallet_lines.append(
-                f"- {w.address} ({w.chain}) - risk score {w.risk_score}, "
-                f"attribution: {attribution}"
+                f"- {w.address} ({w.chain}) - risk score {w.risk_score}, attribution: {attribution}"
             )
         sections.append(
             ReportSection(
                 title="Tracked Wallets",
                 order=2,
-                content="\n".join(wallet_lines) if wallet_lines else "No wallets tracked in this case.",
+                content="\n".join(wallet_lines)
+                if wallet_lines
+                else "No wallets tracked in this case.",
             )
         )
 
@@ -225,7 +224,9 @@ class ReportGenerator:
 
         if result.err:
             logger.error("pdf_render_failed", errors=result.err)
-            raise RuntimeError(f"xhtml2pdf reported {result.err} error(s) rendering the report to PDF")
+            raise RuntimeError(
+                f"xhtml2pdf reported {result.err} error(s) rendering the report to PDF"
+            )
 
         pdf_bytes = output.getvalue()
         if not pdf_bytes.startswith(b"%PDF-"):

@@ -1,16 +1,16 @@
-from .service import InvestigationAssistant, investigation_assistant
+from .api import router as ai_router
 from .schemas import (
-    QueryType,
-    ConfidenceLevel,
-    Evidence,
     AIQueryRequest,
     AIQueryResponse,
     ChatMessage,
-    ChatSession,
     ChatRequest,
     ChatResponse,
+    ChatSession,
+    ConfidenceLevel,
+    Evidence,
+    QueryType,
 )
-from .api import router as ai_router
+from .service import InvestigationAssistant, investigation_assistant
 
 __all__ = [
     "InvestigationAssistant",

@@ -1,7 +1,8 @@
-from typing import Optional, List, Dict, Any, AsyncGenerator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-import structlog
-from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession, Record
+from typing import Any
+
+from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncSession, Record
 from neo4j.exceptions import Neo4jError
 
 from src.core.config import get_settings
@@ -12,7 +13,7 @@ settings = get_settings()
 
 
 class Neo4jClient:
-    _driver: Optional[AsyncDriver] = None
+    _driver: AsyncDriver | None = None
 
     @classmethod
     async def initialize(cls) -> None:
@@ -51,6 +52,7 @@ class Neo4jClient:
     async def session(cls) -> AsyncGenerator[AsyncSession, None]:
         if cls._driver is None:
             await cls.initialize()
+        assert cls._driver is not None
         async with cls._driver.session() as session:
             yield session
 
@@ -62,24 +64,28 @@ class Neo4jClient:
             logger.info("neo4j_client_closed")
 
     @classmethod
-    async def execute_query(cls, query: str, parameters: Optional[Dict[str, Any]] = None) -> List[Record]:
+    async def execute_query(
+        cls, query: str, parameters: dict[str, Any] | None = None
+    ) -> list[Record]:
         async with cls.session() as session:
             result = await session.run(query, parameters or {})
             return [record async for record in result]
 
     @classmethod
-    async def execute_write(cls, query: str, parameters: Optional[Dict[str, Any]] = None) -> Any:
+    async def execute_write(cls, query: str, parameters: dict[str, Any] | None = None) -> Any:
         async with cls.session() as session:
             result = await session.execute_write(lambda tx: tx.run(query, parameters or {}))
             return [record async for record in result]
 
     @classmethod
-    async def execute_transaction(cls, queries: List[tuple[str, Dict[str, Any]]]) -> List[Any]:
+    async def execute_transaction(cls, queries: list[tuple[str, dict[str, Any]]]) -> list[Any]:
         async with cls.session() as session:
+
             async def _run_tx(tx):
                 results = []
                 for query, params in queries:
                     result = await tx.run(query, params)
                     results.append([record async for record in result])
                 return results
+
             return await session.execute_write(_run_tx)

@@ -5,27 +5,28 @@ Provides JWT-based authentication, role-based access control (RBAC),
 and comprehensive audit logging for investigation activities.
 """
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any
-from uuid import UUID, uuid4
+from datetime import UTC, datetime, timedelta
 from enum import Enum
-import structlog
+from typing import Any, Optional
+from uuid import UUID, uuid4
+
 import bcrypt
 import jwt
 import redis.asyncio as redis
+import structlog
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, EmailStr, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from fastapi import Depends, HTTPException, status, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel, Field, EmailStr
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import get_settings
-from src.core.database import get_session, async_session_factory
-from src.core.logging import get_logger
-from src.models import User, UserRole, AuditLog
+from src.core.database import async_session_factory, get_session
 from src.core.exceptions import ValidationError
+from src.core.logging import get_logger
+from src.models import AuditLog, User, UserRole
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -68,9 +69,9 @@ async def blacklist_token(jti: str, expires_at: datetime) -> None:
     # PyJWT/pydantic decode `exp` into a tz-aware (UTC) datetime, whereas the
     # rest of this module mints tokens using naive datetime.utcnow(). Coerce
     # both sides to aware UTC before subtracting so this works either way.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
+        expires_at = expires_at.replace(tzinfo=UTC)
     ttl_seconds = int((expires_at - now).total_seconds())
     if ttl_seconds <= 0:
         # Already expired -- no need to blacklist, decode will reject it anyway.
@@ -94,6 +95,8 @@ async def is_token_blacklisted(jti: str) -> bool:
         # request through rather than taking the whole API offline.
         logger.error("token_blacklist_read_failed", jti=jti, error=str(exc))
         return False
+
+
 # --- end Redis-backed JTI blacklist ---
 
 
@@ -135,7 +138,7 @@ class UserResponse(BaseModel):
     full_name: str
     role: UserRole
     is_active: bool
-    last_login_at: Optional[datetime] = None
+    last_login_at: datetime | None = None
     created_at: datetime
 
 
@@ -170,41 +173,41 @@ class AuditAction(str, Enum):
 class AuditLogEntry(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
-    user_id: Optional[UUID] = None
-    user_email: Optional[str] = None
+    user_id: UUID | None = None
+    user_email: str | None = None
     action: AuditAction
-    resource_type: Optional[str] = None
-    resource_id: Optional[str] = None
-    ip_address: Optional[str] = None
-    user_agent: Optional[str] = None
+    resource_type: str | None = None
+    resource_id: str | None = None
+    ip_address: str | None = None
+    user_agent: str | None = None
     success: bool = True
-    error_message: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    session_id: Optional[str] = None
+    error_message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    session_id: str | None = None
 
 
 class AuditLogger:
     """Async audit logger with structured output."""
-    
+
     def __init__(self):
         self._logger = structlog.get_logger("audit")
         # Retained only as a resilience fallback: entries that fail to
         # persist immediately (e.g. transient DB outage) land here and are
         # retried by _flush_buffer(), including on shutdown via close().
-        self._buffer: List[AuditLogEntry] = []
-    
+        self._buffer: list[AuditLogEntry] = []
+
     async def log(
         self,
         action: AuditAction | str,
-        user_id: Optional[UUID] = None,
-        user_email: Optional[str] = None,
-        resource_type: Optional[str] = None,
-        resource_id: Optional[str] = None,
-        request: Optional[Request] = None,
+        user_id: UUID | None = None,
+        user_email: str | None = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        request: Request | None = None,
         success: bool = True,
-        error_message: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        session_id: Optional[str] = None,
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ) -> None:
         """Log an audit event."""
         ip = None
@@ -212,13 +215,17 @@ class AuditLogger:
         if request:
             ip = request.client.host if request.client else None
             ua = request.headers.get("user-agent")
-        
+
         action_str = action.value if isinstance(action, AuditAction) else action
-        
+
         entry = AuditLogEntry(
             user_id=user_id,
             user_email=user_email,
-            action=action if isinstance(action, AuditAction) else AuditAction(action_str) if action_str in [a.value for a in AuditAction] else AuditAction.SETTINGS_CHANGE,
+            action=action
+            if isinstance(action, AuditAction)
+            else AuditAction(action_str)
+            if action_str in [a.value for a in AuditAction]
+            else AuditAction.SETTINGS_CHANGE,
             resource_type=resource_type,
             resource_id=str(resource_id) if resource_id else None,
             ip_address=ip,
@@ -228,7 +235,7 @@ class AuditLogger:
             metadata=metadata or {},
             session_id=session_id,
         )
-        
+
         # Log to structured logger
         self._logger.info(
             "audit_event",
@@ -244,7 +251,7 @@ class AuditLogger:
             error_message=entry.error_message,
             metadata=entry.metadata,
         )
-        
+
         # Persist immediately to the audit_log table.
         await self._persist(entry)
 
@@ -318,16 +325,18 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """Create JWT access token."""
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({
-        "exp": expire,
-        "iat": datetime.utcnow(),
-        "jti": str(uuid4()),
-        "type": TokenType.ACCESS.value,
-    })
+    to_encode.update(
+        {
+            "exp": expire,
+            "iat": datetime.utcnow(),
+            "jti": str(uuid4()),
+            "type": TokenType.ACCESS.value,
+        }
+    )
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -335,12 +344,14 @@ def create_refresh_token(data: dict) -> str:
     """Create JWT refresh token."""
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({
-        "exp": expire,
-        "iat": datetime.utcnow(),
-        "jti": str(uuid4()),
-        "type": TokenType.REFRESH.value,
-    })
+    to_encode.update(
+        {
+            "exp": expire,
+            "iat": datetime.utcnow(),
+            "jti": str(uuid4()),
+            "type": TokenType.REFRESH.value,
+        }
+    )
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -349,10 +360,10 @@ def _decode_token_payload(token: str) -> TokenData:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         return TokenData(**payload)
-    except jwt.ExpiredSignatureError:
-        raise ValidationError("Token has expired")
+    except jwt.ExpiredSignatureError as e:
+        raise ValidationError("Token has expired") from e
     except jwt.InvalidTokenError as e:
-        raise ValidationError(f"Invalid token: {str(e)}")
+        raise ValidationError(f"Invalid token: {str(e)}") from e
 
 
 async def decode_token(token: str) -> TokenData:
@@ -364,7 +375,7 @@ async def decode_token(token: str) -> TokenData:
 
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     session: AsyncSession = Depends(get_session),
 ) -> User:
     """Get current authenticated user from JWT token."""
@@ -374,7 +385,7 @@ async def get_current_user(
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     # WS1 fix: decode_token() raises the *custom* ValidationError (422) for
     # expired/malformed/revoked tokens. An auth dependency should surface
     # all of those uniformly as 401, not 422 -- most importantly so a
@@ -386,27 +397,27 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc.message) if hasattr(exc, "message") else str(exc),
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from exc
 
     if token_data.type != TokenType.ACCESS:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token type",
         )
-    
+
     user = await session.get(User, UUID(token_data.sub))
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
-    
+
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",
         )
-    
+
     return user
 
 
@@ -419,6 +430,7 @@ async def get_current_active_user(
 
 def require_role(*allowed_roles: UserRole):
     """Dependency to require specific role(s)."""
+
     async def role_checker(current_user: User = Depends(get_current_user)) -> User:
         if current_user.role not in allowed_roles:
             await audit_logger.log(
@@ -433,6 +445,7 @@ def require_role(*allowed_roles: UserRole):
                 detail=f"Insufficient permissions. Required roles: {[r.value for r in allowed_roles]}",
             )
         return current_user
+
     return role_checker
 
 
@@ -444,30 +457,28 @@ require_analyst = require_role(UserRole.ANALYST, UserRole.SUPERVISOR, UserRole.A
 
 class AuthService:
     """Authentication service for login, registration, token management."""
-    
+
     def __init__(self, session: AsyncSession):
         self.session = session
-    
-    async def authenticate(self, email: str, password: str) -> Optional[User]:
+
+    async def authenticate(self, email: str, password: str) -> User | None:
         """Authenticate user with email and password."""
-        result = await self.session.execute(
-            select(User).where(User.email == email, User.is_active == True)
-        )
+        result = await self.session.execute(select(User).where(User.email == email, User.is_active))
         user = result.scalar_one_or_none()
-        
+
         if user and verify_password(password, user.hashed_password):
             return user
         return None
-    
+
     async def login(
         self,
         email: str,
         password: str,
-        request: Optional[Request] = None,
+        request: Request | None = None,
     ) -> TokenResponse:
         """User login - returns access and refresh tokens."""
         user = await self.authenticate(email, password)
-        
+
         if not user:
             await audit_logger.log(
                 action=AuditAction.LOGIN_FAILED,
@@ -477,11 +488,11 @@ class AuthService:
                 error_message="Invalid credentials",
             )
             raise ValidationError("Invalid email or password")
-        
+
         # Update last login
         user.last_login_at = datetime.utcnow()
         await self.session.commit()
-        
+
         # Create tokens
         token_data = {
             "sub": str(user.id),
@@ -490,7 +501,7 @@ class AuthService:
         }
         access_token = create_access_token(token_data)
         refresh_token = create_refresh_token(token_data)
-        
+
         await audit_logger.log(
             action=AuditAction.LOGIN,
             user_id=user.id,
@@ -498,24 +509,24 @@ class AuthService:
             request=request,
             success=True,
         )
-        
+
         return TokenResponse(
             access_token=access_token,
             refresh_token=refresh_token,
             expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
-    
+
     async def refresh_token(self, refresh_token: str) -> TokenResponse:
         """Refresh access token using refresh token."""
         token_data = await decode_token(refresh_token)
 
         if token_data.type != TokenType.REFRESH:
             raise ValidationError("Invalid token type")
-        
+
         user = await self.session.get(User, UUID(token_data.sub))
         if not user or not user.is_active:
             raise ValidationError("User not found or inactive")
-        
+
         new_token_data = {
             "sub": str(user.id),
             "email": user.email,
@@ -523,29 +534,27 @@ class AuthService:
         }
         access_token = create_access_token(new_token_data)
         new_refresh_token = create_refresh_token(new_token_data)
-        
+
         return TokenResponse(
             access_token=access_token,
             refresh_token=new_refresh_token,
             expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
-    
+
     async def create_user(
         self,
         email: str,
         password: str,
         full_name: str,
         role: UserRole = UserRole.ANALYST,
-        request: Optional[Request] = None,
+        request: Request | None = None,
     ) -> User:
         """Create new user (admin only)."""
         # Check if user exists
-        existing = await self.session.execute(
-            select(User).where(User.email == email)
-        )
+        existing = await self.session.execute(select(User).where(User.email == email))
         if existing.scalar_one_or_none():
             raise ValidationError("User with this email already exists")
-        
+
         user = User(
             id=uuid4(),
             email=email,
@@ -557,7 +566,7 @@ class AuthService:
         self.session.add(user)
         await self.session.commit()
         await self.session.refresh(user)
-        
+
         await audit_logger.log(
             action=AuditAction.USER_CREATE,
             user_id=user.id,
@@ -566,27 +575,27 @@ class AuthService:
             success=True,
             metadata={"created_role": role.value},
         )
-        
+
         return user
-    
+
     async def change_password(
         self,
         user_id: UUID,
         current_password: str,
         new_password: str,
-        request: Optional[Request] = None,
+        request: Request | None = None,
     ) -> bool:
         """Change user password."""
         user = await self.session.get(User, user_id)
         if not user:
             raise ValidationError("User not found")
-        
+
         if not verify_password(current_password, user.hashed_password):
             raise ValidationError("Current password is incorrect")
-        
+
         user.hashed_password = hash_password(new_password)
         await self.session.commit()
-        
+
         await audit_logger.log(
             action=AuditAction.USER_UPDATE,
             user_id=user.id,
@@ -595,15 +604,15 @@ class AuthService:
             success=True,
             metadata={"action": "password_change"},
         )
-        
+
         return True
 
     # --- WS1 auth hardening: real /auth/logout support ---
     async def logout(
         self,
         access_token: str,
-        refresh_token: Optional[str] = None,
-        request: Optional[Request] = None,
+        refresh_token: str | None = None,
+        request: Request | None = None,
     ) -> None:
         """Revoke the caller's access token (and refresh token, if provided).
 
@@ -630,6 +639,7 @@ class AuthService:
             request=request,
             success=True,
         )
+
     # --- end /auth/logout support ---
 
 

@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -29,23 +30,23 @@ class EntityType(str, Enum):
 class GraphWallet:
     address: str
     chain: str
-    label: Optional[str] = None
+    label: str | None = None
     risk_score: float = 0.0
-    first_seen: Optional[datetime] = None
-    last_seen: Optional[datetime] = None
+    first_seen: datetime | None = None
+    last_seen: datetime | None = None
     total_sent: int = 0
     total_received: int = 0
     tx_count: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    entity_name: Optional[str] = None
-    entity_type: Optional[EntityType] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    entity_name: str | None = None
+    entity_type: EntityType | None = None
     entity_confidence: ConfidenceLevel = ConfidenceLevel.UNKNOWN
 
     @property
     def node_id(self) -> str:
         return f"Wallet:{self.chain}:{self.address.lower()}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "address": self.address,
             "chain": self.chain,
@@ -72,20 +73,20 @@ class GraphTransaction:
     from_address: str
     to_address: str
     value: str
-    value_usd: Optional[float] = None
-    token_address: Optional[str] = None
-    token_symbol: Optional[str] = None
-    method: Optional[str] = None
-    gas_used: Optional[int] = None
-    gas_price: Optional[str] = None
+    value_usd: float | None = None
+    token_address: str | None = None
+    token_symbol: str | None = None
+    method: str | None = None
+    gas_used: int | None = None
+    gas_price: str | None = None
     is_suspicious: bool = False
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def node_id(self) -> str:
         return f"Transaction:{self.chain}:{self.tx_hash.lower()}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "tx_hash": self.tx_hash,
             "chain": self.chain,
@@ -113,16 +114,16 @@ class GraphEntity:
     chain: str
     confidence: ConfidenceLevel = ConfidenceLevel.UNKNOWN
     source: str = "manual"
-    tags: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    first_seen: Optional[datetime] = None
-    last_verified: Optional[datetime] = None
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    first_seen: datetime | None = None
+    last_verified: datetime | None = None
 
     @property
     def node_id(self) -> str:
         return f"Entity:{self.chain}:{self.address.lower()}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "entity_type": self.entity_type.value,
@@ -139,14 +140,14 @@ class GraphEntity:
 
 @dataclass
 class GraphPath:
-    nodes: List[str]
-    edges: List[Dict[str, Any]]
+    nodes: list[str]
+    edges: list[dict[str, Any]]
     total_value: float
     length: int
     confidence: ConfidenceLevel = ConfidenceLevel.UNKNOWN
-    endpoint_entity: Optional[GraphEntity] = None
+    endpoint_entity: GraphEntity | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "nodes": self.nodes,
             "edges": self.edges,

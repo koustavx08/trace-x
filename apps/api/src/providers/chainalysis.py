@@ -11,13 +11,14 @@ If CHAINALYSIS_API_KEY is not set, construction raises
 unavailable instead of silently returning empty/garbage intelligence data
 or crashing app startup.
 """
-from typing import Optional
+
 import httpx
 import structlog
 
-from .base import EntityIntelligenceProvider, EntityIntelligenceResult
 from src.core.config import get_settings
 from src.core.exceptions import ProviderNotConfiguredError
+
+from .base import EntityIntelligenceProvider, EntityIntelligenceResult
 
 logger = structlog.get_logger(__name__)
 
@@ -25,7 +26,7 @@ logger = structlog.get_logger(__name__)
 class ChainalysisProvider(EntityIntelligenceProvider):
     BASE_URL = "https://api.chainalysis.com/api/kyt/v2"
 
-    def __init__(self, api_key: Optional[str] = None, timeout: float = 15.0):
+    def __init__(self, api_key: str | None = None, timeout: float = 15.0):
         settings = get_settings()
         self._api_key = api_key if api_key is not None else settings.CHAINALYSIS_API_KEY
 

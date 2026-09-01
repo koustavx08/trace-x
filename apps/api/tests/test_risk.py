@@ -9,6 +9,7 @@ tests monkeypatch it. Endpoints that look up a `Wallet`/`Case` row need a
 reachable `tracex_test` Postgres database and skip cleanly if one isn't
 available (see tests/fixtures_db.py).
 """
+
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -41,6 +42,7 @@ async def _create_case_and_wallet(api_client, risk_score=0.0):
 # Pure logic: RiskScoringEngine.assess_wallet (no DB, no Neo4j)
 # ---------------------------------------------------------------------------
 
+
 class TestRiskScoringEngine:
     async def test_assess_wallet_with_no_transactions_returns_low_score(self):
         wallet = GraphWallet(address="0xabc", chain="ethereum", tx_count=0)
@@ -65,8 +67,11 @@ class TestRiskScoringEngine:
         high_risk = await risk_scoring_engine.assess_wallet(
             wallet=sanctioned_wallet,
             transactions=[],
-            entity_data={"entity_name": "Sanctioned Entity", "entity_type": "sanctioned",
-                         "confidence": "CONFIRMED"},
+            entity_data={
+                "entity_name": "Sanctioned Entity",
+                "entity_type": "sanctioned",
+                "confidence": "CONFIRMED",
+            },
         )
         assert high_risk.overall_score >= low_risk.overall_score
 
@@ -74,6 +79,7 @@ class TestRiskScoringEngine:
 # ---------------------------------------------------------------------------
 # /risk/wallets/{id}/assess -- real DB wallet lookup, pure scoring logic
 # ---------------------------------------------------------------------------
+
 
 class TestAssessEndpoint:
     async def test_assess_unknown_wallet_404(self, api_client):
@@ -93,6 +99,7 @@ class TestAssessEndpoint:
 # ---------------------------------------------------------------------------
 # /risk/wallets/{id}/attribution -- delegates to attribution_engine
 # ---------------------------------------------------------------------------
+
 
 class TestAttributionEndpoint:
     async def test_attribution_unknown_wallet_404(self, api_client):
@@ -177,6 +184,7 @@ class TestAttributionEndpoint:
 # ---------------------------------------------------------------------------
 # /risk/cases/{id}/risk-summary -- pure DB aggregation, no Neo4j
 # ---------------------------------------------------------------------------
+
 
 class TestCaseRiskSummary:
     async def test_risk_summary_unknown_case_404(self, api_client):

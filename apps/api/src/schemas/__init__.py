@@ -1,8 +1,8 @@
 from datetime import datetime
-from uuid import UUID
-from typing import Optional
-from pydantic import BaseModel, Field, ConfigDict
 from enum import Enum
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CaseStatus(str, Enum):
@@ -59,10 +59,10 @@ class UserCreate(UserBase):
 
 
 class UserUpdate(BaseModel):
-    email: Optional[str] = Field(None, max_length=255)
-    full_name: Optional[str] = Field(None, max_length=255)
-    role: Optional[UserRole] = None
-    is_active: Optional[bool] = None
+    email: str | None = Field(None, max_length=255)
+    full_name: str | None = Field(None, max_length=255)
+    role: UserRole | None = None
+    is_active: bool | None = None
 
 
 class UserResponse(UserBase):
@@ -70,7 +70,7 @@ class UserResponse(UserBase):
 
     id: UUID
     is_active: bool
-    last_login_at: Optional[datetime] = None
+    last_login_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -83,17 +83,17 @@ class CaseBase(BaseModel):
 
 
 class CaseCreate(CaseBase):
-    assigned_to: Optional[UUID] = None
-    metadata: Optional[dict] = None
+    assigned_to: UUID | None = None
+    metadata: dict | None = None
 
 
 class CaseUpdate(BaseModel):
-    title: Optional[str] = Field(None, max_length=255)
-    crime_type: Optional[CrimeType] = None
-    description: Optional[str] = None
-    status: Optional[CaseStatus] = None
-    assigned_to: Optional[UUID] = None
-    metadata: Optional[dict] = None
+    title: str | None = Field(None, max_length=255)
+    crime_type: CrimeType | None = None
+    description: str | None = None
+    status: CaseStatus | None = None
+    assigned_to: UUID | None = None
+    metadata: dict | None = None
 
 
 class CaseResponse(CaseBase):
@@ -101,8 +101,8 @@ class CaseResponse(CaseBase):
 
     id: UUID
     case_number: str
-    assigned_to: Optional[UUID] = None
-    metadata: Optional[dict] = None
+    assigned_to: UUID | None = None
+    metadata: dict | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -110,13 +110,13 @@ class CaseResponse(CaseBase):
 class WalletBase(BaseModel):
     address: str = Field(..., max_length=66)
     chain: str = Field(..., max_length=50)
-    label: Optional[str] = Field(None, max_length=100)
+    label: str | None = Field(None, max_length=100)
     attribution_status: AttributionStatus = AttributionStatus.UNVERIFIED
     risk_score: float = Field(default=0.0, ge=0.0, le=100.0)
-    entity_name: Optional[str] = Field(None, max_length=255)
-    entity_confidence: Optional[ConfidenceLevel] = None
-    first_seen_tx_hash: Optional[str] = Field(None, max_length=66)
-    metadata: Optional[dict] = None
+    entity_name: str | None = Field(None, max_length=255)
+    entity_confidence: ConfidenceLevel | None = None
+    first_seen_tx_hash: str | None = Field(None, max_length=66)
+    metadata: dict | None = None
 
 
 class WalletCreate(WalletBase):
@@ -124,13 +124,13 @@ class WalletCreate(WalletBase):
 
 
 class WalletUpdate(BaseModel):
-    label: Optional[str] = Field(None, max_length=100)
-    attribution_status: Optional[AttributionStatus] = None
-    risk_score: Optional[float] = Field(None, ge=0.0, le=100.0)
-    entity_name: Optional[str] = Field(None, max_length=255)
-    entity_confidence: Optional[ConfidenceLevel] = None
-    first_seen_tx_hash: Optional[str] = Field(None, max_length=66)
-    metadata: Optional[dict] = None
+    label: str | None = Field(None, max_length=100)
+    attribution_status: AttributionStatus | None = None
+    risk_score: float | None = Field(None, ge=0.0, le=100.0)
+    entity_name: str | None = Field(None, max_length=255)
+    entity_confidence: ConfidenceLevel | None = None
+    first_seen_tx_hash: str | None = Field(None, max_length=66)
+    metadata: dict | None = None
 
 
 class WalletResponse(WalletBase):
@@ -149,12 +149,12 @@ class TransactionBase(BaseModel):
     from_address: str = Field(..., max_length=66)
     to_address: str = Field(..., max_length=66)
     value: str
-    value_usd: Optional[float] = None
-    token_address: Optional[str] = Field(None, max_length=66)
-    token_symbol: Optional[str] = Field(None, max_length=20)
-    method: Optional[str] = Field(None, max_length=100)
+    value_usd: float | None = None
+    token_address: str | None = Field(None, max_length=66)
+    token_symbol: str | None = Field(None, max_length=20)
+    method: str | None = Field(None, max_length=100)
     is_suspicious: bool = False
-    metadata: Optional[dict] = None
+    metadata: dict | None = None
 
 
 class TransactionCreate(TransactionBase):
@@ -170,7 +170,7 @@ class TransactionResponse(TransactionBase):
 
 
 class InvestigationRunBase(BaseModel):
-    config: Optional[dict] = None
+    config: dict | None = None
 
 
 class InvestigationRunCreate(InvestigationRunBase):
@@ -178,10 +178,10 @@ class InvestigationRunCreate(InvestigationRunBase):
 
 
 class InvestigationRunUpdate(BaseModel):
-    status: Optional[InvestigationStatus] = None
-    completed_at: Optional[datetime] = None
-    error_message: Optional[str] = None
-    result_summary: Optional[dict] = None
+    status: InvestigationStatus | None = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
+    result_summary: dict | None = None
 
 
 class InvestigationRunResponse(InvestigationRunBase):
@@ -192,9 +192,9 @@ class InvestigationRunResponse(InvestigationRunBase):
     wallet_id: UUID
     status: InvestigationStatus
     started_at: datetime
-    completed_at: Optional[datetime] = None
-    error_message: Optional[str] = None
-    result_summary: Optional[dict] = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
+    result_summary: dict | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -204,12 +204,12 @@ class ReportBase(BaseModel):
     summary: str
     findings: dict
     risk_assessment: dict
-    graph_snapshot: Optional[dict] = None
+    graph_snapshot: dict | None = None
     format: str = Field(default="json", pattern="^(pdf|json|html)$")
 
 
 class ReportCreate(ReportBase):
-    investigation_run_id: Optional[UUID] = None
+    investigation_run_id: UUID | None = None
 
 
 class ReportResponse(ReportBase):
@@ -217,9 +217,9 @@ class ReportResponse(ReportBase):
 
     id: UUID
     case_id: UUID
-    investigation_run_id: Optional[UUID] = None
+    investigation_run_id: UUID | None = None
     generated_by: UUID
-    file_path: Optional[str] = None
+    file_path: str | None = None
     created_at: datetime
     updated_at: datetime
 

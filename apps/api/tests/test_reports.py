@@ -26,10 +26,10 @@ Given that, this file tests two things:
    verification bar ("a PDF report response starts with `%PDF-` magic
    bytes").
 """
+
 from uuid import uuid4
 
 import pytest
-
 from fixtures_db import api_client, db_session  # noqa: F401
 
 
@@ -52,6 +52,7 @@ async def _create_case(db_session):
 # ---------------------------------------------------------------------------
 # src/api/v1/reports.py -- Report CRUD (real, DB-backed)
 # ---------------------------------------------------------------------------
+
 
 class TestReportCRUD:
     async def test_create_json_report(self, api_client, db_session):
@@ -165,6 +166,7 @@ class TestReportCRUD:
 # ---------------------------------------------------------------------------
 # /risk/reports/generate + /risk/reports/{id}/download
 # ---------------------------------------------------------------------------
+
 
 class TestRiskReportGeneration:
     async def test_generate_report_currently_500s_due_to_missing_report_import(

@@ -1,17 +1,47 @@
 import re
-from typing import Optional, Tuple
-from eth_utils import to_checksum_address, is_address
+
 import structlog
+from eth_utils import is_address, to_checksum_address
 
 logger = structlog.get_logger(__name__)
 
 CHAIN_CONFIGS = {
-    1: {"name": "Ethereum", "symbol": "ETH", "explorer": "https://etherscan.io", "rpc_env": "ETHEREUM_RPC_URL"},
-    137: {"name": "Polygon", "symbol": "MATIC", "explorer": "https://polygonscan.com", "rpc_env": "POLYGON_RPC_URL"},
-    56: {"name": "BSC", "symbol": "BNB", "explorer": "https://bscscan.com", "rpc_env": "BSC_RPC_URL"},
-    42161: {"name": "Arbitrum", "symbol": "ETH", "explorer": "https://arbiscan.io", "rpc_env": "ARBITRUM_RPC_URL"},
-    10: {"name": "Optimism", "symbol": "ETH", "explorer": "https://optimistic.etherscan.io", "rpc_env": "OPTIMISM_RPC_URL"},
-    8453: {"name": "Base", "symbol": "ETH", "explorer": "https://basescan.org", "rpc_env": "BASE_RPC_URL"},
+    1: {
+        "name": "Ethereum",
+        "symbol": "ETH",
+        "explorer": "https://etherscan.io",
+        "rpc_env": "ETHEREUM_RPC_URL",
+    },
+    137: {
+        "name": "Polygon",
+        "symbol": "MATIC",
+        "explorer": "https://polygonscan.com",
+        "rpc_env": "POLYGON_RPC_URL",
+    },
+    56: {
+        "name": "BSC",
+        "symbol": "BNB",
+        "explorer": "https://bscscan.com",
+        "rpc_env": "BSC_RPC_URL",
+    },
+    42161: {
+        "name": "Arbitrum",
+        "symbol": "ETH",
+        "explorer": "https://arbiscan.io",
+        "rpc_env": "ARBITRUM_RPC_URL",
+    },
+    10: {
+        "name": "Optimism",
+        "symbol": "ETH",
+        "explorer": "https://optimistic.etherscan.io",
+        "rpc_env": "OPTIMISM_RPC_URL",
+    },
+    8453: {
+        "name": "Base",
+        "symbol": "ETH",
+        "explorer": "https://basescan.org",
+        "rpc_env": "BASE_RPC_URL",
+    },
 }
 
 EVM_ADDRESS_REGEX = re.compile(r"^0x[a-fA-F0-9]{40}$")
@@ -32,7 +62,7 @@ def to_checksum(address: str) -> str:
     return to_checksum_address(address)
 
 
-def detect_chain_from_address(address: str) -> Optional[int]:
+def detect_chain_from_address(address: str) -> int | None:
     if not is_valid_evm_address(address):
         return None
     return 1
@@ -42,11 +72,11 @@ def get_supported_chains() -> dict:
     return CHAIN_CONFIGS.copy()
 
 
-def get_chain_info(chain_id: int) -> Optional[dict]:
+def get_chain_info(chain_id: int) -> dict | None:
     return CHAIN_CONFIGS.get(chain_id)
 
 
-def validate_and_normalize_address(address: str) -> Tuple[bool, Optional[str], Optional[str]]:
+def validate_and_normalize_address(address: str) -> tuple[bool, str | None, str | None]:
     if not is_valid_evm_address(address):
         return False, None, "Invalid EVM address format"
 
@@ -60,6 +90,6 @@ def validate_and_normalize_address(address: str) -> Tuple[bool, Optional[str], O
 def is_contract_address(w3, address: str) -> bool:
     try:
         code = w3.eth.get_code(to_checksum_address(address))
-        return code != b"" and code != "0x"
+        return bool(code != b"" and code != "0x")
     except Exception:
         return False

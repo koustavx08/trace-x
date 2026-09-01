@@ -1,9 +1,9 @@
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
+from typing import Any
+
 import structlog
 
 from .client import Neo4jClient
-from .models import ConfidenceLevel, EntityType
 
 logger = structlog.get_logger(__name__)
 
@@ -17,7 +17,7 @@ class GraphQueries:
         start_address: str,
         chain: str,
         max_hops: int = 6,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         query = """
         MATCH (start:Wallet {address: $start_address, chain: $chain})
         MATCH (vasp:Entity {entity_type: 'exchange', chain: $chain})
@@ -28,11 +28,14 @@ class GraphQueries:
         ORDER BY weight DESC
         LIMIT 10
         """
-        result = await self._client.execute_query(query, {
-            "start_address": start_address.lower(),
-            "chain": chain,
-            "max_hops": max_hops,
-        })
+        result = await self._client.execute_query(
+            query,
+            {
+                "start_address": start_address.lower(),
+                "chain": chain,
+                "max_hops": max_hops,
+            },
+        )
 
         paths = []
         for record in result:
@@ -44,39 +47,47 @@ class GraphQueries:
             edges = []
             for i, node in enumerate(path.nodes):
                 if "Wallet" in node.labels:
-                    nodes.append({
-                        "id": f"Wallet:{node['chain']}:{node['address']}",
-                        "type": "wallet",
-                        "address": node["address"],
-                        "label": node.get("label"),
-                        "risk_score": node.get("risk_score", 0),
-                    })
+                    nodes.append(
+                        {
+                            "id": f"Wallet:{node['chain']}:{node['address']}",
+                            "type": "wallet",
+                            "address": node["address"],
+                            "label": node.get("label"),
+                            "risk_score": node.get("risk_score", 0),
+                        }
+                    )
                 elif "Entity" in node.labels:
-                    nodes.append({
-                        "id": f"Entity:{node['chain']}:{node['address']}",
-                        "type": "entity",
-                        "name": node["name"],
-                        "entity_type": node["entity_type"],
-                        "confidence": node["confidence"],
-                    })
+                    nodes.append(
+                        {
+                            "id": f"Entity:{node['chain']}:{node['address']}",
+                            "type": "entity",
+                            "name": node["name"],
+                            "entity_type": node["entity_type"],
+                            "confidence": node["confidence"],
+                        }
+                    )
                 if i > 0:
-                    prev = path.nodes[i-1]
-                    edges.append({
-                        "from": f"Wallet:{prev['chain']}:{prev['address']}",
-                        "to": f"Wallet:{node['chain']}:{node['address']}",
-                    })
+                    prev = path.nodes[i - 1]
+                    edges.append(
+                        {
+                            "from": f"Wallet:{prev['chain']}:{prev['address']}",
+                            "to": f"Wallet:{node['chain']}:{node['address']}",
+                        }
+                    )
 
-            paths.append({
-                "nodes": nodes,
-                "edges": edges,
-                "total_value": weight,
-                "length": len(nodes) - 1,
-                "vasp": {
-                    "name": vasp["name"],
-                    "address": vasp["address"],
-                    "confidence": vasp["confidence"],
-                },
-            })
+            paths.append(
+                {
+                    "nodes": nodes,
+                    "edges": edges,
+                    "total_value": weight,
+                    "length": len(nodes) - 1,
+                    "vasp": {
+                        "name": vasp["name"],
+                        "address": vasp["address"],
+                        "confidence": vasp["confidence"],
+                    },
+                }
+            )
         return paths
 
     async def find_mixer_interactions(
@@ -84,7 +95,7 @@ class GraphQueries:
         address: str,
         chain: str,
         max_hops: int = 4,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         query = """
         MATCH (start:Wallet {address: $address, chain: $chain})
         MATCH (mixer:Entity {entity_type: 'mixer', chain: $chain})
@@ -94,11 +105,14 @@ class GraphQueries:
         ORDER BY weight DESC
         LIMIT 10
         """
-        result = await self._client.execute_query(query, {
-            "address": address.lower(),
-            "chain": chain,
-            "max_hops": max_hops,
-        })
+        result = await self._client.execute_query(
+            query,
+            {
+                "address": address.lower(),
+                "chain": chain,
+                "max_hops": max_hops,
+            },
+        )
         return [dict(r) for r in result]
 
     async def detect_peel_chains(
@@ -107,14 +121,14 @@ class GraphQueries:
         min_hops: int = 3,
         min_value_eth: float = 0.1,
         time_window_hours: int = 24,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         query = """
         MATCH (w:Wallet {chain: $chain})
         WHERE w.tx_count > 10
         MATCH path = (w)-[:SENT*1..$max_hops]->(:Wallet)
         WHERE ALL(r IN relationships(path) WHERE r.value > $min_value)
         AND length(path) >= $min_hops
-        WITH w, path, 
+        WITH w, path,
              reduce(total = 0, r IN relationships(path) | total + toFloat(r.value)) as total_value,
              [n IN nodes(path) | n.address] as addresses
         WHERE total_value > $min_value * $min_hops
@@ -122,12 +136,15 @@ class GraphQueries:
         ORDER BY total_value DESC
         LIMIT 20
         """
-        result = await self._client.execute_query(query, {
-            "chain": chain,
-            "min_hops": min_hops,
-            "max_hops": min_hops + 2,
-            "min_value": min_value_eth * 1e18,
-        })
+        result = await self._client.execute_query(
+            query,
+            {
+                "chain": chain,
+                "min_hops": min_hops,
+                "max_hops": min_hops + 2,
+                "min_value": min_value_eth * 1e18,
+            },
+        )
         return [dict(r) for r in result]
 
     async def detect_round_amount_patterns(
@@ -135,7 +152,7 @@ class GraphQueries:
         chain: str,
         min_occurrences: int = 3,
         time_window_hours: int = 24,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         query = """
         MATCH (t:Transaction {chain: $chain})
         WHERE t.timestamp >= datetime() - duration({hours: $time_window})
@@ -148,11 +165,14 @@ class GraphQueries:
         ORDER BY occurrences DESC
         LIMIT 20
         """
-        result = await self._client.execute_query(query, {
-            "chain": chain,
-            "min_occurrences": min_occurrences,
-            "time_window": time_window_hours,
-        })
+        result = await self._client.execute_query(
+            query,
+            {
+                "chain": chain,
+                "min_occurrences": min_occurrences,
+                "time_window": time_window_hours,
+            },
+        )
         return [dict(r) for r in result]
 
     async def detect_rapid_movement(
@@ -160,7 +180,7 @@ class GraphQueries:
         chain: str,
         max_time_between_txs_seconds: int = 300,
         min_hops: int = 3,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         query = """
         MATCH path = (w1:Wallet {chain: $chain})-[:SENT]->(t1:Transaction)-[:RECEIVED]->(w2:Wallet)-[:SENT]->(t2:Transaction)-[:RECEIVED]->(w3:Wallet)
         WHERE t2.timestamp - t1.timestamp <= duration({seconds: $max_time})
@@ -175,10 +195,13 @@ class GraphQueries:
         ORDER BY seconds_between
         LIMIT 20
         """
-        result = await self._client.execute_query(query, {
-            "chain": chain,
-            "max_time": max_time_between_txs_seconds,
-        })
+        result = await self._client.execute_query(
+            query,
+            {
+                "chain": chain,
+                "max_time": max_time_between_txs_seconds,
+            },
+        )
         return [dict(r) for r in result]
 
     async def get_wallet_centrality(
@@ -186,7 +209,7 @@ class GraphQueries:
         chain: str,
         algorithm: str = "pagerank",
         top_n: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         if algorithm == "pagerank":
             query = """
             CALL gds.pageRank.stream('wallet-graph', {maxIterations: 20, dampingFactor: 0.85})
@@ -210,7 +233,7 @@ class GraphQueries:
         else:
             query = """
             MATCH (w:Wallet {chain: $chain})
-            RETURN w.address as address, w.label as label, w.risk_score as risk_score, 
+            RETURN w.address as address, w.label as label, w.risk_score as risk_score,
                    w.tx_count as score
             ORDER BY w.tx_count DESC
             LIMIT $top_n
@@ -225,29 +248,29 @@ class GraphQueries:
         start_date: datetime,
         end_date: datetime,
         bucket: str = "day",
-    ) -> List[Dict[str, Any]]:
-        bucket_format = {
-            "hour": "yyyy-MM-dd HH:00",
-            "day": "yyyy-MM-dd",
-            "week": "yyyy-'W'ww",
-        }.get(bucket, "yyyy-MM-dd")
+    ) -> list[dict[str, Any]]:
+        truncate_unit = bucket if bucket in ("hour", "day", "week") else "day"
 
         query = """
         MATCH (w:Wallet {address: $address, chain: $chain})
         MATCH (w)-[:SENT]->(t:Transaction)
         WHERE t.timestamp >= $start_date AND t.timestamp <= $end_date
-        RETURN date(t.timestamp) as bucket,
+        RETURN datetime.truncate($truncate_unit, t.timestamp) as bucket,
                count(*) as tx_count,
                sum(toFloat(t.value)) as total_value,
                collect(t.tx_hash)[0..5] as sample_txs
         ORDER BY bucket
         """
-        result = await self._client.execute_query(query, {
-            "address": address.lower(),
-            "chain": chain,
-            "start_date": start_date,
-            "end_date": end_date,
-        })
+        result = await self._client.execute_query(
+            query,
+            {
+                "address": address.lower(),
+                "chain": chain,
+                "start_date": start_date,
+                "end_date": end_date,
+                "truncate_unit": truncate_unit,
+            },
+        )
         return [dict(r) for r in result]
 
     async def get_entity_exposure(
@@ -255,7 +278,7 @@ class GraphQueries:
         entity_address: str,
         chain: str,
         max_hops: int = 2,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         query = """
         MATCH (e:Entity {address: $entity_address, chain: $chain})
         OPTIONAL MATCH (w:Wallet)-[:BELONGS_TO]->(e)
@@ -266,11 +289,14 @@ class GraphQueries:
                sum(toFloat(t.value)) as total_value,
                collect(DISTINCT w.address)[0..20] as wallet_addresses
         """
-        result = await self._client.execute_query(query, {
-            "entity_address": entity_address.lower(),
-            "chain": chain,
-            "max_hops": max_hops,
-        })
+        result = await self._client.execute_query(
+            query,
+            {
+                "entity_address": entity_address.lower(),
+                "chain": chain,
+                "max_hops": max_hops,
+            },
+        )
         if not result:
             return {}
         return dict(result[0])

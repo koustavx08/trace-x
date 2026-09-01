@@ -1,13 +1,15 @@
-from typing import Optional, List, Dict, Any
-from uuid import UUID
 from datetime import datetime
-import structlog
+from typing import Any
+from uuid import UUID
 
-from src.core import get_session_context, get_logger, NotFoundError, ValidationError
-from src.core.validation import is_valid_evm_address, to_checksum, get_chain_info
-from src.models import Wallet, Case, Transaction, InvestigationRun, InvestigationStatus
-from src.schemas import WalletCreate, WalletResponse, InvestigationRunCreate, InvestigationRunResponse
-from ..providers import ProviderFactory, BlockchainTransaction
+from sqlalchemy import select
+
+from src.core import NotFoundError, ValidationError, get_logger, get_session_context
+from src.core.validation import get_chain_info, is_valid_evm_address, to_checksum
+from src.models import Case, InvestigationRun, InvestigationStatus, Transaction, Wallet
+from src.schemas import InvestigationRunResponse, WalletResponse
+
+from ..providers import ProviderFactory
 
 logger = get_logger(__name__)
 
@@ -20,8 +22,8 @@ class WalletAnalysisService:
         self,
         case_id: UUID,
         address: str,
-        chain_id: Optional[int] = None,
-        label: Optional[str] = None,
+        chain_id: int | None = None,
+        label: str | None = None,
     ) -> WalletResponse:
         async with get_session_context() as session:
             case = await session.get(Case, case_id)
@@ -49,7 +51,7 @@ class WalletAnalysisService:
                 raise ValidationError(f"Address validation failed on chain: {chain_info['name']}")
 
             existing = await session.execute(
-                session.query(Wallet).filter(
+                select(Wallet).where(
                     Wallet.case_id == case_id,
                     Wallet.address == checksum_addr,
                     Wallet.chain == chain_info["name"],
@@ -67,10 +69,12 @@ class WalletAnalysisService:
                 label=label or "Suspect Wallet",
                 attribution_status="unverified",
                 risk_score=0.0,
-                metadata={
+                wallet_metadata={
                     "eth_balance": balance.eth_balance,
                     "token_count": len(balance.tokens),
-                    "last_balance_check": balance.last_updated.isoformat() if balance.last_updated else None,
+                    "last_balance_check": balance.last_updated.isoformat()
+                    if balance.last_updated
+                    else None,
                 },
             )
             session.add(wallet)
@@ -144,7 +148,7 @@ class WalletAnalysisService:
                         token_symbol=tx.token_symbol,
                         method=tx.method,
                         is_suspicious=False,
-                        metadata=tx.metadata,
+                        transaction_metadata=tx.metadata,
                     )
                     session.add(db_tx)
 
@@ -152,14 +156,21 @@ class WalletAnalysisService:
                 investigation.completed_at = datetime.utcnow()
                 investigation.result_summary = {
                     "transactions_found": len(transactions),
-                    "unique_addresses": len(set([tx.from_address for tx in transactions] + [tx.to_address for tx in transactions])),
-                    "total_value_eth": str(sum(int(tx.value) for tx in transactions if tx.value.isdigit())),
+                    "unique_addresses": len(
+                        set(
+                            [tx.from_address for tx in transactions]
+                            + [tx.to_address for tx in transactions]
+                        )
+                    ),
+                    "total_value_eth": str(
+                        sum(int(tx.value) for tx in transactions if tx.value.isdigit())
+                    ),
                     "chains_analyzed": [wallet.chain],
                 }
 
-                wallet.metadata = wallet.metadata or {}
-                wallet.metadata["last_analysis"] = datetime.utcnow().isoformat()
-                wallet.metadata["transactions_analyzed"] = len(transactions)
+                wallet.wallet_metadata = wallet.wallet_metadata or {}
+                wallet.wallet_metadata["last_analysis"] = datetime.utcnow().isoformat()
+                wallet.wallet_metadata["transactions_analyzed"] = len(transactions)
 
                 await session.flush()
                 await session.refresh(investigation)
@@ -194,7 +205,7 @@ class WalletAnalysisService:
         wallet_id: UUID,
         max_hops: int = 5,
         min_value_eth: float = 0.001,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         async with get_session_context() as session:
             wallet = await session.get(Wallet, wallet_id)
             if not wallet:
@@ -205,8 +216,8 @@ class WalletAnalysisService:
             if not provider:
                 raise ValidationError(f"No provider for chain: {wallet.chain}")
 
-            visited = set()
-            queue = [(wallet.address, 0, [])]
+            visited: set[str] = set()
+            queue: list[tuple[str, int, list]] = [(wallet.address, 0, [])]
             paths = []
             edges = []
 
@@ -229,27 +240,31 @@ class WalletAnalysisService:
                     if value_eth < min_value_eth:
                         continue
 
-                    edges.append({
-                        "from": tx.from_address,
-                        "to": tx.to_address,
-                        "value": tx.value,
-                        "value_eth": value_eth,
-                        "tx_hash": tx.tx_hash,
-                        "block": tx.block_number,
-                        "timestamp": tx.timestamp.isoformat(),
-                        "hop": hop,
-                    })
+                    edges.append(
+                        {
+                            "from": tx.from_address,
+                            "to": tx.to_address,
+                            "value": tx.value,
+                            "value_eth": value_eth,
+                            "tx_hash": tx.tx_hash,
+                            "block": tx.block_number,
+                            "timestamp": tx.timestamp.isoformat(),
+                            "hop": hop,
+                        }
+                    )
 
                     if tx.to_address not in visited and hop + 1 < max_hops:
                         new_path = path + [tx.to_address]
                         queue.append((tx.to_address, hop + 1, new_path))
-                        paths.append({
-                            "path": new_path,
-                            "length": len(new_path),
-                            "total_value_eth": sum(
-                                int(e["value"]) / 1e18 for e in edges if e["to"] in new_path
-                            ),
-                        })
+                        paths.append(
+                            {
+                                "path": new_path,
+                                "length": len(new_path),
+                                "total_value_eth": sum(
+                                    int(e["value"]) / 1e18 for e in edges if e["to"] in new_path
+                                ),
+                            }
+                        )
 
             return {
                 "root_address": wallet.address,

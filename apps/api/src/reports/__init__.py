@@ -1,9 +1,9 @@
 from .generator import (
-    ReportFormat,
-    ReportTemplate,
-    ReportSection,
     GeneratedReport,
+    ReportFormat,
     ReportGenerator,
+    ReportSection,
+    ReportTemplate,
     report_generator,
 )
 

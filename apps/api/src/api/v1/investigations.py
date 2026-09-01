@@ -1,15 +1,15 @@
 from uuid import UUID
-from typing import Optional
-from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
 
-from src.core import get_session, NotFoundError
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core import NotFoundError, get_session
 from src.models import InvestigationRun, InvestigationStatus
 from src.schemas import (
     InvestigationRunCreate,
-    InvestigationRunUpdate,
     InvestigationRunResponse,
+    InvestigationRunUpdate,
     PaginatedResponse,
 )
 
@@ -49,9 +49,9 @@ async def create_investigation(
 
 @router.get("", response_model=PaginatedResponse)
 async def list_investigations(
-    case_id: Optional[UUID] = None,
-    wallet_id: Optional[UUID] = None,
-    status: Optional[InvestigationStatus] = None,
+    case_id: UUID | None = None,
+    wallet_id: UUID | None = None,
+    status: InvestigationStatus | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),

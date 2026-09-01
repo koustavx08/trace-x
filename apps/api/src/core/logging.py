@@ -1,6 +1,7 @@
 import logging
 import sys
 from typing import Any
+
 import structlog
 from pythonjsonlogger import jsonlogger
 
@@ -27,7 +28,7 @@ def setup_logging() -> None:
             "%(timestamp)s %(level)s %(logger)s %(message)s",
             rename_fields={"level": "severity", "logger": "name"},
         )
-        renderer = structlog.processors.JSONRenderer()
+        renderer: Any = structlog.processors.JSONRenderer()
     else:
         formatter = logging.Formatter(
             "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -68,4 +69,7 @@ def setup_logging() -> None:
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
-    return structlog.get_logger(name)
+    # structlog.get_logger()'s return type is loosely typed (Any); the actual
+    # runtime type is BoundLogger because setup_logging() configures
+    # wrapper_class=structlog.stdlib.BoundLogger above.
+    return structlog.get_logger(name)  # type: ignore[no-any-return]

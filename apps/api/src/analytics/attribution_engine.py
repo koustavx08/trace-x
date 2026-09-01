@@ -1,12 +1,12 @@
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Any
+
 import structlog
 
-from ..graph.models import ConfidenceLevel, EntityType, GraphPath, GraphEntity
+from ..graph.models import ConfidenceLevel, EntityType, GraphEntity, GraphPath
 from ..graph.repository import graph_repository
-from ..graph.queries import graph_queries
 
 logger = structlog.get_logger(__name__)
 
@@ -24,7 +24,7 @@ class AttributionEvidence:
     evidence_type: str
     description: str
     confidence: ConfidenceLevel
-    data: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -38,11 +38,11 @@ class VASPAttribution:
     confidence_score: float
     distance_hops: int
     total_value_eth: float
-    evidence: List[AttributionEvidence]
-    path: Optional[GraphPath] = None
+    evidence: list[AttributionEvidence]
+    path: GraphPath | None = None
     attributed_at: datetime = field(default_factory=datetime.utcnow)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "entity_name": self.entity_name,
             "entity_type": self.entity_type.value,
@@ -92,7 +92,7 @@ class AttributionEngine:
         wallet_address: str,
         chain: str,
         max_hops: int = 6,
-    ) -> List[VASPAttribution]:
+    ) -> list[VASPAttribution]:
         paths = await graph_repository.find_paths_to_entities(
             start_address=wallet_address,
             chain=chain,
@@ -117,7 +117,7 @@ class AttributionEngine:
         path: GraphPath,
         wallet_address: str,
         chain: str,
-    ) -> Optional[VASPAttribution]:
+    ) -> VASPAttribution | None:
         if not path.endpoint_entity:
             return None
 
@@ -125,44 +125,52 @@ class AttributionEngine:
 
         evidence = []
 
-        evidence.append(AttributionEvidence(
-            source="graph_traversal",
-            evidence_type="on_chain_path",
-            description=f"Fund flow path: {path.length} hops, {path.total_value:.6f} ETH",
-            confidence=path.confidence,
-            data={
-                "path_length": path.length,
-                "total_value_eth": path.total_value,
-                "nodes": path.nodes,
-            },
-        ))
+        evidence.append(
+            AttributionEvidence(
+                source="graph_traversal",
+                evidence_type="on_chain_path",
+                description=f"Fund flow path: {path.length} hops, {path.total_value:.6f} ETH",
+                confidence=path.confidence,
+                data={
+                    "path_length": path.length,
+                    "total_value_eth": path.total_value,
+                    "nodes": path.nodes,
+                },
+            )
+        )
 
-        evidence.append(AttributionEvidence(
-            source="entity_registry",
-            evidence_type="off_chain_intelligence",
-            description=f"Known {entity.entity_type.value}: {entity.name} ({entity.confidence.value})",
-            confidence=entity.confidence,
-            data={
-                "entity_name": entity.name,
-                "entity_type": entity.entity_type.value,
-                "entity_address": entity.address,
-                "source": entity.source,
-                "tags": entity.tags,
-            },
-        ))
+        evidence.append(
+            AttributionEvidence(
+                source="entity_registry",
+                evidence_type="off_chain_intelligence",
+                description=f"Known {entity.entity_type.value}: {entity.name} ({entity.confidence.value})",
+                confidence=entity.confidence,
+                data={
+                    "entity_name": entity.name,
+                    "entity_type": entity.entity_type.value,
+                    "entity_address": entity.address,
+                    "source": entity.source,
+                    "tags": entity.tags,
+                },
+            )
+        )
 
         if entity.confidence == ConfidenceLevel.CONFIRMED:
-            evidence.append(AttributionEvidence(
-                source="manual_verification",
-                evidence_type="verified_attribution",
-                description="Entity verified through multiple independent sources",
-                confidence=ConfidenceLevel.CONFIRMED,
-                data={"verification_method": "multi_source"},
-            ))
+            evidence.append(
+                AttributionEvidence(
+                    source="manual_verification",
+                    evidence_type="verified_attribution",
+                    description="Entity verified through multiple independent sources",
+                    confidence=ConfidenceLevel.CONFIRMED,
+                    data={"verification_method": "multi_source"},
+                )
+            )
 
         attribution_type = self._determine_attribution_type(path, entity)
         confidence = self._calculate_confidence(path, entity, attribution_type)
-        confidence_score = self._calculate_confidence_score(confidence, path, entity, attribution_type)
+        confidence_score = self._calculate_confidence_score(
+            confidence, path, entity, attribution_type
+        )
 
         return VASPAttribution(
             entity_name=entity.name,
@@ -246,7 +254,7 @@ class AttributionEngine:
         self,
         wallet_address: str,
         chain: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         attributions = await self.attribute_wallet(wallet_address, chain)
 
         if not attributions:

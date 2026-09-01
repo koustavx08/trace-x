@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Optional, List, Dict, Any
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -15,15 +16,15 @@ class BlockchainTransaction:
     from_address: str
     to_address: str
     value: str
-    value_usd: Optional[float] = None
-    token_address: Optional[str] = None
-    token_symbol: Optional[str] = None
-    token_decimals: Optional[int] = None
-    method: Optional[str] = None
-    gas_used: Optional[int] = None
-    gas_price: Optional[str] = None
+    value_usd: float | None = None
+    token_address: str | None = None
+    token_symbol: str | None = None
+    token_decimals: int | None = None
+    method: str | None = None
+    gas_used: int | None = None
+    gas_price: str | None = None
     status: int = 1
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -31,9 +32,9 @@ class WalletBalance:
     address: str
     chain: str
     eth_balance: str
-    eth_balance_usd: Optional[float] = None
-    tokens: List[Dict[str, Any]] = None
-    last_updated: Optional[datetime] = None
+    eth_balance_usd: float | None = None
+    tokens: list[dict[str, Any]] = field(default_factory=list)
+    last_updated: datetime | None = None
 
 
 @dataclass
@@ -62,11 +63,11 @@ class BlockchainProvider(ABC):
         pass
 
     @abstractmethod
-    async def get_block(self, block_number: int) -> Optional[Dict[str, Any]]:
+    async def get_block(self, block_number: int) -> dict[str, Any] | None:
         pass
 
     @abstractmethod
-    async def get_transaction(self, tx_hash: str) -> Optional[BlockchainTransaction]:
+    async def get_transaction(self, tx_hash: str) -> BlockchainTransaction | None:
         pass
 
     @abstractmethod
@@ -74,10 +75,10 @@ class BlockchainProvider(ABC):
         self,
         address: str,
         start_block: int = 0,
-        end_block: Optional[int] = None,
+        end_block: int | None = None,
         page: int = 1,
         page_size: int = 100,
-    ) -> List[BlockchainTransaction]:
+    ) -> list[BlockchainTransaction]:
         pass
 
     @abstractmethod
@@ -88,10 +89,10 @@ class BlockchainProvider(ABC):
     async def get_token_transfers(
         self,
         address: str,
-        token_address: Optional[str] = None,
+        token_address: str | None = None,
         start_block: int = 0,
-        end_block: Optional[int] = None,
-    ) -> List[BlockchainTransaction]:
+        end_block: int | None = None,
+    ) -> list[BlockchainTransaction]:
         pass
 
     @abstractmethod
@@ -120,14 +121,14 @@ class BlockchainProvider(ABC):
 class EntityIntelligenceResult:
     address: str
     chain: str
-    entity_name: Optional[str] = None
-    entity_category: Optional[str] = None
-    risk_score: Optional[float] = None
+    entity_name: str | None = None
+    entity_category: str | None = None
+    risk_score: float | None = None
     is_sanctioned: bool = False
-    confidence: Optional[str] = None
-    tags: Optional[List[str]] = None
+    confidence: str | None = None
+    tags: list[str] | None = None
     source: str = "unknown"
-    raw: Optional[Dict[str, Any]] = None
+    raw: dict[str, Any] | None = None
 
 
 class EntityIntelligenceProvider(ABC):
@@ -155,7 +156,7 @@ class EntityIntelligenceProvider(ABC):
 
 
 class EntityIntelProviderRegistry:
-    _providers: Dict[str, EntityIntelligenceProvider] = {}
+    _providers: dict[str, EntityIntelligenceProvider] = {}
 
     @classmethod
     def register(cls, provider: EntityIntelligenceProvider) -> None:
@@ -163,11 +164,11 @@ class EntityIntelProviderRegistry:
         logger.info("entity_intel_provider_registered", provider=provider.provider_name)
 
     @classmethod
-    def get(cls, name: str) -> Optional[EntityIntelligenceProvider]:
+    def get(cls, name: str) -> EntityIntelligenceProvider | None:
         return cls._providers.get(name)
 
     @classmethod
-    def list_available(cls) -> List[str]:
+    def list_available(cls) -> list[str]:
         return list(cls._providers.keys())
 
     @classmethod
@@ -175,24 +176,28 @@ class EntityIntelProviderRegistry:
         for provider in cls._providers.values():
             await provider.close()
         cls._providers.clear()
+
+
 # --- end WS3 block ---
 
 
 class ProviderRegistry:
-    _providers: Dict[int, BlockchainProvider] = {}
-    _default_provider: Optional[BlockchainProvider] = None
+    _providers: dict[int, BlockchainProvider] = {}
+    _default_provider: BlockchainProvider | None = None
 
     @classmethod
     def register(cls, provider: BlockchainProvider) -> None:
         cls._providers[provider.chain_id] = provider
-        logger.info("provider_registered", chain_id=provider.chain_id, chain_name=provider.chain_name)
+        logger.info(
+            "provider_registered", chain_id=provider.chain_id, chain_name=provider.chain_name
+        )
 
     @classmethod
-    def get_provider(cls, chain_id: int) -> Optional[BlockchainProvider]:
+    def get_provider(cls, chain_id: int) -> BlockchainProvider | None:
         return cls._providers.get(chain_id)
 
     @classmethod
-    def get_provider_by_name(cls, chain_name: str) -> Optional[BlockchainProvider]:
+    def get_provider_by_name(cls, chain_name: str) -> BlockchainProvider | None:
         for provider in cls._providers.values():
             if provider.chain_name.lower() == chain_name.lower():
                 return provider
@@ -203,12 +208,12 @@ class ProviderRegistry:
         cls._default_provider = provider
 
     @classmethod
-    def get_default(cls) -> Optional[BlockchainProvider]:
+    def get_default(cls) -> BlockchainProvider | None:
         return cls._default_provider
 
     @classmethod
-    def list_chains(cls) -> List[ChainInfo]:
-        return [provider.get_chain_info() for provider in cls._providers.values()]
+    async def list_chains(cls) -> list[ChainInfo]:
+        return [await provider.get_chain_info() for provider in cls._providers.values()]
 
     @classmethod
     async def close_all(cls) -> None:

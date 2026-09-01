@@ -1,15 +1,16 @@
+from typing import Any
 from uuid import UUID
-from typing import Any, Optional
-from fastapi import APIRouter, Depends, Query, status, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, Field
 
-from src.core import get_session, NotFoundError, ValidationError
-from src.models import Wallet, Case
-from src.schemas import WalletCreate, WalletResponse, InvestigationRunResponse
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core import NotFoundError, get_session
+from src.models import Case, Wallet
+from src.schemas import WalletResponse
 from src.services import wallet_analysis_service
-from src.workers.tasks import wallet_analysis_task
 from src.workers.main import celery_app
+from src.workers.tasks import wallet_analysis_task
 
 # WS3 note: `graph_sync_task` and `entity_enrichment_task` (src/workers/tasks.py)
 # have no real trigger anywhere in the API layer — they're periodic/orphaned
@@ -24,8 +25,8 @@ router = APIRouter(prefix="/analysis", tags=["analysis"])
 
 class WalletAnalyzeRequest(BaseModel):
     address: str = Field(..., min_length=42, max_length=42)
-    chain_id: Optional[int] = Field(None, ge=1)
-    label: Optional[str] = Field(None, max_length=100)
+    chain_id: int | None = Field(None, ge=1)
+    label: str | None = Field(None, max_length=100)
     trace_depth: int = Field(5, ge=1, le=10)
     max_transactions: int = Field(1000, ge=100, le=10000)
 
@@ -40,8 +41,8 @@ class TaskStatusResponse(BaseModel):
     task_id: str
     state: str
     ready: bool
-    result: Optional[Any] = None
-    error: Optional[str] = None
+    result: Any | None = None
+    error: str | None = None
 
 
 class TraceRequest(BaseModel):
@@ -52,9 +53,14 @@ class TraceRequest(BaseModel):
 @router.post("/wallets/validate", response_model=dict)
 async def validate_wallet_address(
     address: str = Query(..., min_length=42, max_length=42),
-    chain_id: Optional[int] = Query(None, ge=1),
+    chain_id: int | None = Query(None, ge=1),
 ):
-    from src.core.validation import is_valid_evm_address, to_checksum, get_chain_info, detect_chain_from_address
+    from src.core.validation import (
+        detect_chain_from_address,
+        get_chain_info,
+        is_valid_evm_address,
+        to_checksum,
+    )
 
     if not is_valid_evm_address(address):
         return {"valid": False, "error": "Invalid EVM address format"}
@@ -70,6 +76,8 @@ async def validate_wallet_address(
     else:
         target_chain = detected_chain or 1
         chain_info = get_chain_info(target_chain)
+        if not chain_info:
+            return {"valid": False, "error": f"Unsupported chain ID: {target_chain}"}
 
     return {
         "valid": True,
@@ -167,10 +175,15 @@ async def get_wallet_transactions(
     if not wallet:
         raise NotFoundError("Wallet", str(wallet_id))
 
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
+
     from src.models import Transaction
 
-    query = select(Transaction).where(Transaction.wallet_id == wallet_id).order_by(Transaction.block_number.desc())
+    query = (
+        select(Transaction)
+        .where(Transaction.wallet_id == wallet_id)
+        .order_by(Transaction.block_number.desc())
+    )
 
     count_query = select(func.count()).select_from(query.subquery())
     total = await session.scalar(count_query) or 0
