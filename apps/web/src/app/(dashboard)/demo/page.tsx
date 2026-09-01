@@ -199,7 +199,7 @@ export default function DemoPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Judge Mode - Demo Scenarios</h1>
           <p className="text-muted-foreground">
-            Pre-seeded synthetic SIH 2026 investigation cases. Click "Run Full Demo" to execute the complete investigation flow.
+            Pre-seeded synthetic SIH 2026 investigation cases. Click &quot;Run Full Demo&quot; to execute the complete investigation flow.
           </p>
         </div>
         <div className="flex items-center gap-2">

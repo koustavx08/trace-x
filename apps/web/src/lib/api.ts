@@ -46,8 +46,8 @@ class ApiClient {
     return response.data;
   }
 
-  async post<T>(url: string, data?: unknown) {
-    const response = await this.client.post<T>(url, data);
+  async post<T>(url: string, data?: unknown, params?: Record<string, unknown>) {
+    const response = await this.client.post<T>(url, data, { params });
     return response.data;
   }
 
@@ -302,7 +302,7 @@ export interface EntityLookupRequest {
 }
 
 export const casesApi = {
-  list: (params?: { page?: number; page_size?: number; status?: string; crime_type?: string }) =>
+  list: (params?: { page?: number; page_size?: number; status?: string; crime_type?: string; search?: string }) =>
     api.get<PaginatedResponse<Case>>("/cases", params),
   get: (id: string) => api.get<Case>(`/cases/${id}`),
   create: (data: Partial<Case>) => api.post<Case>("/cases", data),
@@ -380,7 +380,7 @@ export const graphApi = {
   findPathsToVASP: (walletId: string, data: PathToVASPRequest) =>
     api.post(`/graph/wallets/${walletId}/paths-to-vasp`, data),
   checkMixer: (walletId: string, max_hops?: number) =>
-    api.post(`/graph/wallets/${walletId}/mixer-check`, null, { params: { max_hops } }),
+    api.post(`/graph/wallets/${walletId}/mixer-check`, null, { max_hops }),
   detectPatterns: (data: PatternDetectionRequest) =>
     api.post("/graph/patterns/detect", data),
   detectClusters: (data: ClusterDetectionRequest) =>
@@ -475,7 +475,7 @@ export const riskApi = {
   getAttribution: (walletId: string, max_hops?: number) =>
     api.get<AttributionResponse>(`/risk/wallets/${walletId}/attribution`, { max_hops }),
   attributeWallet: (walletId: string, max_hops?: number) =>
-    api.post<Attribution[]>(`/risk/wallets/${walletId}/attribute`, null, { params: { max_hops } }),
+    api.post<Attribution[]>(`/risk/wallets/${walletId}/attribute`, null, { max_hops }),
   generateReport: (data: {
     case_id: string;
     investigation_run_id?: string;

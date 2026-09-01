@@ -410,7 +410,7 @@ export default function GraphPage() {
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
               <GitBranch className="w-16 h-16 mb-4 opacity-30" />
               <p className="text-lg font-medium">No Graph Loaded</p>
-              <p className="text-sm mt-1">Enter a wallet address and click "Load Graph" to visualize the fund flow</p>
+              <p className="text-sm mt-1">Enter a wallet address and click &quot;Load Graph&quot; to visualize the fund flow</p>
               <div className="mt-6 p-4 rounded-lg bg-tracex-surface border border-tracex-border max-w-md text-left">
                 <p className="font-medium mb-2">Quick Start:</p>
                 <ol className="space-y-1 text-sm list-decimal list-inside">

@@ -243,8 +243,8 @@ export default function AnalyzePage() {
                     required
                     disabled={analyzing}
                   />
-                  <Select value={chainId?.toString() || ""} onValueChange={(v) => setChainId(v ? parseInt(v) : undefined)} className="w-[160px]">
-                    <SelectTrigger>
+                  <Select value={chainId?.toString() || ""} onValueChange={(v) => setChainId(v ? parseInt(v) : undefined)}>
+                    <SelectTrigger className="w-[160px]">
                       <SelectValue placeholder="Auto-detect" />
                     </SelectTrigger>
                     <SelectContent>
@@ -487,7 +487,7 @@ export default function AnalyzePage() {
                     <div className="text-center text-muted-foreground">
                       <Activity className="w-12 h-12 mx-auto mb-4 opacity-50" />
                       <p className="text-lg font-medium">Graph Visualization</p>
-                      <p className="text-sm mt-1">Click "Trace Fund Flow" to build the graph</p>
+                      <p className="text-sm mt-1">Click &quot;Trace Fund Flow&quot; to build the graph</p>
                       <p className="text-xs mt-2">Full interactive graph coming in Phase 10</p>
                     </div>
                   </div>

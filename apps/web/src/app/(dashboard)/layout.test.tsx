@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DashboardLayout } from "./layout";
+import DashboardLayout from "./layout";
 
 // NOTE (WS7): as of this test's authoring, `(dashboard)/layout.tsx` exports
 // `DashboardLayout` as a NAMED export only — there is no `export default`.

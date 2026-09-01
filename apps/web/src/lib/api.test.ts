@@ -73,7 +73,7 @@ describe("ApiClient http methods", () => {
   it("post() unwraps response.data and forwards the body", async () => {
     mockAxiosInstance.post.mockResolvedValueOnce({ data: { id: "1" } });
     const result = await api.post("/foo", { name: "bar" });
-    expect(mockAxiosInstance.post).toHaveBeenCalledWith("/foo", { name: "bar" });
+    expect(mockAxiosInstance.post).toHaveBeenCalledWith("/foo", { name: "bar" }, { params: undefined });
     expect(result).toEqual({ id: "1" });
   });
 
@@ -117,7 +117,7 @@ describe("resource API helpers", () => {
   it("casesApi.create calls POST /cases with the payload", async () => {
     mockAxiosInstance.post.mockResolvedValueOnce({ data: { id: "c1" } });
     await casesApi.create({ title: "New case" });
-    expect(mockAxiosInstance.post).toHaveBeenCalledWith("/cases", { title: "New case" });
+    expect(mockAxiosInstance.post).toHaveBeenCalledWith("/cases", { title: "New case" }, { params: undefined });
   });
 
   it("walletsApi.list calls GET /wallets with params", async () => {
@@ -136,10 +136,14 @@ describe("resource API helpers", () => {
   it("graphApi.getSubgraph calls POST /graph/subgraph with the request body", async () => {
     mockAxiosInstance.post.mockResolvedValueOnce({ data: { nodes: [], edges: [] } });
     await graphApi.getSubgraph({ addresses: ["0xabc"], chain: "ethereum" });
-    expect(mockAxiosInstance.post).toHaveBeenCalledWith("/graph/subgraph", {
-      addresses: ["0xabc"],
-      chain: "ethereum",
-    });
+    expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+      "/graph/subgraph",
+      {
+        addresses: ["0xabc"],
+        chain: "ethereum",
+      },
+      { params: undefined }
+    );
   });
 
   it("reportsApi.list calls GET /reports with params", async () => {

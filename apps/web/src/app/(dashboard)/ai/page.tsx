@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useQuery, useSearchParams } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -415,7 +416,7 @@ export default function AIAssistantPage() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2 text-center">
-            Press Enter to send, Shift+Enter for new line. Try: "Risk for wallet 0x...", "Trace funds from 0x...", "Case TRX-20240115-0042 summary"
+            Press Enter to send, Shift+Enter for new line. Try: &quot;Risk for wallet 0x...&quot;, &quot;Trace funds from 0x...&quot;, &quot;Case TRX-20240115-0042 summary&quot;
           </p>
         </div>
       </div>

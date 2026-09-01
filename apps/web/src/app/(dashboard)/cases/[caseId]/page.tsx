@@ -311,7 +311,7 @@ export default function CaseDetailPage() {
                 <div className="text-center py-8 text-muted-foreground">
                   <Shield className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p className="text-lg font-medium">No wallets tracked</p>
-                  <p className="text-sm mt-1">Click "Add Wallet" to start tracking addresses</p>
+                  <p className="text-sm mt-1">Click &quot;Add Wallet&quot; to start tracking addresses</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
