@@ -32,6 +32,7 @@ from fixtures_db import api_client, db_session  # noqa: F401
 
 from src.auth import (
     AuditAction,
+    AuditLogEntry,
     AuditLogger,
     AuthService,
     TokenType,
@@ -39,6 +40,7 @@ from src.auth import (
     create_access_token,
     create_refresh_token,
     decode_token,
+    _decode_token_payload,
     hash_password,
     require_admin,
     require_analyst,
@@ -90,32 +92,38 @@ class TestPasswordHashing:
 # ---------------------------------------------------------------------------
 
 class TestTokens:
+    """Exercises signature/expiry decoding via `_decode_token_payload`, the
+    sync inner helper `decode_token` wraps. `decode_token` itself additionally
+    checks the Redis JTI blacklist, so it needs a reachable Redis and isn't a
+    pure-logic call -- see TestAsyncDecodeToken below for that behavior.
+    """
+
     def test_access_token_roundtrip(self):
         token = create_access_token({"sub": "user-123", "email": "a@b.com", "role": "analyst"})
-        data = decode_token(token)
+        data = _decode_token_payload(token)
         assert data.sub == "user-123"
         assert data.email == "a@b.com"
         assert data.type == TokenType.ACCESS
 
     def test_refresh_token_roundtrip(self):
         token = create_refresh_token({"sub": "user-123", "email": "a@b.com", "role": "admin"})
-        data = decode_token(token)
+        data = _decode_token_payload(token)
         assert data.type == TokenType.REFRESH
 
     def test_access_and_refresh_tokens_have_distinct_jti(self):
         payload = {"sub": "user-123", "email": "a@b.com", "role": "analyst"}
-        access = decode_token(create_access_token(payload))
-        refresh = decode_token(create_refresh_token(payload))
+        access = _decode_token_payload(create_access_token(payload))
+        refresh = _decode_token_payload(create_refresh_token(payload))
         assert access.jti != refresh.jti
 
     def test_decode_invalid_token_raises_validation_error(self):
         with pytest.raises(ValidationError):
-            decode_token("not-a-real-jwt")
+            _decode_token_payload("not-a-real-jwt")
 
     def test_decode_tampered_token_raises_validation_error(self):
         token = create_access_token({"sub": "user-123", "email": "a@b.com", "role": "analyst"})
         with pytest.raises(ValidationError):
-            decode_token(token + "tampered")
+            _decode_token_payload(token + "tampered")
 
 
 # ---------------------------------------------------------------------------
@@ -174,31 +182,61 @@ class TestRBAC:
 # ---------------------------------------------------------------------------
 
 class TestAuditLoggerCurrentBehavior:
-    async def test_log_buffers_entry_in_memory(self):
+    """AuditLogger now persists each entry immediately to the audit_log table
+    (see src/auth/__init__.py's _persist); the in-memory buffer is only a
+    resilience fallback for entries whose immediate persist attempt fails, so
+    these tests fake _persist rather than depend on a real reachable DB.
+    """
+
+    async def test_log_persists_immediately_on_success(self):
         logger = AuditLogger()
+        persisted = []
+
+        async def fake_persist(entry):
+            persisted.append(entry)
+
+        logger._persist = fake_persist
+        await logger.log(action=AuditAction.LOGIN, user_email="a@b.com", success=True)
+        assert len(persisted) == 1
+        assert persisted[0].action == AuditAction.LOGIN
+        assert logger._buffer == []
+
+    async def test_log_buffers_entry_when_persist_fails(self):
+        logger = AuditLogger()
+
+        async def failing_persist(entry):
+            # Replicates the real _persist()'s own except-block contract:
+            # a persistence failure is caught there and the entry is
+            # appended to the buffer for retry, never raised to the caller.
+            logger._buffer.append(entry)
+
+        logger._persist = failing_persist
         assert logger._buffer == []
         await logger.log(action=AuditAction.LOGIN, user_email="a@b.com", success=True)
         assert len(logger._buffer) == 1
         assert logger._buffer[0].action == AuditAction.LOGIN
 
-    async def test_buffer_flushes_and_clears_at_buffer_size(self):
+    async def test_buffer_flushes_and_clears_once_persist_succeeds(self):
         logger = AuditLogger()
-        logger._buffer_size = 3
-        for _ in range(3):
-            await logger.log(action=AuditAction.CASE_READ, success=True)
-        # Current implementation's _flush_buffer() just clears the buffer --
-        # this documents today's "in-memory only, no real persistence"
-        # behavior. WS1 is expected to replace this with a real async DB
-        # write; once it does, this assertion (buffer is empty because it
-        # was *persisted*, not merely dropped) should still hold, but a
-        # complementary test asserting rows landed in an audit_log table
-        # should be added then.
+        logger._buffer = [
+            AuditLogEntry(action=AuditAction.CASE_READ, success=True) for _ in range(3)
+        ]
+
+        async def succeeding_persist(entry):
+            pass
+
+        logger._persist = succeeding_persist
+        await logger._flush_buffer()
         assert logger._buffer == []
 
     async def test_close_flushes_remaining_buffer(self):
         logger = AuditLogger()
-        await logger.log(action=AuditAction.LOGIN_FAILED, success=False)
-        assert len(logger._buffer) == 1
+        logger._buffer = [AuditLogEntry(action=AuditAction.LOGIN_FAILED, success=False)]
+
+        async def succeeding_persist(entry):
+            pass
+
+        logger._persist = succeeding_persist
         await logger.close()
         assert logger._buffer == []
 
@@ -228,7 +266,7 @@ class TestAuthServiceWithDB:
         assert token_response.refresh_token
         assert token_response.token_type == "bearer"
 
-        decoded = decode_token(token_response.access_token)
+        decoded = await decode_token(token_response.access_token)
         assert decoded.sub == str(user.id)
         assert decoded.role == UserRole.ANALYST
 

@@ -30,7 +30,7 @@ from src.providers.evm.alchemy import AlchemyProvider
 from src.providers.evm.infura import InfuraProvider
 
 
-ADDRESS = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+ADDRESS = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1"
 
 
 def _make_alchemy_provider() -> AlchemyProvider:

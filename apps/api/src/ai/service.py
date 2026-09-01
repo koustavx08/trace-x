@@ -141,7 +141,7 @@ class InvestigationAssistant:
                 re.compile(r"how risky|risk level|risk assessment", re.I),
             ],
             QueryType.ATTRIBUTION: [
-                re.compile(r"(attribut|vasp|exchange|who owns|where.*go|endpoint)", re.I),
+                re.compile(r"(attribut|vasp|exchange|where.*go|endpoint)", re.I),
                 re.compile(r"(cash out|off.ramp|deposit to)", re.I),
             ],
             QueryType.PATTERN_DETECTION: [
@@ -153,7 +153,7 @@ class InvestigationAssistant:
                 re.compile(r"(where did|where.*from|where.*to|follow the money)", re.I),
             ],
             QueryType.ENTITY_LOOKUP: [
-                re.compile(r"(who is|what is|entity|owner|label).*(address|wallet)", re.I),
+                re.compile(r"(who is|who owns|what is|entity|owner|label).*(address|wallet)", re.I),
                 re.compile(r"(known|identified|label).*(address|wallet)", re.I),
             ],
             QueryType.CASE_OVERVIEW: [
@@ -162,6 +162,7 @@ class InvestigationAssistant:
             ],
             QueryType.TIMELINE: [
                 re.compile(r"(timeline|when|chronolog|history|sequence).*(transaction|event)", re.I),
+                re.compile(r"(transaction|event).*(timeline|chronolog|history|sequence)", re.I),
                 re.compile(r"(first|last|recent).*(transaction|activity)", re.I),
             ],
             QueryType.COMPARISON: [
@@ -170,12 +171,16 @@ class InvestigationAssistant:
             ],
         }
 
-    def classify_query(self, query: str) -> QueryType:
+    def _match_query_type(self, query: str) -> Optional[QueryType]:
+        """Returns the matched QueryType, or None if no pattern matched."""
         for query_type, patterns in self._query_patterns.items():
             for pattern in patterns:
                 if pattern.search(query):
                     return query_type
-        return QueryType.CASE_OVERVIEW
+        return None
+
+    def classify_query(self, query: str) -> QueryType:
+        return self._match_query_type(query) or QueryType.CASE_OVERVIEW
 
     def extract_entities(self, query: str) -> Dict[str, Any]:
         entities = {}
@@ -271,11 +276,13 @@ class InvestigationAssistant:
         wallet_id: Optional[str] = None,
     ) -> AIResponse:
         llm_extraction = await self._classify_and_extract_llm(query)
+        matched_type: Optional[QueryType]
         if llm_extraction:
             try:
                 query_type = QueryType(llm_extraction.get("query_type"))
             except ValueError:
                 query_type = QueryType.CASE_OVERVIEW
+            matched_type = query_type
             entities = {
                 k: v
                 for k, v in llm_extraction.items()
@@ -284,7 +291,12 @@ class InvestigationAssistant:
         else:
             # Fallback path (also the only path when ANTHROPIC_API_KEY is unset):
             # the original compiled-regex classifier and entity extractor.
-            query_type = self.classify_query(query)
+            # _match_query_type() (unlike classify_query()) distinguishes a
+            # real CASE_OVERVIEW match from no match at all, so genuinely
+            # unclassifiable queries route to the capabilities-listing
+            # general handler instead of the "please provide a case ID" one.
+            matched_type = self._match_query_type(query)
+            query_type = matched_type or QueryType.CASE_OVERVIEW
             entities = self.extract_entities(query)
 
         wallet_id = wallet_id or entities.get("wallet_id")
@@ -306,7 +318,7 @@ class InvestigationAssistant:
             QueryType.COMPARISON: self._handle_comparison,
         }
 
-        handler = handlers.get(query_type, self._handle_general)
+        handler = handlers.get(query_type, self._handle_general) if matched_type else self._handle_general
         return await handler(query, case_id, wallet_id, address, chain)
 
     async def _handle_risk_summary(

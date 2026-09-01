@@ -61,9 +61,9 @@ class TestExtractEntities:
     def test_extracts_ethereum_address(self):
         assistant = InvestigationAssistant()
         entities = assistant.extract_entities(
-            "What's the risk for 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb?"
+            "What's the risk for 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1?"
         )
-        assert entities["address"] == "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+        assert entities["address"] == "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1"
 
     def test_extracts_case_number(self):
         assistant = InvestigationAssistant()
@@ -170,7 +170,26 @@ class TestAIEndpointsNoDB:
             "mode (WS2 not landed in this worktree)"
         )
 
-    async def test_chat_roundtrip_creates_and_retrieves_history(self, plain_client):
+    @pytest.fixture
+    async def _require_redis(self):
+        """ChatSessionStore persists sessions to Redis with no in-memory
+        fallback (see src/ai/api.py), so only the chat/* tests below need a
+        reachable REDIS_URL. Skip cleanly rather than fail when one isn't
+        available, matching fixtures_db.py's db_session skip-if-unreachable
+        pattern. Not autouse: the query/capabilities tests above don't touch
+        Redis and should keep running without it."""
+        import redis.asyncio as aioredis
+        from src.core.config import get_settings
+
+        client = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            await client.ping()
+        except Exception as exc:
+            pytest.skip(f"Redis not reachable: {exc}")
+        finally:
+            await client.aclose()
+
+    async def test_chat_roundtrip_creates_and_retrieves_history(self, plain_client, _require_redis):
         chat_response = await plain_client.post(
             "/api/v1/ai/chat", json={"message": "hello there"}
         )
@@ -185,11 +204,11 @@ class TestAIEndpointsNoDB:
         assert messages[0]["role"] == "user"
         assert messages[1]["role"] == "assistant"
 
-    async def test_chat_history_not_found(self, plain_client):
+    async def test_chat_history_not_found(self, plain_client, _require_redis):
         response = await plain_client.get(f"/api/v1/ai/chat/history/{uuid4()}")
         assert response.status_code == 404
 
-    async def test_chat_history_delete(self, plain_client):
+    async def test_chat_history_delete(self, plain_client, _require_redis):
         chat_response = await plain_client.post(
             "/api/v1/ai/chat", json={"message": "delete me"}
         )

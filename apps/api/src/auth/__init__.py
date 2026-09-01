@@ -10,11 +10,11 @@ from typing import Optional, List, Dict, Any
 from uuid import UUID, uuid4
 from enum import Enum
 import structlog
+import bcrypt
 import jwt
 import redis.asyncio as redis
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,8 +37,10 @@ settings = get_settings()
 limiter = Limiter(key_func=get_remote_address)
 # --- end shared rate limiter ---
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing (bcrypt used directly -- passlib 1.7.4's bcrypt backend is
+# incompatible with bcrypt>=4.1, which enforces the 72-byte secret limit that
+# passlib's internal calibration routine violates, breaking every hash/verify
+# call: https://github.com/pyca/bcrypt/issues/684)
 
 # JWT settings
 ALGORITHM = "HS256"
@@ -305,12 +307,15 @@ audit_logger = AuditLogger()
 
 def hash_password(password: str) -> str:
     """Hash a password."""
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode("utf-8")[:72], bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8")[:72], hashed_password.encode("utf-8"))
+    except ValueError:
+        return False
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

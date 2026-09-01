@@ -289,9 +289,20 @@ class RiskScoringEngine:
         if not entity_data:
             return factors
 
-        entity_type = entity_data.get("entity_type")
+        # entity_type/confidence may arrive as plain strings (e.g. read back
+        # from DB columns) rather than enum members -- normalize both so
+        # `.value` below always works.
+        raw_entity_type = entity_data.get("entity_type")
+        try:
+            entity_type = EntityType(raw_entity_type) if raw_entity_type else None
+        except ValueError:
+            entity_type = None
         entity_name = entity_data.get("entity_name", "Unknown")
-        confidence = entity_data.get("confidence", ConfidenceLevel.UNKNOWN)
+        raw_confidence = entity_data.get("confidence", ConfidenceLevel.UNKNOWN)
+        try:
+            confidence = ConfidenceLevel(raw_confidence) if raw_confidence else ConfidenceLevel.UNKNOWN
+        except ValueError:
+            confidence = ConfidenceLevel.UNKNOWN
 
         high_risk_types = {
             EntityType.MIXER: (RiskSeverity.CRITICAL, 95, "Known mixer/tumbler service"),

@@ -22,7 +22,6 @@ dependencies = [
     "web3>=6.11.0",
     "eth-utils>=2.2.0",
     "celery>=5.3.0",
-    "passlib>=1.7.4",
     "bcrypt>=4.1.0",
     "pyjwt>=2.8.0",
     "slowapi>=0.1.9",
