@@ -76,14 +76,6 @@ class ReportGenerator:
     ) -> GeneratedReport:
         report_format = ReportFormat(format)
 
-        # NOTE: intentionally uses async_session_factory() directly rather
-        # than `src.core.get_session()`. `get_session` is a bare async
-        # generator (not decorated with @asynccontextmanager), so
-        # `async with get_session()` raises TypeError at runtime — a
-        # pre-existing bug elsewhere in the codebase (see
-        # src/workers/tasks.py, src/core/database.py) that is out of this
-        # module's write-set to fix. Using the session factory directly
-        # sidesteps it for this read-only path.
         async with async_session_factory() as session:
             case = await session.get(Case, UUID(case_id))
             if not case:

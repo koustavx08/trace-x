@@ -1,7 +1,7 @@
 from typing import Any
 from fastapi import HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import ValidationError
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -144,9 +144,11 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     )
 
 
-async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
+async def request_validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     logger.warning(
-        "validation_error",
+        "request_validation_error",
         errors=exc.errors(),
         path=request.url.path,
         method=request.method,
@@ -186,5 +188,5 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
 def register_exception_handlers(app) -> None:
     app.add_exception_handler(TraceXException, tracex_exception_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)
-    app.add_exception_handler(ValidationError, validation_exception_handler)
+    app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
     app.add_exception_handler(Exception, generic_exception_handler)

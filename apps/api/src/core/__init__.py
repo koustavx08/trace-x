@@ -1,5 +1,13 @@
 from .config import Settings, get_settings
-from .database import Base, engine, async_session_factory, get_session, init_db, close_db
+from .database import (
+    Base,
+    engine,
+    async_session_factory,
+    get_session,
+    get_session_context,
+    init_db,
+    close_db,
+)
 from .logging import setup_logging, get_logger
 from .exceptions import (
     TraceXException,
@@ -29,6 +37,7 @@ __all__ = [
     "engine",
     "async_session_factory",
     "get_session",
+    "get_session_context",
     "init_db",
     "close_db",
     "setup_logging",

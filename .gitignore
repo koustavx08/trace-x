@@ -89,7 +89,7 @@ wallet/
 # Generated investigation data
 investigations/
 exports/
-reports/
+/reports/
 
 # Build artifacts and temporary files
 *.zip
@@ -160,4 +160,4 @@ wallet/
 # Generated investigation data
 investigations/
 exports/
-reports/
+/reports/

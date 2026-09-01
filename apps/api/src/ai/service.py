@@ -15,7 +15,7 @@ from ..graph.models import ConfidenceLevel, EntityType
 from ..analytics.risk_engine import risk_scoring_engine
 from ..analytics.attribution_engine import attribution_engine
 from src.models import Case, Wallet, InvestigationRun, Transaction
-from src.core import get_session
+from src.core import get_session_context
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -430,7 +430,7 @@ class InvestigationAssistant:
         target_address = address
 
         if not target_wallet_id and target_address:
-            async with get_session() as session:
+            async with get_session_context() as session:
                 from sqlalchemy import select
                 from src.models import Wallet
                 result = await session.execute(
@@ -514,7 +514,7 @@ class InvestigationAssistant:
         patterns_found = []
 
         if wallet_id:
-            async with get_session() as session:
+            async with get_session_context() as session:
                 from src.models import Wallet
                 wallet = await session.get(Wallet, wallet_id)
                 if wallet:
@@ -599,7 +599,7 @@ class InvestigationAssistant:
 
         target_address = address
         if not target_address and wallet_id:
-            async with get_session() as session:
+            async with get_session_context() as session:
                 from src.models import Wallet
                 wallet = await session.get(Wallet, wallet_id)
                 if wallet:
@@ -758,7 +758,7 @@ class InvestigationAssistant:
                 follow_up_questions=["Provide a case number (e.g., TRX-20240115-0042)."],
             )
 
-        async with get_session() as session:
+        async with get_session_context() as session:
             case = await session.get(Case, case_id)
             if not case:
                 return AIResponse(
@@ -852,7 +852,7 @@ class InvestigationAssistant:
 
         target_address = address
         if wallet_id:
-            async with get_session() as session:
+            async with get_session_context() as session:
                 from src.models import Wallet
                 wallet = await session.get(Wallet, wallet_id)
                 if wallet:
@@ -964,7 +964,7 @@ class InvestigationAssistant:
         )
 
     async def _get_wallet_risk(self, wallet_id: str):
-        async with get_session() as session:
+        async with get_session_context() as session:
             from src.models import Wallet, Transaction
             from sqlalchemy import select
             wallet = await session.get(Wallet, wallet_id)
@@ -1027,7 +1027,7 @@ class InvestigationAssistant:
             )
 
     async def _get_case_risk_summary(self, case_id: str) -> Dict[str, Any]:
-        async with get_session() as session:
+        async with get_session_context() as session:
             case = await session.get(Case, case_id)
             if not case:
                 return {}
@@ -1113,7 +1113,7 @@ class InvestigationAssistant:
             return fallback_narrative
 
     async def _resolve_case_id(self, case_number: str) -> Optional[str]:
-        async with get_session() as session:
+        async with get_session_context() as session:
             from sqlalchemy import select
             from src.models import Case
             result = await session.execute(select(Case).where(Case.case_number == case_number))

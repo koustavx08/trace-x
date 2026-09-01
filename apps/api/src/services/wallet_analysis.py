@@ -3,7 +3,7 @@ from uuid import UUID
 from datetime import datetime
 import structlog
 
-from src.core import get_session, get_logger, NotFoundError, ValidationError
+from src.core import get_session_context, get_logger, NotFoundError, ValidationError
 from src.core.validation import is_valid_evm_address, to_checksum, get_chain_info
 from src.models import Wallet, Case, Transaction, InvestigationRun, InvestigationStatus
 from src.schemas import WalletCreate, WalletResponse, InvestigationRunCreate, InvestigationRunResponse
@@ -23,7 +23,7 @@ class WalletAnalysisService:
         chain_id: Optional[int] = None,
         label: Optional[str] = None,
     ) -> WalletResponse:
-        async with get_session() as session:
+        async with get_session_context() as session:
             case = await session.get(Case, case_id)
             if not case:
                 raise NotFoundError("Case", str(case_id))
@@ -93,7 +93,7 @@ class WalletAnalysisService:
         trace_depth: int = 5,
         max_transactions: int = 1000,
     ) -> InvestigationRunResponse:
-        async with get_session() as session:
+        async with get_session_context() as session:
             wallet = await session.get(Wallet, wallet_id)
             if not wallet:
                 raise NotFoundError("Wallet", str(wallet_id))
@@ -195,7 +195,7 @@ class WalletAnalysisService:
         max_hops: int = 5,
         min_value_eth: float = 0.001,
     ) -> Dict[str, Any]:
-        async with get_session() as session:
+        async with get_session_context() as session:
             wallet = await session.get(Wallet, wallet_id)
             if not wallet:
                 raise NotFoundError("Wallet", str(wallet_id))

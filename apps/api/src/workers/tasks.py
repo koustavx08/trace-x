@@ -7,7 +7,7 @@ from datetime import datetime
 import structlog
 import asyncio
 
-from src.core import get_session
+from src.core import get_session_context
 from src.models import Wallet, InvestigationRun, InvestigationStatus, Case
 from ..graph.repository import graph_repository
 from ..graph.models import GraphWallet, GraphTransaction
@@ -32,7 +32,7 @@ def run_async(coro):
 def wallet_analysis_task(self, wallet_id: str, trace_depth: int = 5, max_transactions: int = 1000):
     """Background task for wallet analysis."""
     async def _analyze():
-        async with get_session() as session:
+        async with get_session_context() as session:
             from sqlalchemy import select
             from src.models import Wallet, Transaction
             
@@ -213,7 +213,7 @@ def report_generation_task(self, case_id: str, investigation_run_id: str = None,
                             format: str = "pdf", generated_by: str = "system"):
     """Background task for report generation."""
     async def _generate():
-        async with get_session() as session:
+        async with get_session_context() as session:
             from sqlalchemy import select
             from src.models import Case, InvestigationRun
             
@@ -271,7 +271,7 @@ def report_generation_task(self, case_id: str, investigation_run_id: str = None,
 def graph_sync_task(self, wallet_id: str):
     """Background task to sync wallet data to Neo4j."""
     async def _sync():
-        async with get_session() as session:
+        async with get_session_context() as session:
             from sqlalchemy import select
             from src.models import Wallet, Transaction
             
@@ -336,7 +336,7 @@ def graph_sync_task(self, wallet_id: str):
 def entity_enrichment_task(self, wallet_id: str):
     """Background task for entity enrichment."""
     async def _enrich():
-        async with get_session() as session:
+        async with get_session_context() as session:
             from src.models import Wallet
             
             wallet = await session.get(Wallet, UUID(wallet_id))
@@ -376,7 +376,7 @@ def periodic_entity_sync():
 def cleanup_stale_investigations():
     """Clean up investigations stuck in running state for too long."""
     async def _cleanup():
-        async with get_session() as session:
+        async with get_session_context() as session:
             from sqlalchemy import select, update
             from datetime import timedelta
             

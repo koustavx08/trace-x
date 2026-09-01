@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -42,6 +44,13 @@ async def get_session() -> AsyncSession:
             raise
         finally:
             await session.close()
+
+
+# FastAPI's `Depends(get_session)` drives the bare async generator itself, so
+# `get_session` must stay undecorated. Non-FastAPI callers (Celery workers)
+# need an actual context manager to use `async with`; wrap it separately here
+# rather than decorating get_session, which would break dependency injection.
+get_session_context = asynccontextmanager(get_session)
 
 
 async def init_db() -> None:
