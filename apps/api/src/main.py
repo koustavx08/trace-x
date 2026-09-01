@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -93,6 +94,11 @@ app.add_middleware(SlowAPIMiddleware)
 register_exception_handlers(app)
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+# Exposes http_requests_total / http_request_duration_seconds_bucket at
+# /api/v1/metrics, which is exactly what docker/prometheus/prometheus.yml
+# and rules/alerts.yml (HighErrorRate, HighLatency) already expect.
+Instrumentator().instrument(app).expose(app, endpoint=f"{settings.API_V1_PREFIX}/metrics")
 
 
 @app.get("/")

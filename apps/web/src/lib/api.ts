@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from "axios";
-import { useAuthStore } from "@/store/auth-store";
+import { useAuthStore, type AuthUser } from "@/store/auth-store";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
@@ -301,6 +301,11 @@ export interface EntityLookupRequest {
   chain: string;
 }
 
+export const authApi = {
+  listUsers: (params?: { page?: number; page_size?: number }) =>
+    api.get<PaginatedResponse<AuthUser>>("/auth/users", params),
+};
+
 export const casesApi = {
   list: (params?: { page?: number; page_size?: number; status?: string; crime_type?: string; search?: string }) =>
     api.get<PaginatedResponse<Case>>("/cases", params),
@@ -356,7 +361,7 @@ export const analysisApi = {
 
 export const graphApi = {
   syncWallet: (walletId: string) =>
-    api.post<{ status: string; wallet_id: string; transactions: number }>("/graph/wallets/sync", { wallet_id: walletId }),
+    api.post<{ status: string; wallet_id: string; task_id: string }>("/graph/wallets/sync", { wallet_id: walletId }),
   getSubgraph: async (data: SubgraphRequest): Promise<SubgraphResponse> => {
     const raw = await api.post<RawSubgraphResponse>("/graph/subgraph", data);
     return {

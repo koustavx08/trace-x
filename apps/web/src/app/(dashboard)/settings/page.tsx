@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from "@/components/ui/table";
 import { formatRelativeTime } from "@/lib/utils";
+import { authApi } from "@/lib/api";
 import {
   Shield,
   Database,
@@ -29,6 +31,12 @@ import {
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("general");
+
+  const { data: usersData, isLoading: usersLoading, error: usersError } = useQuery({
+    queryKey: ["users"],
+    queryFn: () => authApi.listUsers({ page: 1, page_size: 100 }),
+    enabled: activeTab === "users",
+  });
 
   return (
     <div className="space-y-6">
@@ -270,56 +278,72 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="users" className="space-y-6">
-          {/*
-            TODO(backend gap): there is no user-listing endpoint yet.
-            apps/api/src/api/v1/auth.py only exposes POST /auth/users (create)
-            and GET /auth/me (current user) - there is no GET /auth/users (or
-            similar) to list/manage accounts, so this tab cannot be wired to
-            real data without a new backend route. That route is out of this
-            page's write-set to invent, so the previous hardcoded sample-user
-            table has been removed rather than left showing fake data. See
-            docs/KNOWN_LIMITATIONS.md for the tracked gap.
-          */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle>User Management</CardTitle>
-              <Button disabled title="User creation UI pending a user-listing API">
+              <Button disabled title="User creation form not built yet">
                 <Plus className="w-4 h-4 mr-2" />Add User
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="flex items-start gap-3 p-4 rounded-lg bg-tracex-surface-hover/50 border border-tracex-border">
-                <Info className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium">User management is not available yet</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    The backend does not currently expose an endpoint to list or manage user
-                    accounts (only account creation and fetching the current user exist).
-                    This table will be wired up once a user-listing endpoint ships.
-                  </p>
+              {usersError ? (
+                <div className="flex items-start gap-3 p-4 rounded-lg bg-tracex-surface-hover/50 border border-tracex-border">
+                  <Info className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium">Couldn&apos;t load users</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {(usersError as { response?: { status?: number } })?.response?.status === 403
+                        ? "Only admins can view the user list."
+                        : "The user list failed to load. Try again shortly."}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div className="overflow-x-auto mt-4 opacity-40 pointer-events-none select-none">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Last Login</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
-                        No data source connected
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </div>
+              ) : (
+                <div className="overflow-x-auto mt-4">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Last Login</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {usersLoading ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
+                            Loading…
+                          </TableCell>
+                        </TableRow>
+                      ) : usersData?.items.length ? (
+                        usersData.items.map((u) => (
+                          <TableRow key={u.id}>
+                            <TableCell>{u.full_name}</TableCell>
+                            <TableCell>{u.email}</TableCell>
+                            <TableCell className="capitalize">{u.role}</TableCell>
+                            <TableCell>
+                              <Badge variant={u.is_active ? "default" : "secondary"}>
+                                {u.is_active ? "Active" : "Inactive"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {u.last_login_at ? formatRelativeTime(u.last_login_at) : "Never"}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
+                            No users found
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

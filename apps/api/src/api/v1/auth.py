@@ -2,9 +2,10 @@
 Authentication API endpoints.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import EmailStr
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import (
@@ -19,6 +20,7 @@ from src.auth import (
 )
 from src.core import get_logger, get_session
 from src.models import User
+from src.schemas import PaginatedResponse
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -85,6 +87,31 @@ async def get_current_user_info(
 ):
     """Get current authenticated user info."""
     return UserResponse.model_validate(current_user)
+
+
+@router.get("/users", response_model=PaginatedResponse)
+async def list_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_admin),
+) -> PaginatedResponse:
+    """List users (admin only)."""
+    query = select(User).order_by(User.created_at.desc())
+
+    total = await session.scalar(select(func.count()).select_from(query.subquery())) or 0
+
+    offset = (page - 1) * page_size
+    result = await session.execute(query.offset(offset).limit(page_size))
+    users = result.scalars().all()
+
+    return PaginatedResponse(
+        items=[UserResponse.model_validate(u) for u in users],
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=(total + page_size - 1) // page_size,
+    )
 
 
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

@@ -5,7 +5,12 @@ from uuid import UUID
 from sqlalchemy import select
 
 from src.core import NotFoundError, ValidationError, get_logger, get_session_context
-from src.core.validation import get_chain_info, is_valid_evm_address, to_checksum
+from src.core.validation import (
+    get_chain_id_by_name,
+    get_chain_info,
+    is_valid_evm_address,
+    to_checksum,
+)
 from src.models import Case, InvestigationRun, InvestigationStatus, Transaction, Wallet
 from src.schemas import InvestigationRunResponse, WalletResponse
 
@@ -275,15 +280,7 @@ class WalletAnalysisService:
             }
 
     def _get_chain_id(self, chain_name: str) -> int:
-        chain_map = {
-            "Ethereum": 1,
-            "Polygon": 137,
-            "BSC": 56,
-            "Arbitrum": 42161,
-            "Optimism": 10,
-            "Base": 8453,
-        }
-        return chain_map.get(chain_name, 1)
+        return get_chain_id_by_name(chain_name) or 1
 
 
 wallet_analysis_service = WalletAnalysisService()

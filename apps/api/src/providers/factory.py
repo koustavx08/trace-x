@@ -22,65 +22,113 @@ class ProviderFactory:
 
         settings = get_settings()
 
+        # chain_id -> (Alchemy subdomain, Infura subdomain or None, name, symbol, explorer, rpc override)
+        # BSC has no entry: neither Alchemy nor Infura support it, and no
+        # generic-RPC provider class exists yet (see BSC_RPC_URL note below).
+        chains = [
+            (
+                1,
+                "eth",
+                "mainnet",
+                "Ethereum",
+                "ETH",
+                "https://etherscan.io",
+                settings.ETHEREUM_RPC_URL,
+            ),
+            (
+                137,
+                "polygon",
+                "polygon-mainnet",
+                "Polygon",
+                "MATIC",
+                "https://polygonscan.com",
+                settings.POLYGON_RPC_URL,
+            ),
+            (
+                42161,
+                "arb",
+                "arbitrum-mainnet",
+                "Arbitrum",
+                "ETH",
+                "https://arbiscan.io",
+                settings.ARBITRUM_RPC_URL,
+            ),
+            (
+                10,
+                "opt",
+                "optimism-mainnet",
+                "Optimism",
+                "ETH",
+                "https://optimistic.etherscan.io",
+                settings.OPTIMISM_RPC_URL,
+            ),
+            (
+                8453,
+                "base",
+                "base-mainnet",
+                "Base",
+                "ETH",
+                "https://basescan.org",
+                settings.BASE_RPC_URL,
+            ),
+        ]
+
         if settings.ALCHEMY_API_KEY:
             # WS3: AlchemyProvider now raises ProviderNotConfiguredError for a
             # blank/whitespace-only key; guard registration so that alone
             # can't crash app startup.
             try:
-                ethalchemy = AlchemyProvider(
-                    rpc_url=settings.ETHEREUM_RPC_URL
-                    or f"https://eth-mainnet.g.alchemy.com/v2/{settings.ALCHEMY_API_KEY}",
-                    api_key=settings.ALCHEMY_API_KEY,
-                    chain_id=1,
-                    chain_name="Ethereum",
-                    symbol="ETH",
-                    explorer_url="https://etherscan.io",
-                )
-                ProviderRegistry.register(ethalchemy)
-                ProviderRegistry.set_default(ethalchemy)
-                logger.info("ethereum_alchemy_provider_registered")
-
-                polygonalchemy = AlchemyProvider(
-                    rpc_url=settings.POLYGON_RPC_URL
-                    or f"https://polygon-mainnet.g.alchemy.com/v2/{settings.ALCHEMY_API_KEY}",
-                    api_key=settings.ALCHEMY_API_KEY,
-                    chain_id=137,
-                    chain_name="Polygon",
-                    symbol="MATIC",
-                    explorer_url="https://polygonscan.com",
-                )
-                ProviderRegistry.register(polygonalchemy)
-                logger.info("polygon_alchemy_provider_registered")
+                for (
+                    chain_id,
+                    alchemy_slug,
+                    _infura_slug,
+                    name,
+                    symbol,
+                    explorer,
+                    rpc_override,
+                ) in chains:
+                    alchemy_provider = AlchemyProvider(
+                        rpc_url=rpc_override
+                        or f"https://{alchemy_slug}-mainnet.g.alchemy.com/v2/{settings.ALCHEMY_API_KEY}",
+                        api_key=settings.ALCHEMY_API_KEY,
+                        chain_id=chain_id,
+                        chain_name=name,
+                        symbol=symbol,
+                        explorer_url=explorer,
+                    )
+                    ProviderRegistry.register(alchemy_provider)
+                    if chain_id == 1:
+                        ProviderRegistry.set_default(alchemy_provider)
+                    logger.info("alchemy_provider_registered", chain=name)
             except ProviderNotConfiguredError as e:
                 logger.warning("alchemy_provider_unavailable", reason=e.message)
 
         if settings.INFURA_API_KEY:
-            ethinfura = InfuraProvider(
-                rpc_url=f"https://mainnet.infura.io/v3/{settings.INFURA_API_KEY}",
-                api_key=settings.INFURA_API_KEY,
-                api_secret=settings.INFURA_API_SECRET,
-                chain_id=1,
-                chain_name="Ethereum",
-                symbol="ETH",
-                explorer_url="https://etherscan.io",
-            )
-            if not ProviderRegistry.get_provider(1):
-                ProviderRegistry.register(ethinfura)
-                ProviderRegistry.set_default(ethinfura)
-                logger.info("ethereum_infura_provider_registered")
-
-            polygoninfura = InfuraProvider(
-                rpc_url=f"https://polygon-mainnet.infura.io/v3/{settings.INFURA_API_KEY}",
-                api_key=settings.INFURA_API_KEY,
-                api_secret=settings.INFURA_API_SECRET,
-                chain_id=137,
-                chain_name="Polygon",
-                symbol="MATIC",
-                explorer_url="https://polygonscan.com",
-            )
-            if not ProviderRegistry.get_provider(137):
-                ProviderRegistry.register(polygoninfura)
-                logger.info("polygon_infura_provider_registered")
+            for (
+                chain_id,
+                _alchemy_slug,
+                infura_slug,
+                name,
+                symbol,
+                explorer,
+                rpc_override,
+            ) in chains:
+                if ProviderRegistry.get_provider(chain_id):
+                    continue
+                infura_provider = InfuraProvider(
+                    rpc_url=rpc_override
+                    or f"https://{infura_slug}.infura.io/v3/{settings.INFURA_API_KEY}",
+                    api_key=settings.INFURA_API_KEY,
+                    api_secret=settings.INFURA_API_SECRET,
+                    chain_id=chain_id,
+                    chain_name=name,
+                    symbol=symbol,
+                    explorer_url=explorer,
+                )
+                ProviderRegistry.register(infura_provider)
+                if chain_id == 1:
+                    ProviderRegistry.set_default(infura_provider)
+                logger.info("infura_provider_registered", chain=name)
 
         # --- WS3: entity-intelligence providers (Chainalysis / CipherTrace) ---
         # Each provider raises ProviderNotConfiguredError at construction time

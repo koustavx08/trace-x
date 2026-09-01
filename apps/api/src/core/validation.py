@@ -76,6 +76,13 @@ def get_chain_info(chain_id: int) -> dict | None:
     return CHAIN_CONFIGS.get(chain_id)
 
 
+def get_chain_id_by_name(chain_name: str) -> int | None:
+    for chain_id, info in CHAIN_CONFIGS.items():
+        if info["name"] == chain_name:
+            return chain_id
+    return None
+
+
 def validate_and_normalize_address(address: str) -> tuple[bool, str | None, str | None]:
     if not is_valid_evm_address(address):
         return False, None, "Invalid EVM address format"

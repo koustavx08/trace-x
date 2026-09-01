@@ -12,13 +12,8 @@ from src.services import wallet_analysis_service
 from src.workers.main import celery_app
 from src.workers.tasks import wallet_analysis_task
 
-# WS3 note: `graph_sync_task` and `entity_enrichment_task` (src/workers/tasks.py)
-# have no real trigger anywhere in the API layer — they're periodic/orphaned
-# today (only `periodic_entity_sync`/`cleanup_stale_investigations` run on a
-# schedule). `wallet_analysis_task` already performs graph sync + entity
-# enrichment inline as part of its own pipeline, so no new endpoint was added
-# for them here; left as documented future work rather than inventing a
-# speculative trigger endpoint.
+# `graph_sync_task` is dispatched from POST /graph/wallets/sync,
+# `entity_enrichment_task` from POST /graph/entities/enrich.
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 

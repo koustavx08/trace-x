@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core import NotFoundError, get_session
 from src.graph.client import Neo4jClient
-from src.graph.models import ConfidenceLevel, EntityType, GraphEntity, GraphTransaction, GraphWallet
+from src.graph.models import ConfidenceLevel, EntityType
 from src.graph.queries import graph_queries
 from src.graph.repository import graph_repository
 from src.intelligence import entity_intelligence
@@ -58,69 +58,10 @@ async def sync_wallet_to_graph(
     if not wallet:
         raise NotFoundError("Wallet", str(wallet_id))
 
-    graph_wallet = GraphWallet(
-        address=wallet.address,
-        chain=wallet.chain,
-        label=wallet.label,
-        risk_score=float(wallet.risk_score),
-        first_seen=wallet.created_at,
-        last_seen=wallet.updated_at,
-        entity_name=wallet.entity_name,
-        entity_type=EntityType(wallet.entity_type) if wallet.entity_type else None,
-        entity_confidence=ConfidenceLevel(wallet.entity_confidence)
-        if wallet.entity_confidence
-        else ConfidenceLevel.UNKNOWN,
-    )
-    await graph_repository.upsert_wallet(graph_wallet)
+    from src.workers.tasks import graph_sync_task
 
-    from sqlalchemy import select
-
-    from src.models import Transaction
-
-    result = await session.execute(select(Transaction).where(Transaction.wallet_id == wallet_id))
-    transactions = result.scalars().all()
-
-    for tx in transactions:
-        graph_tx = GraphTransaction(
-            tx_hash=tx.tx_hash,
-            chain=wallet.chain,
-            block_number=tx.block_number,
-            timestamp=tx.timestamp,
-            from_address=tx.from_address,
-            to_address=tx.to_address,
-            value=tx.value,
-            value_usd=tx.value_usd,
-            token_address=tx.token_address,
-            token_symbol=tx.token_symbol,
-            method=tx.method,
-            is_suspicious=tx.is_suspicious,
-            metadata=tx.transaction_metadata or {},
-        )
-        await graph_repository.upsert_transaction(graph_tx)
-        await graph_repository.link_wallet_transaction(
-            wallet.address, wallet.chain, tx.tx_hash, "sent"
-        )
-        await graph_repository.link_wallet_transaction(
-            tx.to_address, wallet.chain, tx.tx_hash, "received"
-        )
-
-    if wallet.entity_name and wallet.entity_confidence:
-        entity = GraphEntity(
-            name=wallet.entity_name,
-            entity_type=EntityType(wallet.entity_type)
-            if wallet.entity_type
-            else EntityType.UNKNOWN,
-            address=wallet.address,
-            chain=wallet.chain,
-            confidence=ConfidenceLevel(wallet.entity_confidence),
-            source="analysis",
-        )
-        await graph_repository.upsert_entity(entity)
-        await graph_repository.link_wallet_entity(wallet.address, wallet.chain, wallet.address)
-
-    await entity_intelligence.enrich_wallet(wallet.address, wallet.chain)
-
-    return {"status": "synced", "wallet_id": str(wallet_id), "transactions": len(transactions)}
+    task = graph_sync_task.delay(str(wallet_id))
+    return {"status": "queued", "wallet_id": str(wallet_id), "task_id": task.id}
 
 
 @router.post("/subgraph")
@@ -269,7 +210,7 @@ async def lookup_entity(request: EntityLookupRequest):
     return {"found": True, "entity": entity.to_dict()}
 
 
-@router.post("/entities/enrich")
+@router.post("/entities/enrich", status_code=status.HTTP_202_ACCEPTED)
 async def enrich_wallet(
     wallet_id: UUID,
     session: AsyncSession = Depends(get_session),
@@ -278,10 +219,10 @@ async def enrich_wallet(
     if not wallet:
         raise NotFoundError("Wallet", str(wallet_id))
 
-    entity = await entity_intelligence.enrich_wallet(wallet.address, wallet.chain)
-    if not entity:
-        return {"enriched": False}
-    return {"enriched": True, "entity": entity.to_dict()}
+    from src.workers.tasks import entity_enrichment_task
+
+    task = entity_enrichment_task.delay(str(wallet_id))
+    return {"status": "queued", "wallet_id": str(wallet_id), "task_id": task.id}
 
 
 @router.post("/entities/sync")

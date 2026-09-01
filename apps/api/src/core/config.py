@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     INFURA_API_SECRET: str | None = None
     ETHEREUM_RPC_URL: str | None = None
     POLYGON_RPC_URL: str | None = None
+    ARBITRUM_RPC_URL: str | None = None
+    OPTIMISM_RPC_URL: str | None = None
+    BASE_RPC_URL: str | None = None
 
     # Entity Intelligence
     CHAINALYSIS_API_KEY: str | None = None

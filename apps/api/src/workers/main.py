@@ -5,6 +5,7 @@ Celery worker configuration for background task processing.
 import os
 
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Queue
 
 # Celery configuration
@@ -26,10 +27,14 @@ celery_app.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     task_routes={
-        "src.workers.tasks.wallet_analysis": {"queue": "analysis"},
-        "src.workers.tasks.report_generation": {"queue": "reports"},
-        "src.workers.tasks.graph_sync": {"queue": "graph"},
-        "src.workers.tasks.entity_enrichment": {"queue": "enrichment"},
+        # ponytail: these never matched -- shared_task with no explicit
+        # name= gets named "<module>.<function name>", i.e. the "_task"
+        # suffix below was missing, so every task silently fell through to
+        # task_default_queue regardless of this routing table.
+        "src.workers.tasks.wallet_analysis_task": {"queue": "analysis"},
+        "src.workers.tasks.report_generation_task": {"queue": "reports"},
+        "src.workers.tasks.graph_sync_task": {"queue": "graph"},
+        "src.workers.tasks.entity_enrichment_task": {"queue": "enrichment"},
     },
     task_default_queue="default",
     task_queues=(
@@ -39,6 +44,16 @@ celery_app.conf.update(
         Queue("graph", routing_key="graph"),
         Queue("enrichment", routing_key="enrichment"),
     ),
+    beat_schedule={
+        "cleanup-stale-investigations": {
+            "task": "src.workers.tasks.cleanup_stale_investigations",
+            "schedule": crontab(minute=0),  # hourly
+        },
+        "periodic-entity-sync": {
+            "task": "src.workers.tasks.periodic_entity_sync",
+            "schedule": crontab(minute=0, hour="*/6"),
+        },
+    },
 )
 
 # Auto-discover tasks

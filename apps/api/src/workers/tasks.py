@@ -15,7 +15,7 @@ from src.models import InvestigationRun, InvestigationStatus
 from src.reports import report_generator
 
 from ..analytics import risk_scoring_engine
-from ..graph.models import ConfidenceLevel, EntityType, GraphTransaction, GraphWallet
+from ..graph.models import ConfidenceLevel, EntityType, GraphEntity, GraphTransaction, GraphWallet
 from ..graph.repository import graph_repository
 
 logger = structlog.get_logger(__name__)
@@ -56,10 +56,12 @@ def wallet_analysis_task(self, wallet_id: str, trace_depth: int = 5, max_transac
 
             try:
                 # Fetch transactions from blockchain
+                from ..core.validation import get_chain_id_by_name
                 from ..providers import ProviderFactory
 
                 ProviderFactory.initialize()
-                provider = ProviderFactory.get_provider(1 if wallet.chain == "Ethereum" else 137)
+                chain_id = get_chain_id_by_name(wallet.chain) or 1
+                provider = ProviderFactory.get_provider(chain_id)
 
                 if not provider:
                     raise ValueError(f"No provider for chain: {wallet.chain}")
@@ -338,6 +340,22 @@ def graph_sync_task(self, wallet_id: str):
                 )
                 await graph_repository.link_wallet_transaction(
                     tx.to_address, wallet.chain, tx.tx_hash, "received"
+                )
+
+            if wallet.entity_name and wallet.entity_confidence:
+                entity = GraphEntity(
+                    name=wallet.entity_name,
+                    entity_type=EntityType(wallet.entity_type)
+                    if wallet.entity_type
+                    else EntityType.UNKNOWN,
+                    address=wallet.address,
+                    chain=wallet.chain,
+                    confidence=ConfidenceLevel(wallet.entity_confidence),
+                    source="analysis",
+                )
+                await graph_repository.upsert_entity(entity)
+                await graph_repository.link_wallet_entity(
+                    wallet.address, wallet.chain, wallet.address
                 )
 
             # Entity enrichment
