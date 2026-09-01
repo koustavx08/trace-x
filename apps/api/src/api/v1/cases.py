@@ -61,9 +61,7 @@ async def list_cases(
         query = query.where(Case.assigned_to == assigned_to)
     if search:
         like = f"%{search}%"
-        query = query.where(
-            Case.case_number.ilike(like) | Case.title.ilike(like)
-        )
+        query = query.where(Case.case_number.ilike(like) | Case.title.ilike(like))
 
     count_query = select(func.count()).select_from(query.subquery())
     total = await session.scalar(count_query) or 0
