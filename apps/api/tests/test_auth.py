@@ -374,7 +374,7 @@ class TestAuthEndpoints:
 
         response = await api_client.post(
             "/api/v1/auth/users",
-            params={
+            json={
                 "email": f"{uuid4().hex[:8]}@example.com",
                 "password": "newpass1",
                 "full_name": "New User",
@@ -394,7 +394,7 @@ class TestAuthEndpoints:
 
         response = await api_client.post(
             "/api/v1/auth/users",
-            params={
+            json={
                 "email": f"{uuid4().hex[:8]}@example.com",
                 "password": "newpass1",
                 "full_name": "New User",

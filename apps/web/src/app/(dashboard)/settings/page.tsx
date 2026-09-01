@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { formatRelativeTime } from "@/lib/utils";
 import { authApi } from "@/lib/api";
 import {
@@ -31,12 +40,35 @@ import {
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("general");
+  const [addUserOpen, setAddUserOpen] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data: usersData, isLoading: usersLoading, error: usersError } = useQuery({
     queryKey: ["users"],
     queryFn: () => authApi.listUsers({ page: 1, page_size: 100 }),
     enabled: activeTab === "users",
   });
+
+  const createUserMutation = useMutation({
+    mutationFn: (data: { email: string; password: string; full_name: string; role: string }) =>
+      authApi.createUser(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      setAddUserOpen(false);
+    },
+  });
+
+  const handleCreateUser = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const data = Object.fromEntries(formData) as {
+      email: string;
+      password: string;
+      full_name: string;
+      role: string;
+    };
+    createUserMutation.mutate(data);
+  };
 
   return (
     <div className="space-y-6">
@@ -281,9 +313,62 @@ export default function SettingsPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle>User Management</CardTitle>
-              <Button disabled title="User creation form not built yet">
-                <Plus className="w-4 h-4 mr-2" />Add User
-              </Button>
+              <Dialog open={addUserOpen} onOpenChange={setAddUserOpen}>
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="w-4 h-4 mr-2" />Add User
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add User</DialogTitle>
+                    <DialogDescription>Create a new account for the platform.</DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleCreateUser}>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="full_name">Full Name</Label>
+                        <Input id="full_name" name="full_name" placeholder="Jane Doe" required />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="email">Email</Label>
+                        <Input id="email" name="email" type="email" placeholder="jane@example.com" required />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="password">Password</Label>
+                        <Input id="password" name="password" type="password" minLength={8} required />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="role">Role</Label>
+                        <Select name="role" defaultValue="analyst">
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="analyst">Analyst</SelectItem>
+                            <SelectItem value="supervisor">Supervisor</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {createUserMutation.isError && (
+                        <p className="text-sm text-destructive">
+                          {(createUserMutation.error as { response?: { data?: { error?: { message?: string } } } })
+                            ?.response?.data?.error?.message || "Failed to create user."}
+                        </p>
+                      )}
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setAddUserOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" disabled={createUserMutation.isPending}>
+                        {createUserMutation.isPending ? "Creating..." : "Create User"}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
             </CardHeader>
             <CardContent>
               {usersError ? (

@@ -127,6 +127,13 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class CreateUserRequest(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+    role: str = "analyst"
+
+
 class UserResponse(BaseModel):
     # WS1 fix: without this, UserResponse.model_validate(<User ORM object>)
     # (used by GET /auth/me) raises a pydantic ValidationError on every call,

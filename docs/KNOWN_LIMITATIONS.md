@@ -54,10 +54,10 @@
 
 ## Settings Page / User Management
 
-- **User creation form not built.** `GET /auth/users` (admin-only, paginated) exists and the Settings page's Users
-  tab lists real accounts, but there's no UI to create/edit/deactivate a user yet (`POST /auth/users` and
-  `PATCH`-style update endpoints exist on the backend; only the "Add User" button is wired to nothing but a
-  disabled/tooltip state on the frontend).
+- **No edit/deactivate UI.** The Users tab lists real accounts and has a working "Add User" dialog
+  (`POST /auth/users`), but there's no way to edit a user or deactivate an account from the frontend yet — the
+  backend has no `PATCH /auth/users/{id}` (or similar) endpoint at all, so this would need a new backend route
+  first, not just a frontend form.
 
 ## Docker / Deployment
 

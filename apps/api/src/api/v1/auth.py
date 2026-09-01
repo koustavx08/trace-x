@@ -4,12 +4,12 @@ Authentication API endpoints.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import EmailStr
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import (
     AuthService,
+    CreateUserRequest,
     LoginRequest,
     TokenResponse,
     UserResponse,
@@ -117,10 +117,7 @@ async def list_users(
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     request: Request,
-    email: EmailStr,
-    password: str,
-    full_name: str,
-    role: str = "analyst",
+    body: CreateUserRequest,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(require_admin),
 ):
@@ -128,18 +125,18 @@ async def create_user(
     from src.models import UserRole
 
     try:
-        user_role = UserRole(role)
+        user_role = UserRole(body.role)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid role: {role}. Valid roles: {[r.value for r in UserRole]}",
+            detail=f"Invalid role: {body.role}. Valid roles: {[r.value for r in UserRole]}",
         ) from exc
 
     auth_service = AuthService(session)
     user = await auth_service.create_user(
-        email=email,
-        password=password,
-        full_name=full_name,
+        email=body.email,
+        password=body.password,
+        full_name=body.full_name,
         role=user_role,
         request=request,
     )

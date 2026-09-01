@@ -304,6 +304,8 @@ export interface EntityLookupRequest {
 export const authApi = {
   listUsers: (params?: { page?: number; page_size?: number }) =>
     api.get<PaginatedResponse<AuthUser>>("/auth/users", params),
+  createUser: (data: { email: string; password: string; full_name: string; role: string }) =>
+    api.post<AuthUser>("/auth/users", data),
 };
 
 export const casesApi = {
