@@ -4,23 +4,28 @@ Authentication API endpoints.
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import (
+    ACCESS_COOKIE_NAME,
+    REFRESH_COOKIE_NAME,
     AuthService,
     ChangePasswordRequest,
     CreateUserRequest,
     LoginRequest,
+    RefreshRequest,
     TokenResponse,
     UpdateUserRequest,
     UserResponse,
+    clear_auth_cookies,
     get_current_user,
     limiter,
     require_admin,
     security,
+    set_auth_cookies,
 )
 from src.core import get_logger, get_session
 from src.models import User
@@ -37,39 +42,57 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 @limiter.limit("5/minute")
 async def login(
     request: Request,
+    response: Response,
     credentials: LoginRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """User login - returns access and refresh tokens."""
+    """User login - sets httpOnly access/refresh cookies and also returns
+    both tokens in the body (for non-browser API clients)."""
     auth_service = AuthService(session)
-    return await auth_service.login(
+    tokens = await auth_service.login(
         email=credentials.email,
         password=credentials.password,
         request=request,
     )
+    set_auth_cookies(response, tokens)
+    return tokens
 
 
 @router.post("/refresh", response_model=TokenResponse)
 @limiter.limit("5/minute")
 async def refresh_token(
     request: Request,
-    refresh_token: str,
+    response: Response,
+    body: RefreshRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Refresh access token using refresh token."""
+    """Refresh access token. Browsers rely on the refresh_token cookie; a
+    non-browser client may instead pass refresh_token in the JSON body."""
+    token = body.refresh_token or request.cookies.get(REFRESH_COOKIE_NAME)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No refresh token provided",
+        )
     auth_service = AuthService(session)
-    return await auth_service.refresh_token(refresh_token)
+    tokens = await auth_service.refresh_token(token)
+    set_auth_cookies(response, tokens)
+    return tokens
 
 
 @router.post("/logout")
 async def logout(
     request: Request,
+    response: Response,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    refresh_token: str | None = None,
     session: AsyncSession = Depends(get_session),
 ):
-    """Log out the current session by revoking its access (and refresh) token."""
-    if not credentials:
+    """Log out the current session by revoking its access (and refresh) token
+    and clearing the auth cookies."""
+    access_token = (
+        credentials.credentials if credentials else request.cookies.get(ACCESS_COOKIE_NAME)
+    )
+    if not access_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
@@ -78,10 +101,11 @@ async def logout(
 
     auth_service = AuthService(session)
     await auth_service.logout(
-        access_token=credentials.credentials,
-        refresh_token=refresh_token,
+        access_token=access_token,
+        refresh_token=request.cookies.get(REFRESH_COOKIE_NAME),
         request=request,
     )
+    clear_auth_cookies(response)
     return {"status": "logged_out"}
 
 

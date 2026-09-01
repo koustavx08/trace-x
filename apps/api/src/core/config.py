@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     ARBITRUM_RPC_URL: str | None = None
     OPTIMISM_RPC_URL: str | None = None
     BASE_RPC_URL: str | None = None
+    # Neither Alchemy nor Infura support BSC; there's no vendor API key for
+    # it, only a plain JSON-RPC endpoint (e.g. a public node or a BSC-
+    # specific RPC provider like Ankr/QuickNode/Chainstack).
+    BSC_RPC_URL: str | None = None
 
     # Entity Intelligence
     CHAINALYSIS_API_KEY: str | None = None

@@ -410,6 +410,57 @@ class TestAuthEndpoints:
 # ---------------------------------------------------------------------------
 
 
+class TestCookieAuth:
+    """POST /auth/login sets httpOnly access_token/refresh_token cookies
+    (see src/auth/set_auth_cookies) as an alternative to the frontend
+    keeping tokens in localStorage. These tests exercise that path directly
+    via HTTP rather than the Authorization header used everywhere else in
+    this file -- httpx.AsyncClient carries cookies between requests made on
+    the same client instance, same as a browser would.
+    """
+
+    async def test_login_sets_cookies_and_they_authenticate_requests(self, api_client, db_session):
+        auth_service = AuthService(db_session)
+        email = f"{uuid4().hex[:8]}@example.com"
+        await auth_service.create_user(email=email, password="pw123456", full_name="Cookie Test")
+
+        login_response = await api_client.post(
+            "/api/v1/auth/login", json={"email": email, "password": "pw123456"}
+        )
+        assert login_response.status_code == 200
+        assert "access_token" in login_response.cookies
+        assert "refresh_token" in login_response.cookies
+
+        # No Authorization header -- only the cookie set above.
+        me_response = await api_client.get("/api/v1/auth/me")
+        assert me_response.status_code == 200
+        assert me_response.json()["email"] == email
+
+    async def test_refresh_reads_cookie_when_body_omits_token(self, api_client, db_session):
+        auth_service = AuthService(db_session)
+        email = f"{uuid4().hex[:8]}@example.com"
+        await auth_service.create_user(email=email, password="pw123456", full_name="Refresh Test")
+
+        await api_client.post("/api/v1/auth/login", json={"email": email, "password": "pw123456"})
+
+        refresh_response = await api_client.post("/api/v1/auth/refresh", json={})
+        assert refresh_response.status_code == 200
+        assert "access_token" in refresh_response.cookies
+
+    async def test_logout_clears_cookies_and_invalidates_session(self, api_client, db_session):
+        auth_service = AuthService(db_session)
+        email = f"{uuid4().hex[:8]}@example.com"
+        await auth_service.create_user(email=email, password="pw123456", full_name="Logout Test")
+
+        await api_client.post("/api/v1/auth/login", json={"email": email, "password": "pw123456"})
+        assert (await api_client.get("/api/v1/auth/me")).status_code == 200
+
+        logout_response = await api_client.post("/api/v1/auth/logout")
+        assert logout_response.status_code == 200
+
+        assert (await api_client.get("/api/v1/auth/me")).status_code == 401
+
+
 class TestWS1NotYetLanded:
     async def test_logout_endpoint(self, api_client, db_session):
         """POST /auth/logout doesn't exist yet in this worktree (WS1)."""

@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * Middleware runs on the server/edge and has no access to localStorage,
- * where the real access/refresh tokens live (see store/auth-store.ts).
- * As a pragmatic middle ground, auth-store also sets a lightweight,
- * non-httpOnly "tracex_auth" presence cookie on login/logout/rehydrate.
- * This middleware only checks for that cookie's presence - it does NOT
- * validate the JWT itself (that still happens API-side on every request).
- * A client can forge this cookie to bypass the redirect, but they still
- * cannot call any protected API route without a valid Bearer token, so
- * this is route-level UX gating, not a security boundary by itself.
+ * Middleware runs on the server/edge. It can read httpOnly cookies fine
+ * (httpOnly only blocks `document.cookie` access in the browser, not the
+ * Cookie header a server sees) -- so it checks the real access_token
+ * cookie the backend sets on login directly, no separate presence-cookie
+ * workaround needed.
+ *
+ * This only checks that the cookie is present, not that the JWT inside it
+ * is still valid -- that's still enforced API-side on every request. A
+ * expired/forged cookie value passes this check and gets a real 401 from
+ * the API instead, which lib/api.ts's response interceptor turns into a
+ * client-side redirect. This middleware is route-level UX gating, not the
+ * security boundary itself.
  */
-const AUTH_COOKIE_NAME = "tracex_auth";
+const ACCESS_COOKIE_NAME = "access_token";
 
 const PROTECTED_PREFIXES = [
   "/dashboard",
@@ -35,7 +38,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const hasAuthCookie = request.cookies.has(AUTH_COOKIE_NAME);
+  const hasAuthCookie = request.cookies.has(ACCESS_COOKIE_NAME);
 
   if (!hasAuthCookie) {
     const loginUrl = new URL("/login", request.url);

@@ -15,24 +15,26 @@
 
 ## Blockchain Providers
 
-- **BSC has no registered provider.** Ethereum, Polygon, Arbitrum, Optimism, and Base are all registered via
-  Alchemy/Infura (see `apps/api/src/providers/factory.py`); BSC is the one CHAIN_CONFIGS entry with no provider,
-  because neither Alchemy nor Infura support it and no generic-RPC provider class exists yet. Selecting BSC fails
-  with "no provider for chain" at analysis time. Adding it needs either a third vendor integration or a bare
-  JSON-RPC provider class pointed at an operator-supplied `BSC_RPC_URL`.
 - **No real API keys are configured anywhere** (Alchemy/Infura/Chainalysis/CipherTrace) in this environment, by
   design — the code is env-driven and falls back to `ProviderNotConfiguredError`/empty results rather than crashing,
-  but zero live blockchain data will flow until an operator supplies real keys.
+  but zero live blockchain data will flow until an operator supplies real keys. This includes BSC now too: it has no
+  vendor API key (neither Alchemy nor Infura support that chain), only a plain `BSC_RPC_URL` an operator can point
+  at any JSON-RPC endpoint (a public node, or a BSC-specific vendor like Ankr/QuickNode).
 
 ## Authentication & Sessions
 
-- **Frontend token storage.** `apps/web/src/store/auth-store.ts` persists access/refresh tokens to `localStorage`
-  via Zustand's `persist` middleware (documented as a known limitation directly in that file). This is readable by
-  any script that can execute in the page's origin — i.e. vulnerable to token exfiltration via XSS. Treat it as an
-  accepted trade-off requiring strong XSS hygiene elsewhere (CSP headers, output encoding, dependency hygiene)
-  rather than a defense in itself. An httpOnly-cookie-based session would avoid this class of risk entirely, but
-  it's a real architectural change (server-side cookie issuance/refresh, CSRF protection, a breaking API-contract
-  change for any direct/non-browser client) — worth a deliberate decision, not a silent rewrite.
+- **Access/refresh tokens are httpOnly cookies now**, not localStorage. `POST /auth/login` and `/auth/refresh` set
+  them (`apps/api/src/auth/__init__.py`'s `set_auth_cookies`); the frontend (`store/auth-store.ts`, `lib/api.ts`)
+  never sees the token values, closing the XSS token-theft exposure that existed before. `Authorization: Bearer`
+  still works too (`get_current_user` accepts either) for non-browser API clients. This relies on frontend and
+  backend sharing a host in production — true here because `docker/nginx/nginx.conf` fronts both under one domain
+  (`/api/*` proxied to the backend, everything else to the frontend) — a different deploy topology (separate
+  subdomains, no shared reverse proxy) would need an explicit cookie `Domain=` and likely a CORS/SameSite review
+  before this still works.
+- **CSRF protection is SameSite=Lax only**, not a separate CSRF token. This is a reasonable baseline for a JSON/AJAX
+  API (SameSite=Lax cookies aren't sent on cross-site XHR/fetch, which covers the typical CSRF vector for endpoints
+  that don't accept form-encoded bodies), but hasn't been pen-tested. If TRACE-X ever needs to be embeddable
+  cross-site or gains a form-post-style endpoint, revisit this.
 
 ## Celery / Background Tasks
 
@@ -44,13 +46,14 @@
 
 ## Infrastructure / Monitoring
 
-- **Neo4j metrics aren't scraped.** Postgres and Redis now have exporters (`postgres-exporter`, `redis-exporter`
-  services + matching Prometheus scrape jobs); Neo4j's own built-in Prometheus metrics endpoint isn't enabled
-  (`server.metrics.prometheus.enabled=true` + exposing its port), so the dashboard's Neo4j heap-usage panel has no
-  data behind it yet.
-- **nginx/container-level metrics aren't collected.** `nginx-exporter`/`cadvisor`/`node-exporter` from an earlier
-  draft of the Prometheus config were never deployed as services; the "System Memory Usage" panel on the Grafana
-  dashboard has no data behind it without `node-exporter` specifically.
+- **Neo4j's Prometheus exporter is enabled but its exact metric names are unverified.** `docker-compose.prod.yml` now
+  sets `NEO4J_server_metrics_prometheus_enabled=true` and a scrape job was added, but the Grafana dashboard's Neo4j
+  heap-usage panel query (`neo4j_memory_heap_usage_bytes` / `neo4j_memory_heap_max_bytes`) was written without a
+  live Neo4j instance to confirm those are the exact metric names Neo4j 5.x Enterprise's exporter emits — check
+  `curl neo4j:2004/metrics` against a running instance and adjust the panel query if the names differ.
+- **nginx/container-level metrics still aren't collected.** `nginx-exporter`/`cadvisor`/`node-exporter` were never
+  deployed as services; the dashboard's "System Memory Usage" panel has no data behind it without `node-exporter`
+  specifically.
 
 ## Settings Page / User Management
 
@@ -61,14 +64,23 @@
 
 ## Docker / Deployment
 
-- **No full image build was verified**, only `docker compose config` (both compose files parse and validate
-  correctly per the green "Docker Compose Validation" CI workflow). A real `docker build` of
-  `apps/api/Dockerfile.prod` / `apps/web`'s Dockerfile, and a full `docker compose up` smoke test, have not been run
-  in this environment (no Docker CLI available in this sandbox) — do that before a first real deploy. In particular,
-  verify the `worker`/`beat` services actually come up: their command was previously broken (`python -m
-  src.workers.main` doesn't start anything — fixed to the real `celery ... worker`/`celery ... beat` invocation) and
-  that specific failure mode couldn't be caught without a live Celery+Redis connection, only reasoned about from the
-  code.
+- **No full image build was verified with a live Docker daemon** (none available in this sandbox) — however, static
+  review of the Dockerfiles while working on the cookie-auth change above turned up three build-breaking/silently-
+  broken issues that a real `docker build` would have caught immediately, all now fixed:
+  - `apps/web/Dockerfile.prod` copied `.next/standalone`, which `next build` only produces when `output: 'standalone'`
+    is set in `next.config.js` — it wasn't, so that `COPY` would have failed outright.
+  - The same Dockerfile had `mkdir .next` / `chown nextjs:nodejs .next` as bare lines with no `RUN` prefix — invalid
+    Dockerfile syntax, would have failed to parse.
+  - `docker-compose.prod.yml` set `NEXT_PUBLIC_API_URL` under the frontend's `environment:` (container-start time),
+    but Next.js inlines `NEXT_PUBLIC_*` vars into the client bundle at `next build` time — that setting had zero
+    effect on the actual browser bundle, which would have silently baked in whatever default `lib/api.ts` falls
+    back to. Fixed by passing it as a `build.args` `ARG` instead, defaulting to the relative path `/api/v1` (nginx
+    already proxies that path to the backend under the same domain, so the browser never needs an absolute URL).
+
+  These were found through careful reading, not a live build — a real `docker build && up` smoke test is still the
+  only way to be fully sure the images work end to end. Do that before a first real deploy, and specifically watch
+  the `worker`/`beat` containers come up cleanly (their command was separately broken and fixed earlier —
+  `python -m src.workers.main` doesn't start anything at all).
 - **`docker-compose.prod.yml` env vars have no committed defaults for secrets** (`SECRET_KEY`, `POSTGRES_PASSWORD`,
   `NEO4J_PASSWORD`, `CORS_ORIGINS`, `GRAFANA_ADMIN_PASSWORD`) by design — a deploy without a populated `.env` starts
   containers with empty/invalid credentials rather than a weak-but-functional default. The compose file alone is

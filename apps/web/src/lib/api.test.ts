@@ -45,12 +45,13 @@ describe("ApiClient construction", () => {
       expect.objectContaining({
         headers: expect.objectContaining({ "Content-Type": "application/json" }),
         timeout: 30000,
+        // Access/refresh tokens live in httpOnly cookies the backend sets;
+        // this is what actually attaches them to requests -- there's no
+        // request interceptor injecting an Authorization header anymore
+        // because there's no token in JS-reachable state to inject.
+        withCredentials: true,
       })
     );
-  });
-
-  it("registers a request interceptor", () => {
-    expect(mockAxiosInstance.interceptors.request.use).toHaveBeenCalled();
   });
 
   it("registers a response interceptor", () => {

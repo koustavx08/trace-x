@@ -23,8 +23,6 @@ class ProviderFactory:
         settings = get_settings()
 
         # chain_id -> (Alchemy subdomain, Infura subdomain or None, name, symbol, explorer, rpc override)
-        # BSC has no entry: neither Alchemy nor Infura support it, and no
-        # generic-RPC provider class exists yet (see BSC_RPC_URL note below).
         chains = [
             (
                 1,
@@ -129,6 +127,25 @@ class ProviderFactory:
                 if chain_id == 1:
                     ProviderRegistry.set_default(infura_provider)
                 logger.info("infura_provider_registered", chain=name)
+
+        # BSC: neither Alchemy nor Infura support it. InfuraProvider's actual
+        # requests are plain JSON-RPC POSTs to self._rpc_url with no
+        # Infura-specific auth ever attached (see providers/evm/infura.py) --
+        # it works with any JSON-RPC endpoint, so it's reused here directly
+        # against an operator-supplied public/vendor-neutral BSC RPC URL
+        # rather than writing a near-identical provider class for one chain.
+        if settings.BSC_RPC_URL and not ProviderRegistry.get_provider(56):
+            bsc_provider = InfuraProvider(
+                rpc_url=settings.BSC_RPC_URL,
+                api_key="unused",
+                api_secret=None,
+                chain_id=56,
+                chain_name="BSC",
+                symbol="BNB",
+                explorer_url="https://bscscan.com",
+            )
+            ProviderRegistry.register(bsc_provider)
+            logger.info("bsc_provider_registered")
 
         # --- WS3: entity-intelligence providers (Chainalysis / CipherTrace) ---
         # Each provider raises ProviderNotConfiguredError at construction time

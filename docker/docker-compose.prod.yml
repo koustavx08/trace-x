@@ -28,9 +28,19 @@ services:
     build:
       context: ../apps/web
       dockerfile: Dockerfile.prod
+      # NEXT_PUBLIC_* vars are baked into the client bundle at `next build`
+      # time -- setting NEXT_PUBLIC_API_URL under `environment:` below has
+      # no effect on it (that only affects the running container, long
+      # after the bundle was already built). /api/v1 (relative) works
+      # because nginx.conf proxies /api/ to the backend under the same
+      # public domain as the frontend; there's no need for the browser to
+      # know a backend hostname at all, let alone the internal Docker one
+      # ("backend:8000") the old value here pointed at, which was never
+      # reachable from outside the compose network in the first place.
+      args:
+        NEXT_PUBLIC_API_URL: /api/v1
     container_name: tracex-frontend-prod
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000/api/v1
       - NODE_ENV=production
     expose:
       - "3000"
@@ -123,6 +133,10 @@ services:
       NEO4J_dbms_memory_pagecache_size: 4g
       NEO4J_dbms_security_procedures_unrestricted: apoc.*,gds.*
       NEO4J_dbms_security_procedures_allowlist: apoc.*,gds.*
+      # Prometheus metrics (Neo4j 5.x key names -- dots become underscores,
+      # NEO4J_ prefix, per the official image's env-to-config mapping).
+      NEO4J_server_metrics_prometheus_enabled: "true"
+      NEO4J_server_metrics_prometheus_endpoint: "0.0.0.0:2004"
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
@@ -130,6 +144,8 @@ services:
     ports:
       - "7474:7474"
       - "7687:7687"
+    expose:
+      - "2004"
     networks:
       - tracex-network
     restart: unless-stopped

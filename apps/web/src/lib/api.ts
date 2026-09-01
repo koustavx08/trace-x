@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from "axios";
+import axios, { AxiosInstance, AxiosError } from "axios";
 import { useAuthStore, type AuthUser } from "@/store/auth-store";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -13,25 +13,18 @@ class ApiClient {
         "Content-Type": "application/json",
       },
       timeout: 30000,
+      // Access/refresh tokens live in httpOnly cookies the backend sets --
+      // this is what actually attaches them to every request; there's no
+      // Authorization-header injection here anymore because there's no
+      // token in JS-reachable state to inject (see store/auth-store.ts).
+      withCredentials: true,
     });
-
-    this.client.interceptors.request.use(
-      (config: InternalAxiosRequestConfig) => {
-        const { accessToken } = useAuthStore.getState();
-        if (accessToken) {
-          config.headers = config.headers ?? {};
-          config.headers.Authorization = `Bearer ${accessToken}`;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error)
-    );
 
     this.client.interceptors.response.use(
       (response) => response,
       (error: AxiosError) => {
         if (error.response?.status === 401) {
-          useAuthStore.getState().logout();
+          void useAuthStore.getState().logout();
           if (typeof window !== "undefined" && window.location.pathname !== "/login") {
             window.location.href = "/login";
           }

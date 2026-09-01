@@ -14,7 +14,7 @@ import bcrypt
 import jwt
 import redis.asyncio as redis
 import structlog
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr, Field
 from slowapi import Limiter
@@ -142,6 +142,45 @@ class ChangePasswordRequest(BaseModel):
 class UpdateUserRequest(BaseModel):
     is_active: bool | None = None
     role: str | None = None
+
+
+class RefreshRequest(BaseModel):
+    # Only needed for non-browser API clients that don't carry the
+    # refresh_token httpOnly cookie the browser flow relies on instead.
+    refresh_token: str | None = None
+
+
+# --- httpOnly auth cookies -------------------------------------------------
+# The frontend used to keep access/refresh tokens in localStorage (readable
+# by any script on the page -- an XSS token-theft exposure). Both tokens are
+# still returned in the response body too (so non-browser API clients keep
+# working exactly as before), but the browser client now relies on these
+# cookies instead of storing the tokens itself.
+ACCESS_COOKIE_NAME = "access_token"
+REFRESH_COOKIE_NAME = "refresh_token"
+
+
+def set_auth_cookies(response: Response, tokens: TokenResponse) -> None:
+    cookie_kwargs: dict[str, Any] = {
+        "httponly": True,
+        "secure": not settings.is_development,
+        "samesite": "lax",
+        "path": "/",
+    }
+    response.set_cookie(
+        ACCESS_COOKIE_NAME, tokens.access_token, max_age=tokens.expires_in, **cookie_kwargs
+    )
+    response.set_cookie(
+        REFRESH_COOKIE_NAME,
+        tokens.refresh_token,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        **cookie_kwargs,
+    )
+
+
+def clear_auth_cookies(response: Response) -> None:
+    response.delete_cookie(ACCESS_COOKIE_NAME, path="/")
+    response.delete_cookie(REFRESH_COOKIE_NAME, path="/")
 
 
 class UserResponse(BaseModel):
@@ -392,11 +431,19 @@ async def decode_token(token: str) -> TokenData:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     session: AsyncSession = Depends(get_session),
 ) -> User:
-    """Get current authenticated user from JWT token."""
-    if not credentials:
+    """Get current authenticated user from JWT token.
+
+    Accepts the token from either the `Authorization: Bearer` header (API
+    clients) or the httpOnly `access_token` cookie (the browser frontend,
+    which no longer keeps tokens in JS-accessible storage) -- whichever is
+    present; the header takes precedence if somehow both are sent.
+    """
+    token = credentials.credentials if credentials else request.cookies.get(ACCESS_COOKIE_NAME)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
@@ -408,7 +455,7 @@ async def get_current_user(
     # all of those uniformly as 401, not 422 -- most importantly so a
     # blacklisted (logged-out) token comes back as 401, as required.
     try:
-        token_data = await decode_token(credentials.credentials)
+        token_data = await decode_token(token)
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -5,30 +5,15 @@ import axios from "axios";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
 /**
- * Lightweight, non-httpOnly cookie used only so that Next.js middleware
- * (which runs on the server/edge and cannot read localStorage) can tell
- * whether a session is "present" before a page renders. It never carries
- * the actual token value - just a presence flag - so a leak of this
- * cookie alone does not grant API access. The real tokens stay in
- * localStorage via zustand's persist middleware below.
- *
- * KNOWN LIMITATION: storing the access/refresh tokens in localStorage
- * (even indirectly through this store) makes them readable by any script
- * that can execute in this origin, i.e. vulnerable to XSS-based token
- * theft. A production hardening pass should move to httpOnly, Secure,
- * SameSite cookies issued directly by the backend instead. Flagging this
- * here for docs/KNOWN_LIMITATIONS.md.
+ * Access/refresh tokens live in httpOnly cookies set directly by the
+ * backend (POST /auth/login, /auth/refresh) -- this store never sees the
+ * token values, so there's nothing here for an XSS-injected script to
+ * steal. Every request below needs `withCredentials: true` so the browser
+ * actually attaches those cookies cross-origin (frontend/backend run on
+ * different ports in dev). Next.js middleware (middleware.ts) reads the
+ * httpOnly access_token cookie directly for route gating -- it runs
+ * server-side, which can read httpOnly cookies fine; only page JS cannot.
  */
-const AUTH_COOKIE_NAME = "tracex_auth";
-
-function setAuthCookie(present: boolean) {
-  if (typeof document === "undefined") return;
-  if (present) {
-    document.cookie = `${AUTH_COOKIE_NAME}=1; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
-  } else {
-    document.cookie = `${AUTH_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax`;
-  }
-}
 
 export interface AuthUser {
   id: string;
@@ -40,13 +25,6 @@ export interface AuthUser {
   created_at: string;
 }
 
-interface TokenResponse {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-  expires_in: number;
-}
-
 export interface LoginCredentials {
   email: string;
   password: string;
@@ -54,82 +32,61 @@ export interface LoginCredentials {
 
 interface AuthState {
   user: AuthUser | null;
-  accessToken: string | null;
-  refreshToken: string | null;
   isAuthenticated: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       user: null,
-      accessToken: null,
-      refreshToken: null,
       isAuthenticated: false,
 
       login: async (credentials: LoginCredentials) => {
-        const { data } = await axios.post<TokenResponse>(
-          `${API_URL}/auth/login`,
-          credentials,
-          { headers: { "Content-Type": "application/json" } }
-        );
-
-        set({
-          accessToken: data.access_token,
-          refreshToken: data.refresh_token,
-          isAuthenticated: true,
+        await axios.post(`${API_URL}/auth/login`, credentials, {
+          withCredentials: true,
+          headers: { "Content-Type": "application/json" },
         });
-        setAuthCookie(true);
+
+        set({ isAuthenticated: true });
 
         try {
           const me = await axios.get<AuthUser>(`${API_URL}/auth/me`, {
-            headers: { Authorization: `Bearer ${data.access_token}` },
+            withCredentials: true,
           });
           set({ user: me.data });
         } catch {
-          // Non-fatal: tokens are valid even if the /me lookup fails.
+          // Non-fatal: the session cookie is valid even if this lookup fails.
         }
       },
 
-      logout: () => {
-        set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
-        setAuthCookie(false);
+      logout: async () => {
+        try {
+          await axios.post(`${API_URL}/auth/logout`, null, { withCredentials: true });
+        } catch {
+          // Best-effort server-side revoke; clear local state regardless.
+        }
+        set({ user: null, isAuthenticated: false });
       },
 
       refresh: async () => {
-        const { refreshToken } = get();
-        if (!refreshToken) {
-          throw new Error("No refresh token available");
-        }
-        const { data } = await axios.post<TokenResponse>(
-          `${API_URL}/auth/refresh`,
-          null,
-          { params: { refresh_token: refreshToken } }
-        );
-        set({
-          accessToken: data.access_token,
-          refreshToken: data.refresh_token,
-          isAuthenticated: true,
-        });
-        setAuthCookie(true);
+        await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true });
+        set({ isAuthenticated: true });
       },
     }),
     {
       name: "tracex-auth-storage",
+      // Only the display-only user profile and a UI hint are persisted --
+      // never anything token-shaped. isAuthenticated is just an optimistic
+      // flag to avoid a flash-of-logged-out UI on reload; a stale/expired
+      // cookie still gets caught by the first API call's 401 (see the
+      // response interceptor in lib/api.ts), which corrects it.
       partialize: (state) => ({
         user: state.user,
-        accessToken: state.accessToken,
-        refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
       }),
-      onRehydrateStorage: () => (state) => {
-        if (state?.isAuthenticated) {
-          setAuthCookie(true);
-        }
-      },
     }
   )
 );
