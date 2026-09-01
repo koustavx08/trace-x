@@ -178,9 +178,20 @@ class TestAIEndpointsNoDB:
         reachable REDIS_URL. Skip cleanly rather than fail when one isn't
         available, matching fixtures_db.py's db_session skip-if-unreachable
         pattern. Not autouse: the query/capabilities tests above don't touch
-        Redis and should keep running without it."""
+        Redis and should keep running without it.
+
+        Also resets ChatSessionStore's cached client after each test:
+        pytest-asyncio gives each test function its own event loop, but
+        ChatSessionStore._redis is a class-level singleton created against
+        whichever loop was active when it was first used -- left cached
+        across tests, the next test's loop finds a connection pool bound to
+        an already-closed one ("RuntimeError: Event loop is closed"). A real
+        server process only ever has one loop for its whole lifetime, so
+        this reset is a test-isolation fix, not a production behavior change.
+        """
         import redis.asyncio as aioredis
 
+        from src.ai.api import ChatSessionStore
         from src.core.config import get_settings
 
         client = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
@@ -190,6 +201,12 @@ class TestAIEndpointsNoDB:
             pytest.skip(f"Redis not reachable: {exc}")
         finally:
             await client.aclose()
+
+        yield
+
+        if ChatSessionStore._redis is not None:
+            await ChatSessionStore._redis.aclose()
+            ChatSessionStore._redis = None
 
     async def test_chat_roundtrip_creates_and_retrieves_history(self, plain_client, _require_redis):
         chat_response = await plain_client.post("/api/v1/ai/chat", json={"message": "hello there"})
