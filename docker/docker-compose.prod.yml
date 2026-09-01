@@ -171,7 +171,8 @@ services:
     build:
       context: ../apps/api
       dockerfile: Dockerfile.prod
-    container_name: tracex-worker-prod
+    # No container_name: deploy.replicas requires Compose to generate a
+    # unique name per replica instance, which a fixed name conflicts with.
     command: ["python", "-m", "src.workers.main"]
     environment:
       - APP_ENV=production
