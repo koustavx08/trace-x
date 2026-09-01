@@ -10,6 +10,7 @@ import structlog
 
 from src.core import get_session_context
 from src.core.config import get_settings
+from src.core.metrics import ai_queries_total
 from src.models import Case
 
 from ..analytics.attribution_engine import attribution_engine
@@ -322,7 +323,11 @@ class InvestigationAssistant:
         handler = (
             handlers.get(query_type, self._handle_general) if matched_type else self._handle_general
         )
-        return await handler(query, case_id, wallet_id, address, chain)
+        response = await handler(query, case_id, wallet_id, address, chain)
+        ai_queries_total.labels(
+            query_type=response.query_type.value, confidence=response.confidence.value
+        ).inc()
+        return response
 
     async def _handle_risk_summary(
         self,

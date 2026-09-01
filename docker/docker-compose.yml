@@ -88,6 +88,62 @@ services:
     networks:
       - tracex-network
 
+  worker:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    container_name: tracex-worker
+    command: ["celery", "-A", "src.workers.main.celery_app", "worker", "--loglevel=info"]
+    environment:
+      APP_ENV: development
+      SECRET_KEY: dev-secret-key-not-for-production-use-only-min-32-chars
+      DATABASE_URL: postgresql+asyncpg://tracex:tracex@postgres:5432/tracex
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: tracexneo4j
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: DEBUG
+    volumes:
+      - ../apps/api:/app
+      - /app/__pycache__
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tracex-network
+
+  beat:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    container_name: tracex-beat
+    command: ["celery", "-A", "src.workers.main.celery_app", "beat", "--loglevel=info"]
+    environment:
+      APP_ENV: development
+      SECRET_KEY: dev-secret-key-not-for-production-use-only-min-32-chars
+      DATABASE_URL: postgresql+asyncpg://tracex:tracex@postgres:5432/tracex
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: tracexneo4j
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: DEBUG
+    volumes:
+      - ../apps/api:/app
+      - /app/__pycache__
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tracex-network
+
   frontend:
     build:
       context: ../apps/web

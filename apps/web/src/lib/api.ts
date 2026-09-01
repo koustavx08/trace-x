@@ -306,6 +306,8 @@ export const authApi = {
     api.get<PaginatedResponse<AuthUser>>("/auth/users", params),
   createUser: (data: { email: string; password: string; full_name: string; role: string }) =>
     api.post<AuthUser>("/auth/users", data),
+  updateUser: (userId: string, data: { is_active?: boolean; role?: string }) =>
+    api.patch<AuthUser>(`/auth/users/${userId}`, data),
 };
 
 export const casesApi = {

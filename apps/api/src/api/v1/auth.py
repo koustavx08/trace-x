@@ -2,6 +2,8 @@
 Authentication API endpoints.
 """
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import func, select
@@ -9,9 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import (
     AuthService,
+    ChangePasswordRequest,
     CreateUserRequest,
     LoginRequest,
     TokenResponse,
+    UpdateUserRequest,
     UserResponse,
     get_current_user,
     limiter,
@@ -146,8 +150,7 @@ async def create_user(
 @router.post("/change-password")
 async def change_password(
     request: Request,
-    current_password: str,
-    new_password: str,
+    body: ChangePasswordRequest,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -155,8 +158,43 @@ async def change_password(
     auth_service = AuthService(session)
     await auth_service.change_password(
         user_id=current_user.id,
-        current_password=current_password,
-        new_password=new_password,
+        current_password=body.current_password,
+        new_password=body.new_password,
         request=request,
     )
     return {"status": "password_changed"}
+
+
+@router.patch("/users/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: UUID,
+    body: UpdateUserRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_admin),
+):
+    """Activate/deactivate a user or change their role (admin only)."""
+    from src.models import UserRole
+
+    user = await session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.id == current_user.id and body.is_active is False:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot deactivate your own account.",
+        )
+
+    if body.role is not None:
+        try:
+            user.role = UserRole(body.role)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid role: {body.role}. Valid roles: {[r.value for r in UserRole]}",
+            ) from exc
+    if body.is_active is not None:
+        user.is_active = body.is_active
+
+    await session.commit()
+    await session.refresh(user)
+    return UserResponse.model_validate(user)

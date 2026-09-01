@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from src.core import NotFoundError, ValidationError, get_logger, get_session_context
+from src.core.metrics import investigations_total, wallet_analysis_total
 from src.core.validation import (
     get_chain_id_by_name,
     get_chain_info,
@@ -179,6 +180,8 @@ class WalletAnalysisService:
 
                 await session.flush()
                 await session.refresh(investigation)
+                investigations_total.labels(status="completed").inc()
+                wallet_analysis_total.labels(status="completed").inc()
 
                 logger.info(
                     "wallet_analysis_completed",
@@ -195,6 +198,8 @@ class WalletAnalysisService:
                 investigation.completed_at = datetime.utcnow()
                 await session.flush()
                 await session.refresh(investigation)
+                investigations_total.labels(status="failed").inc()
+                wallet_analysis_total.labels(status="failed").inc()
 
                 logger.error(
                     "wallet_analysis_failed",

@@ -1,8 +1,8 @@
 # Known Limitations
 
 > **Status:** Updated 2026-09-01 against commit history through the production-readiness pass on `main`.
-> Reflects the actual merged/current codebase, not a pre-merge baseline. Superseded items from the original
-> WS0–WS8 audit have been removed rather than left stale; see git history if that context is needed.
+> Reflects the actual merged/current codebase, not a pre-merge baseline. Superseded items are removed
+> rather than left stale; see git history if that context is needed.
 
 ## AI Assistant
 
@@ -30,41 +30,45 @@
   via Zustand's `persist` middleware (documented as a known limitation directly in that file). This is readable by
   any script that can execute in the page's origin — i.e. vulnerable to token exfiltration via XSS. Treat it as an
   accepted trade-off requiring strong XSS hygiene elsewhere (CSP headers, output encoding, dependency hygiene)
-  rather than a defense in itself. An httpOnly-cookie-based session would avoid this class of risk entirely but is
-  a real architectural change (server-side cookie issuance/refresh), not a quick fix.
+  rather than a defense in itself. An httpOnly-cookie-based session would avoid this class of risk entirely, but
+  it's a real architectural change (server-side cookie issuance/refresh, CSRF protection, a breaking API-contract
+  change for any direct/non-browser client) — worth a deliberate decision, not a silent rewrite.
 
 ## Celery / Background Tasks
 
-- **`cleanup_stale_investigations` and `periodic_entity_sync`** now run on a Celery beat schedule (hourly and every
-  6 hours respectively — see `apps/api/src/workers/main.py`). This requires a Celery **beat** process running
-  alongside the worker (`celery -A src.workers.main beat`) in addition to the worker itself; if only the worker is
-  deployed (no beat process), these periodic tasks silently never fire. Verify both processes are provisioned in
-  whatever deploys `docker-compose.prod.yml`'s `worker` service.
+- **A `beat` process is required alongside `worker`** for `cleanup_stale_investigations` (hourly) and
+  `periodic_entity_sync` (every 6h) to actually fire — both are now provisioned as separate services in both
+  `docker-compose.yml` and `docker-compose.prod.yml`. If you run the worker outside these compose files (bare
+  metal, a different orchestrator), remember beat is a distinct process: `celery -A src.workers.main.celery_app
+  beat`.
 
 ## Infrastructure / Monitoring
 
-- **No Grafana dashboards provisioned.** `docker-compose.prod.yml` mounts `./grafana/dashboards` and
-  `./grafana/datasources`, but no dashboard JSON exists under `docker/grafana/` yet — Grafana comes up with no
-  dashboards until some are added. The `/api/v1/metrics` endpoint (see below) now gives it real data to visualize
-  once dashboards are built.
-- **No `postgres_exporter`/`redis_exporter`.** `docker/prometheus/prometheus.yml`'s scrape targets are limited to
-  `prometheus` (self), `tracex-backend`, and `tracex-frontend` (the last one only if Next.js is ever instrumented —
-  it isn't currently). Postgres/Redis-level metrics (connection pool exhaustion, replication lag, etc.) aren't
-  collected; add the exporters as services plus matching scrape jobs if that visibility is needed.
+- **Neo4j metrics aren't scraped.** Postgres and Redis now have exporters (`postgres-exporter`, `redis-exporter`
+  services + matching Prometheus scrape jobs); Neo4j's own built-in Prometheus metrics endpoint isn't enabled
+  (`server.metrics.prometheus.enabled=true` + exposing its port), so the dashboard's Neo4j heap-usage panel has no
+  data behind it yet.
+- **nginx/container-level metrics aren't collected.** `nginx-exporter`/`cadvisor`/`node-exporter` from an earlier
+  draft of the Prometheus config were never deployed as services; the "System Memory Usage" panel on the Grafana
+  dashboard has no data behind it without `node-exporter` specifically.
 
 ## Settings Page / User Management
 
-- **No edit/deactivate UI.** The Users tab lists real accounts and has a working "Add User" dialog
-  (`POST /auth/users`), but there's no way to edit a user or deactivate an account from the frontend yet — the
-  backend has no `PATCH /auth/users/{id}` (or similar) endpoint at all, so this would need a new backend route
-  first, not just a frontend form.
+- **No role/status change reason or audit trail in the UI.** `PATCH /auth/users/{id}` (activate/deactivate, change
+  role) exists and the Users tab's status badge is now a working toggle, but there's no confirmation dialog or
+  visible history of who changed what — the change lands in the `audit_log` table (`AuditAction.USER_UPDATE`) but
+  isn't surfaced anywhere in the UI.
 
 ## Docker / Deployment
 
 - **No full image build was verified**, only `docker compose config` (both compose files parse and validate
   correctly per the green "Docker Compose Validation" CI workflow). A real `docker build` of
   `apps/api/Dockerfile.prod` / `apps/web`'s Dockerfile, and a full `docker compose up` smoke test, have not been run
-  in this environment (no Docker CLI available in this sandbox) — do that before a first real deploy.
+  in this environment (no Docker CLI available in this sandbox) — do that before a first real deploy. In particular,
+  verify the `worker`/`beat` services actually come up: their command was previously broken (`python -m
+  src.workers.main` doesn't start anything — fixed to the real `celery ... worker`/`celery ... beat` invocation) and
+  that specific failure mode couldn't be caught without a live Celery+Redis connection, only reasoned about from the
+  code.
 - **`docker-compose.prod.yml` env vars have no committed defaults for secrets** (`SECRET_KEY`, `POSTGRES_PASSWORD`,
   `NEO4J_PASSWORD`, `CORS_ORIGINS`, `GRAFANA_ADMIN_PASSWORD`) by design — a deploy without a populated `.env` starts
   containers with empty/invalid credentials rather than a weak-but-functional default. The compose file alone is

@@ -166,6 +166,30 @@ services:
         limits:
           memory: 1G
 
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: tracex-postgres-exporter
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-tracex}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tracex}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - tracex-network
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: tracex-redis-exporter
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - tracex-network
+    restart: unless-stopped
+
   # Background worker for async tasks
   worker:
     build:
@@ -173,7 +197,11 @@ services:
       dockerfile: Dockerfile.prod
     # No container_name: deploy.replicas requires Compose to generate a
     # unique name per replica instance, which a fixed name conflicts with.
-    command: ["python", "-m", "src.workers.main"]
+    # `python -m src.workers.main` (the previous command here) does NOT
+    # start a worker -- Celery.start() parses sys.argv as CLI args, and
+    # with none given it errors out ("No such command 'main.py'") and the
+    # container just restart-loops forever, never processing a single task.
+    command: ["celery", "-A", "src.workers.main.celery_app", "worker", "--loglevel=info"]
     environment:
       - APP_ENV=production
       - SECRET_KEY=${SECRET_KEY}
@@ -198,6 +226,40 @@ services:
       resources:
         limits:
           memory: 1G
+
+  # Celery beat: schedules cleanup_stale_investigations (hourly) and
+  # periodic_entity_sync (every 6h) -- see workers/main.py's beat_schedule.
+  # A separate process from `worker` above; without this running, those two
+  # periodic tasks are defined but never fire.
+  beat:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile.prod
+    container_name: tracex-beat-prod
+    command: ["celery", "-A", "src.workers.main.celery_app", "beat", "--loglevel=info"]
+    environment:
+      - APP_ENV=production
+      - SECRET_KEY=${SECRET_KEY}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-tracex}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tracex}
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tracex-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # Prometheus for metrics
   prometheus:

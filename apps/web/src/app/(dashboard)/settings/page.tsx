@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { formatRelativeTime } from "@/lib/utils";
 import { authApi } from "@/lib/api";
+import { useAuthStore } from "@/store/auth-store";
 import {
   Shield,
   Database,
@@ -49,6 +50,8 @@ export default function SettingsPage() {
     enabled: activeTab === "users",
   });
 
+  const currentUserId = useAuthStore((s) => s.user?.id);
+
   const createUserMutation = useMutation({
     mutationFn: (data: { email: string; password: string; full_name: string; role: string }) =>
       authApi.createUser(data),
@@ -56,6 +59,12 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setAddUserOpen(false);
     },
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: ({ userId, is_active }: { userId: string; is_active: boolean }) =>
+      authApi.updateUser(userId, { is_active }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
   });
 
   const handleCreateUser = (e: React.FormEvent<HTMLFormElement>) => {
@@ -409,9 +418,28 @@ export default function SettingsPage() {
                             <TableCell>{u.email}</TableCell>
                             <TableCell className="capitalize">{u.role}</TableCell>
                             <TableCell>
-                              <Badge variant={u.is_active ? "default" : "secondary"}>
-                                {u.is_active ? "Active" : "Inactive"}
-                              </Badge>
+                              <button
+                                type="button"
+                                disabled={u.id === currentUserId || toggleActiveMutation.isPending}
+                                title={
+                                  u.id === currentUserId
+                                    ? "You can't deactivate your own account"
+                                    : u.is_active
+                                      ? "Click to deactivate"
+                                      : "Click to reactivate"
+                                }
+                                onClick={() =>
+                                  toggleActiveMutation.mutate({
+                                    userId: u.id,
+                                    is_active: !u.is_active,
+                                  })
+                                }
+                                className="disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                <Badge variant={u.is_active ? "default" : "secondary"}>
+                                  {u.is_active ? "Active" : "Inactive"}
+                                </Badge>
+                              </button>
                             </TableCell>
                             <TableCell>
                               {u.last_login_at ? formatRelativeTime(u.last_login_at) : "Never"}

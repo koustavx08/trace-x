@@ -10,6 +10,7 @@ import structlog
 from celery import shared_task
 
 from src.core import get_session_context
+from src.core.metrics import investigations_total, wallet_analysis_total
 from src.intelligence import entity_intelligence
 from src.models import InvestigationRun, InvestigationStatus
 from src.reports import report_generator
@@ -195,6 +196,8 @@ def wallet_analysis_task(self, wallet_id: str, trace_depth: int = 5, max_transac
                 }
 
                 await session.commit()
+                investigations_total.labels(status="completed").inc()
+                wallet_analysis_total.labels(status="completed").inc()
 
                 logger.info(
                     "wallet_analysis_completed",
@@ -212,6 +215,8 @@ def wallet_analysis_task(self, wallet_id: str, trace_depth: int = 5, max_transac
                 investigation.status = InvestigationStatus.FAILED
                 investigation.error_message = str(e)
                 investigation.completed_at = datetime.utcnow()
+                investigations_total.labels(status="failed").inc()
+                wallet_analysis_total.labels(status="failed").inc()
                 await session.commit()
 
                 logger.error("wallet_analysis_failed", wallet_id=wallet_id, error=str(e))

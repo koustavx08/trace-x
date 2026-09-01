@@ -14,12 +14,10 @@ rule_files:
   - "rules/*.yml"
 
 # NOTE: scrape_configs below is trimmed to targets that are actually
-# defined as services in docker/docker-compose.prod.yml today. Exporters
-# referenced by the original config (postgres-exporter, redis-exporter,
-# nginx-exporter, cadvisor, node-exporter) are NOT deployed as services
-# anywhere in this repo, so scraping them would only produce perpetual
-# "context deadline exceeded" / DNS failures. They are tracked as future
-# work in docs/KNOWN_LIMITATIONS.md rather than half-wired here.
+# defined as services in docker/docker-compose.prod.yml today. nginx-exporter,
+# cadvisor, and node-exporter from the original config are still NOT deployed
+# anywhere in this repo (tracked in docs/KNOWN_LIMITATIONS.md); postgres and
+# redis exporters now are.
 scrape_configs:
   # Prometheus self-monitoring
   - job_name: 'prometheus'
@@ -43,3 +41,11 @@ scrape_configs:
     scrape_interval: 30s
     static_configs:
       - targets: ['frontend:3000']
+
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
