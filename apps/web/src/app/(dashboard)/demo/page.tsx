@@ -23,6 +23,20 @@ import {
   Bot,
 } from "lucide-react";
 import Link from "next/link";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 const demoCases = [
   {
@@ -168,6 +182,15 @@ export default function DemoPage() {
   const formatAddressShort = (addr: string) => {
     if (!addr) return "";
     return `${addr.slice(0, 10)}...${addr.slice(-8)}`;
+  };
+
+  const getConfidenceColor = (confidence: string) => {
+    switch (confidence) {
+      case "CONFIRMED": return "text-green-400";
+      case "HIGH_CONFIDENCE": return "text-blue-400";
+      case "PROBABLE": return "text-amber-400";
+      default: return "text-muted-foreground";
+    }
   };
 
   return (
