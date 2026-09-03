@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     # deterministic template/regex logic instead of calling the Anthropic API.
     ANTHROPIC_API_KEY: str | None = None
     ANTHROPIC_MODEL: str = "claude-sonnet-5"
+    # Explicit operator override: "live" | "demo" | "disabled". Leave unset
+    # (None) to auto-select "live" when ANTHROPIC_API_KEY is present, else
+    # "demo". Set "demo" to force the deterministic template mode even with
+    # a key configured (e.g. for a reliable offline demo), or "disabled" to
+    # turn off the AI assistant entirely (the rest of the platform is
+    # unaffected either way). See Settings.effective_ai_mode.
+    AI_MODE: str | None = None
     # ----------------------------------------------------------------------
 
     @property
@@ -133,6 +140,21 @@ class Settings(BaseSettings):
         return providers
 
     # --- end WS3 block ---
+
+    @property
+    def effective_ai_mode(self) -> str:
+        """Resolves AI_MODE to one of "live" / "demo" / "disabled".
+
+        A "live" request with no ANTHROPIC_API_KEY degrades to "demo" rather
+        than erroring - there's nothing to call live with, but the assistant
+        should still answer from deterministic templates over real evidence
+        instead of refusing outright.
+        """
+        mode = self.AI_MODE if self.AI_MODE in ("live", "demo", "disabled") else None
+        mode = mode or ("live" if self.ANTHROPIC_API_KEY else "demo")
+        if mode == "live" and not self.ANTHROPIC_API_KEY:
+            return "demo"
+        return mode
 
 
 @lru_cache

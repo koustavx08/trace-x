@@ -118,16 +118,17 @@ class InvestigationAssistant:
         self.logger = logger.bind(component="investigation_assistant")
         self._query_patterns = self._compile_patterns()
         self.model = settings.ANTHROPIC_MODEL
+        self.mode = settings.effective_ai_mode
 
         # Graceful degradation (non-negotiable): the Anthropic client is only
-        # instantiated when an API key is actually configured. When
-        # ANTHROPIC_API_KEY is unset (e.g. the operator hasn't provisioned one
-        # yet), self._client stays None and every LLM call site below falls
-        # back to the original regex/template logic instead of raising - a
-        # missing key must never turn into a 500.
+        # instantiated in "live" mode. "demo" (explicit, or "live" requested
+        # with no key) and "disabled" both leave self._client None, so every
+        # LLM call site below falls back to the deterministic regex/template
+        # logic instead of raising - a missing key or a forced demo/disabled
+        # mode must never turn into a 500.
         self._client: anthropic.AsyncAnthropic | None = (
             anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-            if settings.ANTHROPIC_API_KEY
+            if self.mode == "live"
             else None
         )
 
@@ -281,6 +282,20 @@ class InvestigationAssistant:
         case_id: str | None = None,
         wallet_id: str | None = None,
     ) -> AIResponse:
+        if self.mode == "disabled":
+            return AIResponse(
+                answer=(
+                    "AI assistance is currently disabled on this deployment "
+                    "(AI_MODE=disabled). The rest of TRACE-X - risk scoring, "
+                    "attribution, graph analysis, and reporting - is unaffected."
+                ),
+                query_type=QueryType.CASE_OVERVIEW,
+                confidence=ConfidenceLevel.UNKNOWN,
+                evidence=[],
+                follow_up_questions=[],
+                metadata={"mode": "disabled"},
+            )
+
         llm_extraction = await self._classify_and_extract_llm(query)
         matched_type: QueryType | None
         if llm_extraction:
@@ -324,6 +339,7 @@ class InvestigationAssistant:
             handlers.get(query_type, self._handle_general) if matched_type else self._handle_general
         )
         response = await handler(query, case_id, wallet_id, address, chain)
+        response.metadata["mode"] = self.mode
         ai_queries_total.labels(
             query_type=response.query_type.value, confidence=response.confidence.value
         ).inc()

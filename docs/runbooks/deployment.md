@@ -17,7 +17,7 @@
 
 - [ ] All CI checks pass (lint, typecheck, tests)
 - [ ] Database migrations reviewed and tested
-- [ ] Environment variables configured in `.env.production`
+- [ ] Environment variables configured in `docker/.env` (see `docs/SECRETS_MANAGEMENT.md`), validated with `python apps/api/scripts/validate_env.py`
 - [ ] SSL certificates obtained (Let's Encrypt or paid)
 - [ ] DNS records updated (A record for domain)
 - [ ] Secrets rotated (JWT secret, DB passwords, API keys)
@@ -33,9 +33,9 @@
 
 ```bash
 # Application
+# Auth signs JWTs with HS256 and this one symmetric secret (src/auth/__init__.py)
+# -- there is no RSA keypair anywhere in this app; don't generate one.
 SECRET_KEY=<64-char-random-string>
-JWT_PRIVATE_KEY=<RSA private key>
-JWT_PUBLIC_KEY=<RSA public key>
 
 # Database
 DATABASE_URL=postgresql+asyncpg://tracex:<password>@postgres:5432/tracex
@@ -62,13 +62,13 @@ GRAFANA_ADMIN_PASSWORD=<password>
 ### Generate Secrets
 
 ```bash
-# Generate SECRET_KEY
+# Generate SECRET_KEY / DB passwords
 openssl rand -base64 48
-
-# Generate JWT keys
-openssl genrsa -out jwt_private.pem 2048
-openssl rsa -in jwt_private.pem -pubout -out jwt_public.pem
 ```
+
+See `docs/EXTERNAL_SERVICES_SETUP.md` for every external credential the app actually reads (which are required vs.
+optional, and what degrades gracefully without each), and `docs/SECRETS_MANAGEMENT.md` for where each `.env` file
+belongs and how to validate one before deploying.
 
 ---
 
@@ -174,8 +174,13 @@ cd trace-x
 git checkout main
 
 # Create production environment
-cp .env.example .env.production
-vim .env.production  # Fill in all production values
+# docker-compose.prod.yml's ${VAR} substitution reads docker/.env by default
+# (Compose's project directory is the folder of the first -f file below,
+# which is docker/ for both compose files in this repo) -- NOT a root
+# .env.production. See docs/SECRETS_MANAGEMENT.md.
+cp docker/.env.example docker/.env
+vim docker/.env  # Fill in all production values
+cd apps/api && python scripts/validate_env.py && cd ../..  # verify before deploying
 
 # Obtain SSL certificates (Let's Encrypt)
 sudo apt install certbot
@@ -327,7 +332,7 @@ docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
 ### Database Connection Pooling
 
 ```bash
-# Adjust in .env.production
+# Adjust in docker/.env
 DATABASE_POOL_SIZE=20
 DATABASE_MAX_OVERFLOW=40
 ```
@@ -483,7 +488,7 @@ openssl rsa -in jwt_private.pem.new -pubout -out jwt_public.pem.new
 # Rotate database password
 # 1. Generate new password
 # 2. Update in PostgreSQL: ALTER USER tracex PASSWORD 'newpass'
-# 3. Update in .env.production
+# 3. Update POSTGRES_PASSWORD in docker/.env
 # 4. Restart backend
 ```
 

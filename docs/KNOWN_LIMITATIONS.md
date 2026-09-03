@@ -6,10 +6,12 @@
 
 ## AI Assistant
 
-- **Template-fallback mode.** `apps/api/src/ai/service.py` falls back to deterministic template/regex responses
-  whenever `ANTHROPIC_API_KEY` is unset, rather than calling the Claude API. This is intentional (never 500 for a
-  missing key), but a deployment without a real Anthropic key gets non-AI-generated answers while still presenting
-  itself as the "AI Investigation Assistant." Check `GET /ai/capabilities` for a live/template mode indicator.
+- **Three explicit modes.** `AI_MODE=live|demo|disabled` (see `apps/api/src/core/config.py`'s `effective_ai_mode`)
+  controls `apps/api/src/ai/service.py`. Left unset, it auto-selects `live` when `ANTHROPIC_API_KEY` is present,
+  else `demo`. `demo` always returns deterministic, evidence-grounded template answers over real data (never a
+  fabricated transaction/ownership/VASP claim); `disabled` returns a clear "AI assistance is unavailable" message
+  without touching the database at all, while the rest of the platform is unaffected. `GET /ai/capabilities` reports
+  the real mode honestly (`"mode": "live"|"demo"|"disabled"`).
 - **Chat session persistence** is Redis-backed (`ChatSessionStore` in `apps/api/src/ai/api.py`), 7-day TTL. No
   fallback if Redis is unavailable — chat endpoints will error rather than degrade to in-memory.
 
@@ -19,7 +21,9 @@
   design — the code is env-driven and falls back to `ProviderNotConfiguredError`/empty results rather than crashing,
   but zero live blockchain data will flow until an operator supplies real keys. This includes BSC now too: it has no
   vendor API key (neither Alchemy nor Infura support that chain), only a plain `BSC_RPC_URL` an operator can point
-  at any JSON-RPC endpoint (a public node, or a BSC-specific vendor like Ankr/QuickNode).
+  at any JSON-RPC endpoint (a public node, or a BSC-specific vendor like Ankr/QuickNode). See
+  `docs/EXTERNAL_SERVICES_SETUP.md` for exactly how to obtain each key and what degrades without it, and
+  `docs/PRODUCTION_ACCEPTANCE_REPORT.md` for what has and hasn't been verified against a live provider.
 
 ## Authentication & Sessions
 
@@ -76,11 +80,22 @@
     effect on the actual browser bundle, which would have silently baked in whatever default `lib/api.ts` falls
     back to. Fixed by passing it as a `build.args` `ARG` instead, defaulting to the relative path `/api/v1` (nginx
     already proxies that path to the backend under the same domain, so the browser never needs an absolute URL).
+  - `docker-compose.prod.yml`'s `backend`/`worker` services never passed through any of the optional
+    blockchain/AI/entity-intelligence env vars (`ANTHROPIC_API_KEY`, `ALCHEMY_API_KEY`, `INFURA_API_KEY`,
+    `*_RPC_URL`, `CHAINALYSIS_API_KEY`, `CIPHERTRACE_API_KEY`) — an operator could fill in `docker/.env` completely
+    and the containers would still never see any of it. Fixed by adding the full set to both services (see
+    `docs/EXTERNAL_SERVICES_SETUP.md`).
 
   These were found through careful reading, not a live build — a real `docker build && up` smoke test is still the
   only way to be fully sure the images work end to end. Do that before a first real deploy, and specifically watch
   the `worker`/`beat` containers come up cleanly (their command was separately broken and fixed earlier —
   `python -m src.workers.main` doesn't start anything at all).
+- **`docker/.env` is the file Compose actually reads for `docker-compose.prod.yml`**, not a root `.env.production` —
+  Compose's project directory defaults to the folder of the first `-f` file, which is `docker/` for both compose
+  files in this repo. `docker/.env.example` and `docs/SECRETS_MANAGEMENT.md` document this; an earlier draft of
+  `docs/runbooks/deployment.md` pointed at a root `.env.production` (now corrected) and also referenced an RSA
+  `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` pair that doesn't exist anywhere in the auth implementation (HS256 +
+  `SECRET_KEY` only) — also corrected.
 - **`docker-compose.prod.yml` env vars have no committed defaults for secrets** (`SECRET_KEY`, `POSTGRES_PASSWORD`,
   `NEO4J_PASSWORD`, `CORS_ORIGINS`, `GRAFANA_ADMIN_PASSWORD`) by design — a deploy without a populated `.env` starts
   containers with empty/invalid credentials rather than a weak-but-functional default. The compose file alone is

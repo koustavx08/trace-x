@@ -159,17 +159,16 @@ class TestAIEndpointsNoDB:
         assert len(body["capabilities"]) >= 5
         assert "confidence_levels" in body
 
-    def test_capabilities_reports_template_mode_honestly(self):
-        """WS2: '/ai/capabilities should report live-vs-template mode
-        honestly.' Not implemented yet in this worktree -- there is no
-        live/template mode flag in the response at all."""
-
-        # Defensive: this will need updating to actually call the endpoint
-        # and assert on a `mode`/`live` field once WS2 adds one.
-        pytest.xfail(
-            "AI capabilities endpoint does not yet report live-vs-template "
-            "mode (WS2 not landed in this worktree)"
-        )
+    async def test_capabilities_reports_mode_honestly(self, plain_client):
+        """`/ai/capabilities` reports the real live/demo/disabled mode (see
+        `Settings.effective_ai_mode`) rather than a fixed value - this
+        sandbox has no ANTHROPIC_API_KEY, so it should honestly say "demo",
+        not "live"."""
+        response = await plain_client.get("/api/v1/ai/capabilities")
+        body = response.json()
+        assert body["mode"] in ("live", "demo", "disabled")
+        assert body["mode"] == "demo"
+        assert body["model"] is None
 
     @pytest.fixture
     async def _require_redis(self):

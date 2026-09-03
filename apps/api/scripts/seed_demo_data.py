@@ -15,9 +15,10 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-# Add the project root to the path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "apps" / "api"))
+# Add apps/api (this script's parent's parent) to the path so `src` imports
+# resolve regardless of the caller's cwd.
+API_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(API_ROOT))
 
 from src.core.config import get_settings
 from src.core.database import Base
