@@ -46,6 +46,8 @@ OPTIONAL_PROVIDERS = [
     ("BSC_RPC_URL", "no BSC chain data"),
     ("CHAINALYSIS_API_KEY", "no Chainalysis entity/sanctions intelligence"),
     ("CIPHERTRACE_API_KEY", "no CipherTrace entity/sanctions intelligence"),
+    ("OPENROUTER_API_KEY", "AI assistant uses OpenRouter instead of Anthropic when AI_PROVIDER=openrouter"),
+    ("OPENROUTER_MODEL", "Required when using OpenRouter - specifies which model to use via OpenRouter"),
 ]
 
 
@@ -100,6 +102,23 @@ def main() -> int:
     print(f"{OK if mode != 'disabled' else WARN} AI mode: {mode}")
     if mode == "demo":
         print(f"{OK} Demo fallback enabled (deterministic, evidence-grounded)")
+
+    # Validate AI_PROVIDER and required variables
+    provider = settings.AI_PROVIDER
+    if mode == "live":
+        if provider == "openrouter":
+            # OpenRouter is required when AI_PROVIDER=openrouter in live mode
+            openrouter_api_key = bool(settings.OPENROUTER_API_KEY)
+            openrouter_model = bool(settings.OPENROUTER_MODEL)
+
+            check("OPENROUTER_API_KEY configured", openrouter_api_key)
+            check("OPENROUTER_MODEL configured", openrouter_model)
+
+            if not openrouter_api_key or not openrouter_model:
+                ok = False
+        elif provider != "anthropic":
+            # Warn if provider is neither anthropic nor openrouter
+            print(f"{WARN} AI_PROVIDER set to '{provider}' - only 'anthropic' and 'openrouter' are supported")
 
     if settings.is_production:
         print()

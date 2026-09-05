@@ -69,18 +69,23 @@ class Settings(BaseSettings):
     CIPHERTRACE_API_KEY: str | None = None
     OFAC_SDN_LIST_URL: str = "https://www.treasury.gov/ofac/downloads/sdn.csv"
 
-    # --- WS2: AI / Claude Integration -----------------------------------
-    # When ANTHROPIC_API_KEY is unset, src/ai/service.py falls back to its
-    # deterministic template/regex logic instead of calling the Anthropic API.
+    # --- WS2: AI Integration -----------------------------------
+    # AI_MODE: live | demo | disabled. Leave unset to auto-select "live" when
+    # ANTHROPIC_API_KEY is present, else "demo". Set "demo" to force the
+    # deterministic template mode even with a key configured (e.g. for a
+    # reliable offline demo), or "disabled" to turn off the AI assistant
+    # entirely (the rest of the platform is unaffected either way).
+    AI_MODE: str | None = None
+    # AI_PROVIDER: anthropic | openrouter. Only used when AI_MODE=live.
+    # Leave unset to default to "anthropic" for backward compatibility.
+    AI_PROVIDER: str | None = None
+    # Anthropic configuration
     ANTHROPIC_API_KEY: str | None = None
     ANTHROPIC_MODEL: str = "claude-sonnet-5"
-    # Explicit operator override: "live" | "demo" | "disabled". Leave unset
-    # (None) to auto-select "live" when ANTHROPIC_API_KEY is present, else
-    # "demo". Set "demo" to force the deterministic template mode even with
-    # a key configured (e.g. for a reliable offline demo), or "disabled" to
-    # turn off the AI assistant entirely (the rest of the platform is
-    # unaffected either way). See Settings.effective_ai_mode.
-    AI_MODE: str | None = None
+    # OpenRouter configuration
+    OPENROUTER_API_KEY: str | None = None
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str | None = None
     # ----------------------------------------------------------------------
 
     @property
@@ -145,15 +150,22 @@ class Settings(BaseSettings):
     def effective_ai_mode(self) -> str:
         """Resolves AI_MODE to one of "live" / "demo" / "disabled".
 
-        A "live" request with no ANTHROPIC_API_KEY degrades to "demo" rather
+        A "live" request with no API key for the selected provider degrades to "demo" rather
         than erroring - there's nothing to call live with, but the assistant
         should still answer from deterministic templates over real evidence
         instead of refusing outright.
         """
         mode = self.AI_MODE if self.AI_MODE in ("live", "demo", "disabled") else None
         mode = mode or ("live" if self.ANTHROPIC_API_KEY else "demo")
-        if mode == "live" and not self.ANTHROPIC_API_KEY:
-            return "demo"
+        if mode == "live":
+            # Check if we have the required API key for the selected provider
+            provider = self.AI_PROVIDER or "anthropic"
+            if provider == "openrouter":
+                if not self.OPENROUTER_API_KEY:
+                    return "demo"
+            else:  # anthropic or any other value defaults to anthropic
+                if not self.ANTHROPIC_API_KEY:
+                    return "demo"
         return mode
 
 

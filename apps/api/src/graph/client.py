@@ -5,8 +5,8 @@ from typing import Any
 from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncSession, Record
 from neo4j.exceptions import Neo4jError
 
-from src.core.config import get_settings
-from src.core.logging import get_logger
+from ..core.config import get_settings
+from ..core.logging import get_logger
 
 logger = get_logger(__name__)
 settings = get_settings()

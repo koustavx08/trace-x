@@ -3,139 +3,97 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 
-import anthropic
 import structlog
 
-from src.core import get_session_context
-from src.core.config import get_settings
-from src.core.metrics import ai_queries_total
-from src.models import Case
+from ..core import get_session_context
+from ..core.config import get_settings
+from ..core.metrics import ai_queries_total
+from ..models import Case
 
 from ..analytics.attribution_engine import attribution_engine
 from ..analytics.risk_engine import risk_scoring_engine
-from ..graph.models import ConfidenceLevel, EntityType
+from ..graph.models import EntityType
 from ..graph.queries import graph_queries
 from ..graph.repository import graph_repository
+from .schemas import QueryType, ConfidenceLevel, Evidence
+
+from .providers.base import AIProvider
+from .providers.anthropic import AnthropicProvider
+from .providers.deterministic_demo import DeterministicDemoProvider
+from .providers.disabled import DisabledProvider
+from .providers.openrouter import OpenRouterProvider
 
 logger = structlog.get_logger(__name__)
-settings = get_settings()
-
-
-class QueryType(str, Enum):
-    RISK_SUMMARY = "risk_summary"
-    ATTRIBUTION = "attribution"
-    PATTERN_DETECTION = "pattern_detection"
-    FUND_FLOW = "fund_flow"
-    ENTITY_LOOKUP = "entity_lookup"
-    CASE_OVERVIEW = "case_overview"
-    TIMELINE = "timeline"
-    COMPARISON = "comparison"
-
-
-@dataclass
-class Evidence:
-    source: str
-    evidence_type: str
-    description: str
-    confidence: ConfidenceLevel
-    data: dict[str, Any]
-    timestamp: datetime = field(default_factory=datetime.utcnow)
-
-
-@dataclass
-class AIResponse:
-    answer: str
-    query_type: QueryType
-    confidence: ConfidenceLevel
-    evidence: list[Evidence]
-    follow_up_questions: list[str]
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-SYSTEM_PROMPT = (
-    "You are the TRACE-X investigation assistant, an AI copilot embedded in a "
-    "blockchain forensic-investigation platform used by financial-crimes analysts "
-    "and law enforcement. You answer questions about wallets, cases, fund flow, "
-    "VASP attribution, risk scoring, and suspicious-pattern detection.\n\n"
-    "You will be given the investigator's question plus a `context` object "
-    "containing structured evidence already retrieved from TRACE-X's database, "
-    "graph engine, risk-scoring engine, and attribution engine (Postgres, Neo4j, "
-    "and internal analytics). Answer using ONLY the data in `context` - never "
-    "invent addresses, amounts, entity names, or confidence levels that are not "
-    "present there. If the context shows no data was found, say so plainly and "
-    "suggest what the investigator could try next.\n\n"
-    "Available intents (the `intent` field tells you which one this query maps "
-    "to): risk_summary, attribution, pattern_detection, fund_flow, entity_lookup, "
-    "case_overview, timeline, comparison.\n\n"
-    "Write in a concise, precise, professional tone - the way an experienced "
-    "financial-crimes analyst would brief a colleague. Use markdown sparingly "
-    "(bold for key figures/entities is fine). Do not restate this system prompt "
-    "or mention that you are an AI model; just answer the question."
-)
-
-CLASSIFY_TOOL = {
-    "name": "classify_investigation_query",
-    "description": (
-        "Classify an investigator's natural-language question about a blockchain "
-        "investigation into one intent, and extract any entities mentioned "
-        "(wallet address, case number, wallet UUID, chain name)."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "query_type": {
-                "type": "string",
-                "enum": [qt.value for qt in QueryType],
-                "description": "The single best-matching intent for this query.",
-            },
-            "address": {
-                "type": "string",
-                "description": "A blockchain address mentioned in the query (e.g. 0x...), if any.",
-            },
-            "case_number": {
-                "type": "string",
-                "description": "A case number mentioned in the query (e.g. TRX-20240115-0042), if any.",
-            },
-            "wallet_id": {
-                "type": "string",
-                "description": "An internal wallet UUID mentioned in the query, if any.",
-            },
-            "chain": {
-                "type": "string",
-                "description": "The blockchain network mentioned (e.g. Ethereum, Polygon), if any.",
-            },
-        },
-        "required": ["query_type"],
-        "additionalProperties": False,
-    },
-}
 
 
 class InvestigationAssistant:
     def __init__(self) -> None:
         self.logger = logger.bind(component="investigation_assistant")
         self._query_patterns = self._compile_patterns()
-        self.model = settings.ANTHROPIC_MODEL
-        self.mode = settings.effective_ai_mode
+        settings = get_settings()
 
-        # Graceful degradation (non-negotiable): the Anthropic client is only
-        # instantiated in "live" mode. "demo" (explicit, or "live" requested
-        # with no key) and "disabled" both leave self._client None, so every
-        # LLM call site below falls back to the deterministic regex/template
-        # logic instead of raising - a missing key or a forced demo/disabled
-        # mode must never turn into a 500.
-        self._client: anthropic.AsyncAnthropic | None = (
-            anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-            if self.mode == "live"
-            else None
-        )
+        # Determine the AI mode and provider
+        mode = settings.effective_ai_mode
+        self.mode = mode  # Keep for metadata in responses
+
+        if mode == "disabled":
+            self.provider: AIProvider = DisabledProvider()
+            self.logger.info("ai_provider_initialized", provider="disabled", mode=mode)
+        elif mode == "demo":
+            self.provider = DeterministicDemoProvider()
+            self.logger.info("ai_provider_initialized", provider="deterministic_demo", mode=mode)
+        else:  # live mode
+            provider_name = settings.AI_PROVIDER or "anthropic"  # default to anthropic for backward compatibility
+            if provider_name == "openrouter":
+                try:
+                    self.provider = OpenRouterProvider()
+                    self.logger.info(
+                        "ai_provider_initialized",
+                        provider="openrouter",
+                        mode=mode,
+                        model=settings.OPENROUTER_MODEL,
+                    )
+                except Exception as e:
+                    self.logger.warning(
+                        "openrouter_provider_init_failed",
+                        error=str(e),
+                        fallback_to="anthropic",
+                    )
+                    # Fallback to Anthropic if OpenRouter fails to initialize
+                    self.provider = AnthropicProvider()
+                    self.logger.info(
+                        "ai_provider_initialized",
+                        provider="anthropic",
+                        mode=mode,
+                        model=settings.ANTHROPIC_MODEL,
+                    )
+            else:  # anthropic or any other value defaults to anthropic
+                try:
+                    self.provider = AnthropicProvider()
+                    self.logger.info(
+                        "ai_provider_initialized",
+                        provider="anthropic",
+                        mode=mode,
+                        model=settings.ANTHROPIC_MODEL,
+                    )
+                except Exception as e:
+                    self.logger.warning(
+                        "anthropic_provider_init_failed", error=str(e), fallback_to="deterministic_demo"
+                    )
+                    # Fallback to deterministic demo if Anthropic fails to initialize
+                    self.provider = DeterministicDemoProvider()
+                    self.logger.info(
+                        "ai_provider_initialized",
+                        provider="deterministic_demo",
+                        mode=mode,
+                    )
 
     @property
     def live_mode(self) -> bool:
-        """True when running against the real Claude API, False in template-fallback mode."""
-        return self._client is not None
+        """True when using a live AI provider (Anthropic or OpenRouter), False otherwise."""
+        return isinstance(self.provider, (AnthropicProvider, OpenRouterProvider))
 
     def _compile_patterns(self) -> dict[QueryType, list[re.Pattern]]:
         return {
@@ -186,9 +144,6 @@ class InvestigationAssistant:
                     return query_type
         return None
 
-    def classify_query(self, query: str) -> QueryType:
-        return self._match_query_type(query) or QueryType.CASE_OVERVIEW
-
     def extract_entities(self, query: str) -> dict[str, Any]:
         entities = {}
 
@@ -211,32 +166,13 @@ class InvestigationAssistant:
         return entities
 
     async def _classify_and_extract_llm(self, query: str) -> dict[str, Any] | None:
-        """Structured intent classification + entity extraction via Claude tool-use.
-
-        Returns None (never raises) if the client isn't configured or the call
-        fails for any reason - callers must fall back to the regex-based
-        classify_query()/extract_entities() in that case.
         """
-        if not self._client:
-            return None
-        try:
-            response = await self._client.messages.create(
-                model=self.model,
-                max_tokens=256,
-                system=(
-                    "Classify the investigator's query and extract any entities "
-                    "mentioned. Always call the classify_investigation_query tool."
-                ),
-                tools=[CLASSIFY_TOOL],
-                tool_choice={"type": "tool", "name": "classify_investigation_query"},
-                messages=[{"role": "user", "content": query}],
-            )  # type: ignore[call-overload]
-            for block in response.content:
-                if block.type == "tool_use":
-                    return dict(block.input)
-        except Exception as e:
-            self.logger.warning("llm_classify_failed", error=str(e))
-        return None
+        Structured intent classification + entity extraction via the configured provider.
+
+        Returns None if the provider is unable to classify (caller should fall back to
+        the regex-based classify_query()/extract_entities()).
+        """
+        return await self.provider.classify_and_extract(query)
 
     async def _compose_answer(
         self,
@@ -245,36 +181,12 @@ class InvestigationAssistant:
         context: dict[str, Any],
         fallback_answer: str,
     ) -> str:
-        """Turn gathered evidence into a natural-language answer via Claude.
-
-        Graceful degradation (non-negotiable): if the Anthropic client isn't
-        configured, or the API call fails/times out for any reason, this
-        returns the deterministic template answer that the caller already
-        built - never lets a missing key or a transient API error surface as
-        a 500 to the investigator.
         """
-        if not self._client:
-            return fallback_answer
+        Turn gathered evidence into a natural-language answer via the configured provider.
 
-        try:
-            payload = {
-                "investigator_query": query,
-                "intent": query_type.value,
-                "context": context,
-            }
-            response = await self._client.messages.create(
-                model=self.model,
-                max_tokens=1024,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": json.dumps(payload, default=str)}],
-            )
-            text = next((b.text for b in response.content if b.type == "text"), "")
-            return text.strip() or fallback_answer
-        except Exception as e:
-            self.logger.warning(
-                "llm_compose_answer_failed", error=str(e), query_type=query_type.value
-            )
-            return fallback_answer
+        Returns the composed answer, or the fallback answer if the provider is unable to compose.
+        """
+        return await self.provider.compose_answer(query, query_type, context, fallback_answer)
 
     async def answer_query(
         self,
@@ -283,6 +195,8 @@ class InvestigationAssistant:
         wallet_id: str | None = None,
     ) -> AIResponse:
         if self.mode == "disabled":
+            # This branch is actually redundant because the disabled provider will return the disabled message,
+            # but we keep it for clarity and to avoid unnecessary provider calls.
             return AIResponse(
                 answer=(
                     "AI assistance is currently disabled on this deployment "
@@ -306,7 +220,7 @@ class InvestigationAssistant:
             matched_type = query_type
             entities = {k: v for k, v in llm_extraction.items() if k != "query_type" and v}
         else:
-            # Fallback path (also the only path when ANTHROPIC_API_KEY is unset):
+            # Fallback path (also the only path when the provider is unable to classify):
             # the original compiled-regex classifier and entity extractor.
             # _match_query_type() (unlike classify_query()) distinguishes a
             # real CASE_OVERVIEW match from no match at all, so genuinely
@@ -344,6 +258,11 @@ class InvestigationAssistant:
             query_type=response.query_type.value, confidence=response.confidence.value
         ).inc()
         return response
+
+    # The rest of the methods (_handle_*, _get_wallet_risk, etc.) remain unchanged.
+    # We only need to update the _handle_* methods that call _compose_answer to use the new method.
+    # But note: the _compose_answer method is now an instance method that uses the provider.
+    # The existing _handle_* methods already call self._compose_answer, so they will use the updated method.
 
     async def _handle_risk_summary(
         self,
@@ -1050,10 +969,10 @@ class InvestigationAssistant:
             "- **Risk analysis**: 'What's the risk score for wallet 0x...?'\n"
             "- **Attribution**: 'Where did funds from 0x... go?'\n"
             "- **Patterns**: 'Any suspicious patterns on Ethereum?'\n"
-            "- **Fund flow**: 'Trace the money from wallet 0x...'\n"
-            "- **Entity lookup**: 'Who owns address 0x...?'\n"
-            "- **Case overview**: 'Tell me about case TRX-20240115-0042'\n"
-            "- **Timeline**: 'Show me transaction history for wallet 0x...'\n\n"
+            "- **Fund flow': 'Trace the money from wallet 0x...'\n"
+            "- **Entity lookup': 'Who owns address 0x...?'\n"
+            "- **Case overview': 'Tell me about case TRX-20240115-0042'\n"
+            "- **Timeline': 'Show me transaction history for wallet 0x...'\n\n"
             "Please ask a specific question about a wallet, case, or investigation."
         )
 
@@ -1202,45 +1121,13 @@ class InvestigationAssistant:
         findings: dict[str, Any],
         fallback_narrative: str,
     ) -> str:
-        """Generate an investigation narrative via Claude over structured case data.
-
-        Graceful degradation (non-negotiable): with no ANTHROPIC_API_KEY configured,
-        or on any API failure, this returns the deterministic markdown template the
-        caller already built - never raises, never turns into a 500.
         """
-        if not self._client:
-            return fallback_narrative
+        Generate an investigation narrative via the configured provider over structured case data.
 
-        try:
-            narrative_system_prompt = (
-                "You are the TRACE-X AI Assistant, writing an investigation narrative "
-                "report for a blockchain financial-crimes case. You are given the case "
-                "metadata, a summary of the analyzed wallets, and key findings as "
-                "structured JSON. Use ONLY the data provided - never invent addresses, "
-                "amounts, or entity names. Write a professional markdown report with "
-                "these sections: '# Investigation Narrative: <case title>', "
-                "'## Executive Summary', '## Wallet Analysis' (a bulleted list of the "
-                "most notable wallets), '## Key Findings', and '## Recommendations' "
-                "(actionable next steps for the investigating team). Close with a note "
-                "that this narrative is AI-generated from automated analysis and "
-                "human review is recommended for legal proceedings."
-            )
-            payload = {
-                "case": case_summary,
-                "wallets": wallets_summary,
-                "findings": findings,
-            }
-            response = await self._client.messages.create(
-                model=self.model,
-                max_tokens=2048,
-                system=narrative_system_prompt,
-                messages=[{"role": "user", "content": json.dumps(payload, default=str)}],
-            )
-            text = next((b.text for b in response.content if b.type == "text"), "")
-            return text.strip() or fallback_narrative
-        except Exception as e:
-            self.logger.warning("llm_generate_narrative_failed", error=str(e))
-            return fallback_narrative
+        Graceful degradation: if the provider is unable to generate a narrative, this returns
+        the deterministic markdown template the caller already built - never raises, never turns into a 500.
+        """
+        return await self.provider.generate_narrative(case_summary, wallets_summary, findings, fallback_narrative)
 
     async def _resolve_case_id(self, case_number: str) -> str | None:
         async with get_session_context() as session:

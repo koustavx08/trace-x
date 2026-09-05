@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -59,7 +59,7 @@ class ChatMessage(BaseModel):
     role: str = Field(..., pattern="^(user|assistant|system)$")
     content: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=list)
 
 
 class ChatSession(BaseModel):
@@ -81,3 +81,64 @@ class ChatResponse(BaseModel):
     session_id: str
     message: ChatMessage
     suggested_actions: list[str] = Field(default_factory=list)
+
+
+# Constants for AI provider classification and tool use
+SYSTEM_PROMPT = (
+    "You are the TRACE-X investigation assistant, an AI copilot embedded in a "
+    "blockchain forensic-investigation platform used by financial-crimes analysts "
+    "and law enforcement. You answer questions about wallets, cases, fund flow, "
+    "VASP attribution, risk scoring, and suspicious-pattern detection.\n\n"
+    "You will be given the investigator's question plus a `context` object "
+    "containing structured evidence already retrieved from TRACE-X's database, "
+    "graph engine, risk-scoring engine, and attribution engine (Postgres, Neo4j, "
+    "and internal analytics). Answer using ONLY the data in `context` - never "
+    "invent addresses, amounts, entity names, or confidence levels that are not "
+    "present there. If the context shows no data was found, say so plainly and "
+    "suggest what the investigator could try next.\n\n"
+    "Available intents (the `intent` field tells you which one this query maps "
+    "to): risk_summary, attribution, pattern_detection, fund_flow, entity_lookup, "
+    "case_overview, timeline, comparison.\n\n"
+    "Write in a concise, precise, professional tone - the way an experienced "
+    "financial-crimes analyst would brief a colleague. Use markdown sparingly "
+    "(bold for key figures/entities is fine). Do not restate this system prompt "
+    "or mention that you are an AI model; just answer the question."
+)
+
+
+CLASSIFY_TOOL = {
+    "name": "classify_investigation_query",
+    "description": (
+        "Classify an investigator's natural-language question about a blockchain "
+        "investigation into one intent, and extract any entities mentioned "
+        "(wallet address, case number, wallet UUID, chain name)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query_type": {
+                "type": "string",
+                "enum": [qt.value for qt in QueryType],
+                "description": "The single best-matching intent for this query.",
+            },
+            "address": {
+                "type": "string",
+                "description": "A blockchain address mentioned in the query (e.g. 0x...), if any.",
+            },
+            "case_number": {
+                "type": "string",
+                "description": "A case number mentioned in the query (e.g. TRX-20240115-0042), if any.",
+            },
+            "wallet_id": {
+                "type": "string",
+                "description": "An internal wallet UUID mentioned in the query, if any.",
+            },
+            "chain": {
+                "type": "string",
+                "description": "The blockchain network mentioned (e.g. Ethereum, Polygon), if any.",
+            },
+        },
+        "required": ["query_type"],
+        "additionalProperties": False,
+    },
+}

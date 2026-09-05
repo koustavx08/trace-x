@@ -6,7 +6,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.schemas import (
+from .schemas import (
     AIQueryRequest,
     AIQueryResponse,
     ChatMessage,
@@ -14,7 +14,7 @@ from src.ai.schemas import (
     ChatResponse,
     ChatSession,
 )
-from src.ai.service import investigation_assistant
+from .service import investigation_assistant
 from src.core import NotFoundError, get_session
 from src.core.config import get_settings
 from src.models import Case
