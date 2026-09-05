@@ -39,28 +39,18 @@ class OpenRouterProvider(AIProvider):
         )
         self._model = model if model is not None else settings.OPENROUTER_MODEL
 
-        if not self._api_key:
-            raise ProviderNotConfiguredError(
-                provider="openrouter",
-                message=(
-                    "OPENROUTER_API_KEY is not set; OpenRouter AI provider is unavailable."
-                ),
+        # Only initialize HTTP client if we have both required fields
+        if self._api_key and self._model:
+            self._http_client = httpx.AsyncClient(
+                base_url=self._base_url,
+                timeout=timeout,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
             )
-
-        if not self._model:
-            raise ProviderNotConfiguredError(
-                provider="openrouter",
-                message="OPENROUTER_MODEL must be set for OpenRouter provider",
-            )
-
-        self._http_client = httpx.AsyncClient(
-            base_url=self._base_url,
-            timeout=timeout,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-        )
+        else:
+            self._http_client = None
 
     @property
     def provider_name(self) -> str:
@@ -284,4 +274,5 @@ class OpenRouterProvider(AIProvider):
             return fallback_narrative
 
     async def close(self) -> None:
-        await self._http_client.aclose()
+        if self._http_client:
+            await self._http_client.aclose()

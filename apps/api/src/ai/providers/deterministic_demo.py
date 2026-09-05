@@ -12,7 +12,8 @@ from typing import Any, Dict, Optional
 
 import structlog
 
-from .schemas import QueryType
+from ..schemas import ConfidenceLevel, QueryType
+from .base import AIProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -27,7 +28,7 @@ class Evidence:
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
 
-class DeterministicDemoProvider:
+class DeterministicDemoProvider(AIProvider):
     """
     Deterministic demo provider that uses regex-based classification and template answers.
     This mimics the current behavior when ANTHROPIC_API_KEY is not set.

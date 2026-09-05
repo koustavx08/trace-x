@@ -13,13 +13,17 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy import (
-    Enum as SQLEnum,
-)
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..core.database import Base
+
+
+class UserRole(str, enum.Enum):
+    analyst = "analyst"
+    supervisor = "supervisor"
+    admin = "admin"
 
 
 class CaseStatus(str, enum.Enum):
@@ -36,12 +40,6 @@ class CrimeType(str, enum.Enum):
     DARKNET_MARKET = "darknet_market"
     SANCTIONS_EVASION = "sanctions_evasion"
     OTHER = "other"
-
-
-class UserRole(str, enum.Enum):
-    ANALYST = "analyst"
-    SUPERVISOR = "supervisor"
-    ADMIN = "admin"
 
 
 class AttributionStatus(str, enum.Enum):
@@ -66,7 +64,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        SQLEnum(UserRole), default=UserRole.ANALYST, nullable=False
+        SQLEnum(UserRole), default=UserRole.analyst, nullable=False
     )
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -211,6 +209,12 @@ class Transaction(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
     wallet: Mapped[Wallet] = relationship("Wallet", back_populates="transactions")
 
@@ -321,7 +325,6 @@ class AuditLog(Base):
     Backs `src.auth.AuditLogger`, which previously buffered entries
     in-memory only and dropped them on flush.
     """
-
     __tablename__ = "audit_log"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)

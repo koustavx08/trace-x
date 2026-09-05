@@ -11,10 +11,33 @@ import structlog
 
 from ...core.config import get_settings
 
+from ..schemas import QueryType
 from .base import AIProvider
-from ..service import QueryType, SYSTEM_PROMPT, CLASSIFY_TOOL
 
 logger = structlog.get_logger(__name__)
+
+#: System prompt used for classification tool calls.
+#: Defined locally to avoid circular import with service.py
+CLASSIFY_SYSTEM_PROMPT = (
+    "Classify the investigator's query and extract any entities "
+    "mentioned. Always call the classify_investigation_query tool."
+)
+
+#: Tool schema for classification - defined locally to avoid circular import
+#: with service.py (which imports from providers.anthropic)
+CLASSIFY_TOOL = {
+    "name": "classify_investigation_query",
+    "description": "Classify the investigator's query and extract entities",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query_type": {"type": "string"},
+            "entities": {"type": "object"},
+        },
+        "required": ["query_type"],
+        "additionalProperties": False,
+    },
+}
 
 
 class AnthropicProvider(AIProvider):
@@ -98,10 +121,17 @@ class AnthropicProvider(AIProvider):
                 "intent": query_type.value,
                 "context": context,
             }
+            # Use a default system prompt for composition since SYSTEM_PROMPT
+            # is defined locally to avoid circular imports
+            system_prompt = (
+                "You are the TRACE-X AI Assistant, turning investigation evidence "
+                "into a natural-language answer. Be concise and factual. Use the "
+                "provided context to compose a clear answer to the investigator's query."
+            )
             response = await self._client.messages.create(
                 model=self._model,
                 max_tokens=1024,
-                system=SYSTEM_PROMPT,
+                system=system_prompt,
                 messages=[{"role": "user", "content": json.dumps(payload, default=str)}],
             )
             text = next((b.text for b in response.content if b.type == "text"), "")

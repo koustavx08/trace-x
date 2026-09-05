@@ -5,6 +5,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+from pydantic import BaseModel, ConfigDict, Field
+
 import structlog
 
 from ..core import get_session_context
@@ -20,12 +22,23 @@ from ..graph.repository import graph_repository
 from .schemas import QueryType, ConfidenceLevel, Evidence
 
 from .providers.base import AIProvider
-from .providers.anthropic import AnthropicProvider
 from .providers.deterministic_demo import DeterministicDemoProvider
 from .providers.disabled import DisabledProvider
 from .providers.openrouter import OpenRouterProvider
 
 logger = structlog.get_logger(__name__)
+
+
+class AIResponse(BaseModel):
+    """Response model for AI assistant queries."""
+    model_config = ConfigDict(from_attributes=True)
+
+    answer: str
+    query_type: QueryType
+    confidence: ConfidenceLevel
+    evidence: list[Evidence]
+    follow_up_questions: list[str]
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class InvestigationAssistant:
@@ -45,7 +58,8 @@ class InvestigationAssistant:
             self.provider = DeterministicDemoProvider()
             self.logger.info("ai_provider_initialized", provider="deterministic_demo", mode=mode)
         else:  # live mode
-            provider_name = settings.AI_PROVIDER or "anthropic"  # default to anthropic for backward compatibility
+            # Determine which provider to use based on AI_PROVIDER setting
+            provider_name = settings.AI_PROVIDER or "anthropic"
             if provider_name == "openrouter":
                 try:
                     self.provider = OpenRouterProvider()
@@ -62,25 +76,39 @@ class InvestigationAssistant:
                         fallback_to="anthropic",
                     )
                     # Fallback to Anthropic if OpenRouter fails to initialize
-                    self.provider = AnthropicProvider()
-                    self.logger.info(
-                        "ai_provider_initialized",
-                        provider="anthropic",
-                        mode=mode,
-                        model=settings.ANTHROPIC_MODEL,
-                    )
-            else:  # anthropic or any other value defaults to anthropic
+                    try:
+                        self.provider = AnthropicProvider()
+                        self.logger.info(
+                            "ai_provider_initialized",
+                            provider="anthropic",
+                            mode=mode,
+                        )
+                    except Exception as e2:
+                        self.logger.warning(
+                            "anthropic_provider_init_failed",
+                            error=str(e2),
+                            fallback_to="deterministic_demo",
+                        )
+                        # Final fallback to deterministic demo
+                        self.provider = DeterministicDemoProvider()
+                        self.logger.info(
+                            "ai_provider_initialized",
+                            provider="deterministic_demo",
+                            mode=mode,
+                        )
+            else:  # Default to anthropic
                 try:
                     self.provider = AnthropicProvider()
                     self.logger.info(
                         "ai_provider_initialized",
                         provider="anthropic",
                         mode=mode,
-                        model=settings.ANTHROPIC_MODEL,
                     )
                 except Exception as e:
                     self.logger.warning(
-                        "anthropic_provider_init_failed", error=str(e), fallback_to="deterministic_demo"
+                        "anthropic_provider_init_failed",
+                        error=str(e),
+                        fallback_to="deterministic_demo",
                     )
                     # Fallback to deterministic demo if Anthropic fails to initialize
                     self.provider = DeterministicDemoProvider()
@@ -92,8 +120,8 @@ class InvestigationAssistant:
 
     @property
     def live_mode(self) -> bool:
-        """True when using a live AI provider (Anthropic or OpenRouter), False otherwise."""
-        return isinstance(self.provider, (AnthropicProvider, OpenRouterProvider))
+        """True when using a live AI provider (OpenRouter), False otherwise."""
+        return isinstance(self.provider, OpenRouterProvider)
 
     def _compile_patterns(self) -> dict[QueryType, list[re.Pattern]]:
         return {

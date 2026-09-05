@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 import structlog
 
 from .base import AIProvider
-from .schemas import QueryType
+from ..schemas import QueryType
 
 logger = structlog.get_logger(__name__)
 
