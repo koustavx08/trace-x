@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:15-alpine
@@ -66,6 +64,7 @@ services:
     container_name: tracex-backend
     environment:
       APP_ENV: development
+      SECRET_KEY: trace-x-super-secret-key-change-in-production
       DATABASE_URL: postgresql+asyncpg://tracex:tracex@postgres:5432/tracex
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
@@ -96,7 +95,7 @@ services:
     command: ["celery", "-A", "src.workers.main.celery_app", "worker", "--loglevel=info"]
     environment:
       APP_ENV: development
-      SECRET_KEY: dev-secret-key-not-for-production-use-only-min-32-chars
+      SECRET_KEY: trace-x-super-secret-key-change-in-production
       DATABASE_URL: postgresql+asyncpg://tracex:tracex@postgres:5432/tracex
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
@@ -124,7 +123,7 @@ services:
     command: ["celery", "-A", "src.workers.main.celery_app", "beat", "--loglevel=info"]
     environment:
       APP_ENV: development
-      SECRET_KEY: dev-secret-key-not-for-production-use-only-min-32-chars
+      SECRET_KEY: trace-x-super-secret-key-change-in-production
       DATABASE_URL: postgresql+asyncpg://tracex:tracex@postgres:5432/tracex
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
@@ -146,17 +145,30 @@ services:
 
   frontend:
     build:
-      context: ../apps/web
-      dockerfile: Dockerfile
+      # Repo root, so the npm workspace install can see packages/shared.
+      # apps/web alone cannot resolve the @trace-x/shared dependency.
+      context: ..
+      dockerfile: apps/web/Dockerfile
     container_name: tracex-frontend
     environment:
-      NEXT_PUBLIC_API_URL: http://backend:8000/api/v1
+      # NEXT_PUBLIC_* is inlined into browser bundles, so this must be a URL the
+      # *browser* can reach. "http://backend:8000" only resolves inside the
+      # compose network, so every client-side API call failed; localhost:8000 is
+      # the published backend port on the host.
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
     ports:
       - "3000:3000"
     volumes:
-      - ../apps/web:/app
+      # Live-reload mounts mirror the in-image monorepo layout. The anonymous
+      # volumes keep the image's installed/compiled artifacts from being
+      # shadowed by the bind mounts.
+      - ../apps/web:/app/apps/web
+      - ../packages/shared:/app/packages/shared
       - /app/node_modules
-      - /app/.next
+      - /app/apps/web/node_modules
+      - /app/apps/web/.next
+      - /app/packages/shared/node_modules
+      - /app/packages/shared/dist
     depends_on:
       - backend
     networks:
