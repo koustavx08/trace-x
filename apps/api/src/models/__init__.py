@@ -20,10 +20,24 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..core.database import Base
 
 
+def _pg_enum(enum_cls: type[enum.Enum]) -> SQLEnum:
+    """Build a PG ENUM column type whose labels are the enum *values*.
+
+    SQLAlchemy's default is to persist the member *name* ("OPEN"), but
+    alembic/versions/001_initial.py declares every one of these types with the
+    lowercase member values ('open', 'in_progress', ...). Without
+    `values_callable` the two disagree, and any INSERT against a
+    migration-provisioned database fails with `invalid input value for enum
+    casestatus: "OPEN"`. Tests never caught this because they build the schema
+    with `Base.metadata.create_all` instead of running the migrations.
+    """
+    return SQLEnum(enum_cls, values_callable=lambda e: [member.value for member in e])
+
+
 class UserRole(str, enum.Enum):
-    analyst = "analyst"
-    supervisor = "supervisor"
-    admin = "admin"
+    ANALYST = "analyst"
+    SUPERVISOR = "supervisor"
+    ADMIN = "admin"
 
 
 class CaseStatus(str, enum.Enum):
@@ -64,7 +78,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        SQLEnum(UserRole), default=UserRole.analyst, nullable=False
+        _pg_enum(UserRole), default=UserRole.ANALYST, nullable=False
     )
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -93,11 +107,11 @@ class Case(Base):
     case_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     crime_type: Mapped[CrimeType] = mapped_column(
-        SQLEnum(CrimeType), default=CrimeType.FRAUD, nullable=False
+        _pg_enum(CrimeType), default=CrimeType.FRAUD, nullable=False
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[CaseStatus] = mapped_column(
-        SQLEnum(CaseStatus), default=CaseStatus.OPEN, nullable=False
+        _pg_enum(CaseStatus), default=CaseStatus.OPEN, nullable=False
     )
     assigned_to: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
@@ -149,7 +163,7 @@ class Wallet(Base):
     chain: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     label: Mapped[str | None] = mapped_column(String(100), nullable=True)
     attribution_status: Mapped[AttributionStatus] = mapped_column(
-        SQLEnum(AttributionStatus), default=AttributionStatus.UNVERIFIED, nullable=False
+        _pg_enum(AttributionStatus), default=AttributionStatus.UNVERIFIED, nullable=False
     )
     risk_score: Mapped[float] = mapped_column(Numeric(5, 2), default=0.0, nullable=False)
     entity_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -177,7 +191,16 @@ class Wallet(Base):
 
     __table_args__ = (
         Index("ix_wallets_case_chain", "case_id", "chain"),
-        Index("ix_wallets_address_chain", "address", "chain", unique=True),
+        # Uniqueness is per *case*, not global. Wallets belong to a case
+        # (case_id is a non-null FK), and unrelated investigations routinely
+        # touch the same address -- exchange deposit wallets, mixers, bridges
+        # and token contracts recur across cases by their very nature. A global
+        # unique (address, chain) made the second case to reference any such
+        # address fail on insert. src/services/wallet_analysis.py already
+        # encodes the intended rule, rejecting duplicates with "Wallet already
+        # tracked in this case" scoped to (case_id, address, chain); this index
+        # now matches that guard instead of contradicting it.
+        Index("ix_wallets_address_chain", "case_id", "address", "chain", unique=True),
     )
 
     def __repr__(self) -> str:
@@ -194,7 +217,12 @@ class Transaction(Base):
         nullable=False,
         index=True,
     )
-    tx_hash: Mapped[str] = mapped_column(String(66), nullable=False, index=True)
+    # No `index=True` here: it would auto-generate an index also named
+    # "ix_transactions_tx_hash", colliding with the explicit UNIQUE index of
+    # that name in __table_args__ below. Two same-named indexes in the metadata
+    # made `Base.metadata.create_all` fail with DuplicateTableError on any
+    # fresh database -- which is why every database-backed test skipped.
+    tx_hash: Mapped[str] = mapped_column(String(66), nullable=False)
     block_number: Mapped[int] = mapped_column(Integer, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     from_address: Mapped[str] = mapped_column(String(66), nullable=False, index=True)
@@ -245,7 +273,7 @@ class InvestigationRun(Base):
         index=True,
     )
     status: Mapped[InvestigationStatus] = mapped_column(
-        SQLEnum(InvestigationStatus), default=InvestigationStatus.PENDING, nullable=False
+        _pg_enum(InvestigationStatus), default=InvestigationStatus.PENDING, nullable=False
     )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -325,6 +353,7 @@ class AuditLog(Base):
     Backs `src.auth.AuditLogger`, which previously buffered entries
     in-memory only and dropped them on flush.
     """
+
     __tablename__ = "audit_log"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)

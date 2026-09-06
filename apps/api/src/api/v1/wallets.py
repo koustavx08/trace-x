@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core import NotFoundError, get_session
+from src.core import ConflictError, NotFoundError, get_session
 from src.models import AttributionStatus, Case, Wallet
 from src.schemas import PaginatedResponse, WalletCreate, WalletResponse, WalletUpdate
 
@@ -26,6 +26,23 @@ async def create_wallet(
     case = result.scalar_one_or_none()
     if not case:
         raise NotFoundError("Case", str(case_id))
+
+    # (case_id, address, chain) is uniquely indexed. Without this check the
+    # INSERT raises an IntegrityError that nothing maps to a response, so a
+    # duplicate surfaced as an unhandled 500 instead of a 409. Mirrors the
+    # "Wallet already tracked in this case" guard in services/wallet_analysis.py.
+    existing = await session.execute(
+        select(Wallet).where(
+            Wallet.case_id == case_id,
+            Wallet.address == wallet_data.address,
+            Wallet.chain == wallet_data.chain,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise ConflictError(
+            "Wallet",
+            f"Wallet {wallet_data.address} on {wallet_data.chain} is already tracked in this case.",
+        )
 
     wallet = Wallet(
         case_id=case_id,

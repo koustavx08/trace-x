@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class CaseStatus(str, Enum):
@@ -102,7 +102,15 @@ class CaseResponse(CaseBase):
     id: UUID
     case_number: str
     assigned_to: UUID | None = None
-    metadata: dict | None = None
+    # The ORM attribute is `case_metadata` -- `metadata` is reserved by
+    # SQLAlchemy's Declarative API. Validating this response straight off a
+    # `Case` object without the alias picked up SQLAlchemy's own
+    # `Case.metadata` (a `MetaData` instance) and raised a ValidationError,
+    # turning every list/detail case request into a 500. The public JSON field
+    # stays `metadata`; only the attribute it is read from changes.
+    metadata: dict | None = Field(
+        default=None, validation_alias=AliasChoices("case_metadata", "metadata")
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -138,6 +146,10 @@ class WalletResponse(WalletBase):
 
     id: UUID
     case_id: UUID
+    # See CaseResponse.metadata -- the ORM attribute is `wallet_metadata`.
+    metadata: dict | None = Field(
+        default=None, validation_alias=AliasChoices("wallet_metadata", "metadata")
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -166,6 +178,10 @@ class TransactionResponse(TransactionBase):
 
     id: UUID
     wallet_id: UUID
+    # See CaseResponse.metadata -- the ORM attribute is `transaction_metadata`.
+    metadata: dict | None = Field(
+        default=None, validation_alias=AliasChoices("transaction_metadata", "metadata")
+    )
     created_at: datetime
 
 
