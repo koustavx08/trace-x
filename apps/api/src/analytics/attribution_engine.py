@@ -258,11 +258,25 @@ class AttributionEngine:
         attributions = await self.attribute_wallet(wallet_address, chain)
 
         if not attributions:
+            # Must carry the same keys as the populated branch below: this dict
+            # is fed straight into `AttributionResponse(**result)`, which
+            # requires `all_attributions` and `summary`. Omitting them made the
+            # "nothing attributed" case -- the normal outcome whenever no
+            # blockchain provider is configured -- fail with a 500 instead of
+            # honestly reporting that there was nothing to attribute.
             return {
                 "attributed": False,
                 "nearest_vasp": None,
                 "confidence": ConfidenceLevel.UNKNOWN.value,
                 "total_attributions": 0,
+                "all_attributions": [],
+                "summary": {
+                    "exchanges_found": 0,
+                    "mixers_found": 0,
+                    "bridges_found": 0,
+                    "highest_confidence": 0.0,
+                    "average_hops": 0.0,
+                },
             }
 
         primary = attributions[0]

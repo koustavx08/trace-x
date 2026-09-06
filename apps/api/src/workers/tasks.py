@@ -22,6 +22,21 @@ from ..graph.repository import graph_repository
 logger = structlog.get_logger(__name__)
 
 
+def _require_user_uuid(generated_by: str) -> UUID:
+    """Parse `generated_by` into a real users.id, or fail with a clear message.
+
+    Celery task arguments are JSON, so this arrives as a string. It ends up in
+    `reports.generated_by`, a NOT NULL foreign key to `users.id`.
+    """
+    try:
+        return UUID(generated_by)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise ValueError(
+            f"report_generation_task needs generated_by to be a users.id UUID, got "
+            f"{generated_by!r}."
+        ) from exc
+
+
 def run_async(coro):
     """Run async coroutine in Celery worker."""
     try:
@@ -233,7 +248,7 @@ def report_generation_task(
     title: str | None = None,
     template: str = "technical_findings",
     format: str = "pdf",
-    generated_by: str = "system",
+    generated_by: str = "",
 ):
     """Background task for report generation."""
 
@@ -269,9 +284,11 @@ def report_generation_task(
                 },
                 risk_assessment={},
                 graph_snapshot={},
-                generated_by=UUID(generated_by)
-                if generated_by != "system"
-                else UUID("00000000-0000-0000-0000-000000000000"),
+                # reports.generated_by is a NOT NULL FK to users.id, so the
+                # old "system" -> all-zeros-UUID fallback could never insert:
+                # no users row has that id. Require a real user id and fail
+                # with a clear message rather than a ForeignKeyViolationError.
+                generated_by=_require_user_uuid(generated_by),
                 format=format,
             )
             session.add(db_report)

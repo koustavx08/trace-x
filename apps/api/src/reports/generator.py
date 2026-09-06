@@ -23,6 +23,7 @@ from uuid import UUID
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core import async_session_factory
 from src.models import Case, InvestigationRun, Wallet
@@ -65,6 +66,26 @@ class ReportGenerator:
     """Builds report content from case/investigation data and renders it
     to the requested output format."""
 
+    async def _load_sections(
+        self,
+        session: AsyncSession,
+        case_id: str,
+        investigation_run_id: str | None,
+    ) -> list[ReportSection]:
+        """Read the case/investigation/wallets and build the report sections."""
+        case = await session.get(Case, UUID(case_id))
+        if not case:
+            raise ValueError(f"Case not found: {case_id}")
+
+        investigation = None
+        if investigation_run_id:
+            investigation = await session.get(InvestigationRun, UUID(investigation_run_id))
+
+        wallets_result = await session.execute(select(Wallet).where(Wallet.case_id == case.id))
+        wallets = wallets_result.scalars().all()
+
+        return self._build_sections(case, investigation, wallets)
+
     async def generate_report(
         self,
         case_id: str,
@@ -73,22 +94,26 @@ class ReportGenerator:
         template: str = ReportTemplate.TECHNICAL_FINDINGS.value,
         format: str = ReportFormat.PDF.value,
         generated_by: str = "system",
+        session: AsyncSession | None = None,
     ) -> GeneratedReport:
+        """Build a report for `case_id`.
+
+        `session` lets a caller that already has one (an HTTP request, say)
+        hand it in. Always opening a fresh `async_session_factory()` session
+        meant the generator read the case in a *different* transaction from the
+        endpoint that writes the resulting `Report` row -- and in tests it also
+        bypassed the `get_session` dependency override, so it queried the real
+        database instead of `tracex_test` and reported "Case not found" for a
+        case the test had just created. Falls back to its own session when no
+        caller supplies one (e.g. the Celery worker).
+        """
         report_format = ReportFormat(format)
 
-        async with async_session_factory() as session:
-            case = await session.get(Case, UUID(case_id))
-            if not case:
-                raise ValueError(f"Case not found: {case_id}")
-
-            investigation = None
-            if investigation_run_id:
-                investigation = await session.get(InvestigationRun, UUID(investigation_run_id))
-
-            wallets_result = await session.execute(select(Wallet).where(Wallet.case_id == case.id))
-            wallets = wallets_result.scalars().all()
-
-            sections = self._build_sections(case, investigation, wallets)
+        if session is not None:
+            sections = await self._load_sections(session, case_id, investigation_run_id)
+        else:
+            async with async_session_factory() as own_session:
+                sections = await self._load_sections(own_session, case_id, investigation_run_id)
 
         report = GeneratedReport(
             title=title,

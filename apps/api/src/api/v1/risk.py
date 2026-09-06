@@ -36,7 +36,14 @@ class ReportGenerateRequest(BaseModel):
     title: str | None = None
     template: ReportTemplate = ReportTemplate.TECHNICAL_FINDINGS
     format: ReportFormat = ReportFormat.JSON
-    generated_by: str = "analyst"
+    # A real users.id, matching the FK on reports.generated_by and the
+    # `generated_by: UUID` query param on POST /reports in api/v1/reports.py.
+    # This used to be a free-form str defaulting to "analyst", which the
+    # handler then fed to UUID() unless it equalled the *other* sentinel,
+    # "system" -- so the endpoint raised ValueError ("badly formed hexadecimal
+    # UUID string") on its own default input, and the "system" branch stored an
+    # all-zeros UUID that no users row has, violating the foreign key.
+    generated_by: UUID
 
 
 class ReportGenerateResponse(BaseModel):
@@ -188,7 +195,10 @@ async def generate_report(
         title=request.title or f"{case.title} - Investigation Report",
         template=request.template,
         format=request.format,
-        generated_by=request.generated_by,
+        generated_by=str(request.generated_by),
+        # Reuse this request's session so the generator reads the case in the
+        # same transaction that the Report row below is written in.
+        session=session,
     )
 
     db_report = Report(
@@ -201,9 +211,7 @@ async def generate_report(
         },
         risk_assessment={},
         graph_snapshot={},
-        generated_by=UUID(request.generated_by)
-        if request.generated_by != "system"
-        else UUID("00000000-0000-0000-0000-000000000000"),
+        generated_by=request.generated_by,
         format=request.format.value,
     )
     session.add(db_report)

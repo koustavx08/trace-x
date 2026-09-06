@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -8,6 +8,20 @@ import structlog
 from ..graph.models import ConfidenceLevel, EntityType, GraphTransaction, GraphWallet
 
 logger = structlog.get_logger(__name__)
+
+
+def _age_in_days(moment: datetime) -> int:
+    """Whole days between `moment` and now, tolerating naive or aware inputs.
+
+    Timestamps read back from Neo4j are timezone-aware, while ones built in
+    Python here were naive (`datetime.utcnow()`), and subtracting one from the
+    other raises "can't subtract offset-naive and offset-aware datetimes".
+    Naive values are treated as UTC, which is what every producer in this
+    codebase writes.
+    """
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - moment).days
 
 
 class RiskFactorType(str, Enum):
@@ -455,7 +469,7 @@ class RiskScoringEngine:
         factors: list[RiskFactor] = []
 
         if wallet.first_seen and wallet.tx_count < 5:
-            days_old = (datetime.utcnow() - wallet.first_seen).days if wallet.first_seen else 0
+            days_old = _age_in_days(wallet.first_seen)
             if days_old < 30:
                 factors.append(
                     RiskFactor(
