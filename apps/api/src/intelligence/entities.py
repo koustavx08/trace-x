@@ -1,5 +1,6 @@
 import csv
 import io
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -13,6 +14,29 @@ from ..graph.models import ConfidenceLevel, EntityType, GraphEntity
 from ..graph.repository import graph_repository
 
 logger = structlog.get_logger(__name__)
+
+# OFAC's SDN.CSV has no header row; these are its fixed column positions.
+# (ent_num, SDN_Name, SDN_Type, Program, Title, Call_Sign, Vess_type, Tonnage,
+#  GRT, Vess_flag, Vess_owner, Remarks)
+_SDN_ENT_NUM = 0
+_SDN_NAME = 1
+_SDN_PROGRAM = 3
+_SDN_REMARKS = 11
+
+#: Matches "Digital Currency Address - ETH 0xabc..." occurrences in Remarks.
+_DIGITAL_CURRENCY_ADDRESS_RE = re.compile(
+    r"Digital Currency Address\s*-\s*([A-Z0-9]+)\s+([a-zA-Z0-9]+)"
+)
+
+#: OFAC currency codes that map onto chains TRACE-X can trace. Non-EVM codes
+#: (XBT, XMR, LTC, ...) also appear in the list but are out of scope here.
+_SDN_CURRENCY_CHAINS = {
+    "ETH": "Ethereum",
+    "ETC": "Ethereum Classic",
+    "USDT": "Ethereum",
+    "USDC": "Ethereum",
+    "BNB": "BSC",
+}
 settings = get_settings()
 
 
@@ -292,31 +316,60 @@ class EntityIntelligence:
             return entities
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            # follow_redirects: the OFAC endpoint answers 302 and hands off to
+            # a short-lived signed S3 URL. Without this, httpx returns the 302
+            # itself and raise_for_status() aborts the sync every time.
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
                 response = await client.get(settings.OFAC_SDN_LIST_URL)
                 response.raise_for_status()
                 content = response.text
 
-            reader = csv.DictReader(io.StringIO(content))
-            for row in reader:
-                if row.get("sdnType") == "Cryptocurrency":
-                    addr = row.get("address", "").strip()
-                    if addr and addr.startswith("0x"):
-                        entities.append(
-                            EntityRecord(
-                                name=f"OFAC: {row.get('name', 'Unknown')}",
-                                entity_type=EntityType.SANCTIONED,
-                                address=addr,
-                                chain="Ethereum",
-                                confidence=ConfidenceLevel.CONFIRMED,
-                                source="ofac_sdn",
-                                tags=["sanctions", "ofac", "high_risk"],
-                                metadata={
-                                    "sdn_entry": row.get("sdnEntry"),
-                                    "program": row.get("program"),
-                                },
-                            )
+            # SDN.CSV is headerless, fixed-position CSV -- csv.DictReader
+            # consumed the first *data* row as the header, so every
+            # row.get("sdnType")/row.get("address") returned None and this
+            # loader silently produced zero sanctioned addresses. There are no
+            # "address"/"sdnType" columns at all: crypto addresses live inside
+            # the free-text Remarks column as
+            #   "Digital Currency Address - ETH 0x...; alt. Digital Currency
+            #    Address - XBT 1..."
+            # so parse them out of there instead.
+            seen: set[str] = set()
+            for row in csv.reader(io.StringIO(content)):
+                if len(row) <= _SDN_REMARKS:
+                    continue
+                remarks = row[_SDN_REMARKS]
+                if "Digital Currency Address" not in remarks:
+                    continue
+
+                name = row[_SDN_NAME].strip()
+                program = row[_SDN_PROGRAM].strip().strip("[]")
+                for currency, addr in _DIGITAL_CURRENCY_ADDRESS_RE.findall(remarks):
+                    chain = _SDN_CURRENCY_CHAINS.get(currency)
+                    # Only EVM-style addresses are actionable here: the rest of
+                    # TRACE-X keys wallets by 0x-prefixed addresses.
+                    if not chain or not addr.startswith("0x"):
+                        continue
+                    key = f"{chain}:{addr.lower()}"
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    entities.append(
+                        EntityRecord(
+                            name=f"OFAC: {name or 'Unknown'}",
+                            entity_type=EntityType.SANCTIONED,
+                            address=addr,
+                            chain=chain,
+                            confidence=ConfidenceLevel.CONFIRMED,
+                            source="ofac_sdn",
+                            tags=["sanctions", "ofac", "high_risk"],
+                            metadata={
+                                "sdn_entry": row[_SDN_ENT_NUM].strip(),
+                                "program": program,
+                                "currency": currency,
+                            },
                         )
+                    )
+            logger.info("sanctions_list_loaded", count=len(entities))
         except Exception as e:
             logger.warning("sanctions_list_load_failed", error=str(e))
 
