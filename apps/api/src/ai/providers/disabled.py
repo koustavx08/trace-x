@@ -3,12 +3,13 @@ Disabled AI provider.
 
 Returns a fixed message indicating that AI assistance is disabled.
 """
-from typing import Any, Dict, Optional
+
+from typing import Any
 
 import structlog
 
-from .base import AIProvider
 from ..schemas import QueryType
+from .base import AIProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -27,7 +28,7 @@ class DisabledProvider(AIProvider):
         # This provider is always "configured" in the sense that it exists.
         return True
 
-    async def classify_and_extract(self, query: str) -> Optional[Dict[str, Any]]:
+    async def classify_and_extract(self, query: str) -> dict[str, Any] | None:
         """Return None to fall back to regex classification."""
         return None
 
@@ -35,7 +36,7 @@ class DisabledProvider(AIProvider):
         self,
         query: str,
         query_type: QueryType,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         fallback_answer: str,
     ) -> str:
         """Return the disabled message."""
@@ -47,9 +48,9 @@ class DisabledProvider(AIProvider):
 
     async def generate_narrative(
         self,
-        case_summary: Dict[str, Any],
-        wallets_summary: list[Dict[str, Any]],
-        findings: Dict[str, Any],
+        case_summary: dict[str, Any],
+        wallets_summary: list[dict[str, Any]],
+        findings: dict[str, Any],
         fallback_narrative: str,
     ) -> str:
         """Return a fixed message indicating narrative generation is disabled."""

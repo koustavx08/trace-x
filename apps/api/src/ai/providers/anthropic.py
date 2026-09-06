@@ -3,14 +3,14 @@ Anthropic AI provider.
 
 Wraps the existing Anthropic client usage from InvestigationAssistant.
 """
+
 import json
-from typing import Any, Dict, Optional
+from typing import Any
 
 import anthropic
 import structlog
 
 from ...core.config import get_settings
-
 from ..schemas import QueryType
 from .base import AIProvider
 
@@ -68,7 +68,19 @@ class AnthropicProvider(AIProvider):
     def is_configured(self) -> bool:
         return self._client is not None
 
-    async def classify_and_extract(self, query: str) -> Optional[Dict[str, Any]]:
+    def _require_client(self) -> "anthropic.AsyncAnthropic":
+        """Return the client, asserting it is configured.
+
+        `is_configured()` guards every call site, but a bool-returning method
+        tells the type checker nothing -- so `self._client.messages` read as
+        `None.messages`. Callers are all inside `try/except Exception` blocks
+        that fall back gracefully, so the raise here is unreachable in practice.
+        """
+        if self._client is None:
+            raise RuntimeError("AnthropicProvider used without an API key configured")
+        return self._client
+
+    async def classify_and_extract(self, query: str) -> dict[str, Any] | None:
         """
         Structured intent classification + entity extraction via Anthropic tool-use.
 
@@ -79,7 +91,7 @@ class AnthropicProvider(AIProvider):
         if not self.is_configured():
             return None
         try:
-            response = await self._client.messages.create(
+            response = await self._require_client().messages.create(
                 model=self._model,
                 max_tokens=256,
                 system=(
@@ -91,8 +103,8 @@ class AnthropicProvider(AIProvider):
                 messages=[{"role": "user", "content": query}],
             )  # type: ignore[call-overload]
             for block in response.content:
-                if block.type == "tool_use":
-                    return dict(block.input)
+                if isinstance(block, anthropic.types.ToolUseBlock):
+                    return dict(block.input)  # type: ignore[arg-type]
         except Exception as e:
             logger.warning("anthropic_classify_failed", error=str(e))
         return None
@@ -101,7 +113,7 @@ class AnthropicProvider(AIProvider):
         self,
         query: str,
         query_type: QueryType,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         fallback_answer: str,
     ) -> str:
         """
@@ -128,13 +140,16 @@ class AnthropicProvider(AIProvider):
                 "into a natural-language answer. Be concise and factual. Use the "
                 "provided context to compose a clear answer to the investigator's query."
             )
-            response = await self._client.messages.create(
+            response = await self._require_client().messages.create(
                 model=self._model,
                 max_tokens=1024,
                 system=system_prompt,
                 messages=[{"role": "user", "content": json.dumps(payload, default=str)}],
             )
-            text = next((b.text for b in response.content if b.type == "text"), "")
+            text = next(
+                (b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)),
+                "",
+            )
             return text.strip() or fallback_answer
         except Exception as e:
             logger.warning(
@@ -144,9 +159,9 @@ class AnthropicProvider(AIProvider):
 
     async def generate_narrative(
         self,
-        case_summary: Dict[str, Any],
-        wallets_summary: list[Dict[str, Any]],
-        findings: Dict[str, Any],
+        case_summary: dict[str, Any],
+        wallets_summary: list[dict[str, Any]],
+        findings: dict[str, Any],
         fallback_narrative: str,
     ) -> str:
         """
@@ -178,13 +193,16 @@ class AnthropicProvider(AIProvider):
                 "wallets": wallets_summary,
                 "findings": findings,
             }
-            response = await self._client.messages.create(
+            response = await self._require_client().messages.create(
                 model=self._model,
                 max_tokens=2048,
                 system=narrative_system_prompt,
                 messages=[{"role": "user", "content": json.dumps(payload, default=str)}],
             )
-            text = next((b.text for b in response.content if b.type == "text"), "")
+            text = next(
+                (b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)),
+                "",
+            )
             return text.strip() or fallback_narrative
         except Exception as e:
             logger.warning("anthropic_generate_narrative_failed", error=str(e))

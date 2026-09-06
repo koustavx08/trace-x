@@ -1,36 +1,33 @@
-import json
 import re
-from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
-from typing import Any, Optional
-
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
 
 import structlog
-
-from ..core import get_session_context
-from ..core.config import get_settings
-from ..core.metrics import ai_queries_total
-from ..models import Case
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..analytics.attribution_engine import attribution_engine
 from ..analytics.risk_engine import risk_scoring_engine
+from ..core import get_session_context
+from ..core.config import get_settings
+from ..core.metrics import ai_queries_total
+from ..graph.models import ConfidenceLevel as GraphConfidenceLevel
 from ..graph.models import EntityType
 from ..graph.queries import graph_queries
 from ..graph.repository import graph_repository
-from .schemas import QueryType, ConfidenceLevel, Evidence
-
+from ..models import Case
+from .providers.anthropic import AnthropicProvider
 from .providers.base import AIProvider
 from .providers.deterministic_demo import DeterministicDemoProvider
 from .providers.disabled import DisabledProvider
 from .providers.openrouter import OpenRouterProvider
+from .schemas import ConfidenceLevel, Evidence, QueryType
 
 logger = structlog.get_logger(__name__)
 
 
 class AIResponse(BaseModel):
     """Response model for AI assistant queries."""
+
     model_config = ConfigDict(from_attributes=True)
 
     answer: str
@@ -120,8 +117,15 @@ class InvestigationAssistant:
 
     @property
     def live_mode(self) -> bool:
-        """True when using a live AI provider (OpenRouter), False otherwise."""
-        return isinstance(self.provider, OpenRouterProvider)
+        """True when a real LLM backs this assistant, False otherwise.
+
+        Anthropic counts as live just as much as OpenRouter -- checking only
+        for OpenRouter reported the default live configuration as not-live.
+        Keyed off the actually-constructed provider rather than the requested
+        mode, so a provider that failed to initialize and fell back to
+        `DeterministicDemoProvider` correctly reports False.
+        """
+        return isinstance(self.provider, AnthropicProvider | OpenRouterProvider)
 
     def _compile_patterns(self) -> dict[QueryType, list[re.Pattern]]:
         return {
@@ -171,6 +175,16 @@ class InvestigationAssistant:
                 if pattern.search(query):
                     return query_type
         return None
+
+    def classify_query(self, query: str) -> QueryType:
+        """Classify a query, falling back to CASE_OVERVIEW when nothing matches.
+
+        Public counterpart to `_match_query_type`, which returns None for "no
+        match" so that `answer_query` can tell a genuine CASE_OVERVIEW match
+        apart from an unclassifiable query and route the latter to the
+        capabilities-listing general handler.
+        """
+        return self._match_query_type(query) or QueryType.CASE_OVERVIEW
 
     def extract_entities(self, query: str) -> dict[str, Any]:
         entities = {}
@@ -631,7 +645,11 @@ class InvestigationAssistant:
             chain=chain,
             entity_types=[EntityType.EXCHANGE, EntityType.BRIDGE],
             max_depth=6,
-            min_confidence=ConfidenceLevel.PROBABLE,
+            # The graph layer has its own ConfidenceLevel enum (same members,
+            # different class from src.ai.schemas'). They compare equal at
+            # runtime because both are str-enums, but pass the graph one at the
+            # graph boundary so the declared contract actually holds.
+            min_confidence=GraphConfidenceLevel.PROBABLE,
             limit=5,
         )
 
@@ -1155,7 +1173,9 @@ class InvestigationAssistant:
         Graceful degradation: if the provider is unable to generate a narrative, this returns
         the deterministic markdown template the caller already built - never raises, never turns into a 500.
         """
-        return await self.provider.generate_narrative(case_summary, wallets_summary, findings, fallback_narrative)
+        return await self.provider.generate_narrative(
+            case_summary, wallets_summary, findings, fallback_narrative
+        )
 
     async def _resolve_case_id(self, case_number: str) -> str | None:
         async with get_session_context() as session:

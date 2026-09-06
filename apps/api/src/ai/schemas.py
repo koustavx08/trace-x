@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -59,7 +59,11 @@ class ChatMessage(BaseModel):
     role: str = Field(..., pattern="^(user|assistant|system)$")
     content: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
-    metadata: dict[str, Any] = Field(default_factory=list)
+    # default_factory=dict, not list: a ChatMessage built without metadata (every
+    # user message) otherwise defaulted to [], which round-trips into Redis and
+    # then fails ChatSession.model_validate_json with "Input should be an
+    # object", breaking chat history retrieval and deletion.
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatSession(BaseModel):

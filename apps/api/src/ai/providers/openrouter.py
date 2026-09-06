@@ -3,17 +3,16 @@ OpenRouter AI provider.
 
 Implements the AIProvider interface using the OpenRouter API (OpenAI-compatible).
 """
+
 import json
-from typing import Any, Dict, Optional
+from typing import Any
 
 import httpx
 import structlog
 
 from ...core.config import get_settings
-from ...core.exceptions import ProviderNotConfiguredError
-
+from ..schemas import QueryType
 from .base import AIProvider
-from ..service import QueryType
 
 logger = structlog.get_logger(__name__)
 
@@ -34,12 +33,11 @@ class OpenRouterProvider(AIProvider):
     ):
         settings = get_settings()
         self._api_key = api_key if api_key is not None else settings.OPENROUTER_API_KEY
-        self._base_url = (
-            base_url if base_url is not None else settings.OPENROUTER_BASE_URL
-        )
+        self._base_url = base_url if base_url is not None else settings.OPENROUTER_BASE_URL
         self._model = model if model is not None else settings.OPENROUTER_MODEL
 
         # Only initialize HTTP client if we have both required fields
+        self._http_client: httpx.AsyncClient | None
         if self._api_key and self._model:
             self._http_client = httpx.AsyncClient(
                 base_url=self._base_url,
@@ -59,7 +57,18 @@ class OpenRouterProvider(AIProvider):
     def is_configured(self) -> bool:
         return bool(self._api_key and self._model)
 
-    async def classify_and_extract(self, query: str) -> Optional[Dict[str, Any]]:
+    def _require_http_client(self) -> httpx.AsyncClient:
+        """Return the HTTP client, asserting it was constructed.
+
+        `is_configured()` guards every call site but narrows nothing for the
+        type checker. All callers sit inside `try/except Exception` blocks that
+        fall back, so the raise is unreachable in practice.
+        """
+        if self._http_client is None:
+            raise RuntimeError("OpenRouterProvider used without an API key/model configured")
+        return self._http_client
+
+    async def classify_and_extract(self, query: str) -> dict[str, Any] | None:
         """
         Classify the query and extract entities using OpenRouter.
 
@@ -109,7 +118,7 @@ class OpenRouterProvider(AIProvider):
                 "max_tokens": 256,
             }
 
-            response = await self._http_client.post("/chat/completions", json=payload)
+            response = await self._require_http_client().post("/chat/completions", json=payload)
             response.raise_for_status()
             data = response.json()
 
@@ -117,9 +126,11 @@ class OpenRouterProvider(AIProvider):
             content = data["choices"][0]["message"]["content"].strip()
             # Try to parse the JSON
             try:
-                result = json.loads(content)
+                result: dict[str, Any] = json.loads(content)
                 # Validate that we have a query_type
-                if "query_type" in result and result["query_type"] in [qt.value for qt in QueryType]:
+                if "query_type" in result and result["query_type"] in [
+                    qt.value for qt in QueryType
+                ]:
                     return result
                 else:
                     logger.warning(
@@ -144,7 +155,7 @@ class OpenRouterProvider(AIProvider):
         self,
         query: str,
         query_type: QueryType,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         fallback_answer: str,
     ) -> str:
         """
@@ -197,7 +208,7 @@ class OpenRouterProvider(AIProvider):
                 "max_tokens": 1024,
             }
 
-            response = await self._http_client.post("/chat/completions", json=payload)
+            response = await self._require_http_client().post("/chat/completions", json=payload)
             response.raise_for_status()
             data = response.json()
 
@@ -214,9 +225,9 @@ class OpenRouterProvider(AIProvider):
 
     async def generate_narrative(
         self,
-        case_summary: Dict[str, Any],
-        wallets_summary: list[Dict[str, Any]],
-        findings: Dict[str, Any],
+        case_summary: dict[str, Any],
+        wallets_summary: list[dict[str, Any]],
+        findings: dict[str, Any],
         fallback_narrative: str,
     ) -> str:
         """
@@ -262,7 +273,7 @@ class OpenRouterProvider(AIProvider):
                 "max_tokens": 2048,
             }
 
-            response = await self._http_client.post("/chat/completions", json=payload)
+            response = await self._require_http_client().post("/chat/completions", json=payload)
             response.raise_for_status()
             data = response.json()
 

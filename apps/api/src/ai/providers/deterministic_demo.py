@@ -3,12 +3,11 @@ Deterministic demo AI provider.
 
 Provides deterministic, template-based responses (the current fallback behavior).
 """
-import json
+
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 
 import structlog
 
@@ -35,7 +34,7 @@ class DeterministicDemoProvider(AIProvider):
     """
 
     def __init__(self):
-        self._query_patterns = self._compile_patterns()
+        self._query_patterns: dict[QueryType, list[re.Pattern]] = self._compile_patterns()
 
     @property
     def provider_name(self) -> str:
@@ -115,7 +114,7 @@ class DeterministicDemoProvider(AIProvider):
 
         return entities
 
-    async def classify_and_extract(self, query: str) -> Optional[Dict[str, Any]]:
+    async def classify_and_extract(self, query: str) -> dict[str, Any] | None:
         """
         Use regex-based classification and entity extraction.
 
@@ -123,22 +122,24 @@ class DeterministicDemoProvider(AIProvider):
         Note: This provider always returns a classification (at least CASE_OVERVIEW) and entities.
         """
         matched_type = self._match_query_type(query)
-        query_type = matched_type or QueryType.CASE_OVERVIEW
-        entities = self.extract_entities(query)
+        if matched_type is None:
+            # Return None rather than collapsing "no match" into CASE_OVERVIEW.
+            # InvestigationAssistant.answer_query() treats any dict here as a
+            # successful classification, so folding the two cases together made
+            # every unclassifiable query answer "Please specify a case ID"
+            # instead of reaching the capabilities-listing general handler --
+            # which, in demo mode, made that handler unreachable entirely.
+            return None
 
-        # Always return a dict, even if no entities are found.
-        result = {"query_type": query_type.value}
-        result.update(entities)
-        # Remove empty entities? We'll keep them as empty strings? No, we'll only add if present.
-        # But note: the caller expects the same format as the LLM extraction.
-        # We'll return the dict as is.
+        result = {"query_type": matched_type.value}
+        result.update(self.extract_entities(query))
         return result
 
     async def compose_answer(
         self,
         query: str,
         query_type: QueryType,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         fallback_answer: str,
     ) -> str:
         """
@@ -149,9 +150,9 @@ class DeterministicDemoProvider(AIProvider):
 
     async def generate_narrative(
         self,
-        case_summary: Dict[str, Any],
-        wallets_summary: list[Dict[str, Any]],
-        findings: Dict[str, Any],
+        case_summary: dict[str, Any],
+        wallets_summary: list[dict[str, Any]],
+        findings: dict[str, Any],
         fallback_narrative: str,
     ) -> str:
         """

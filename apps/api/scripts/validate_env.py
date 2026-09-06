@@ -46,8 +46,14 @@ OPTIONAL_PROVIDERS = [
     ("BSC_RPC_URL", "no BSC chain data"),
     ("CHAINALYSIS_API_KEY", "no Chainalysis entity/sanctions intelligence"),
     ("CIPHERTRACE_API_KEY", "no CipherTrace entity/sanctions intelligence"),
-    ("OPENROUTER_API_KEY", "AI assistant uses OpenRouter instead of Anthropic when AI_PROVIDER=openrouter"),
-    ("OPENROUTER_MODEL", "Required when using OpenRouter - specifies which model to use via OpenRouter"),
+    (
+        "OPENROUTER_API_KEY",
+        "AI assistant uses OpenRouter instead of Anthropic when AI_PROVIDER=openrouter",
+    ),
+    (
+        "OPENROUTER_MODEL",
+        "Required when using OpenRouter - specifies which model to use via OpenRouter",
+    ),
 ]
 
 
@@ -118,7 +124,9 @@ def main() -> int:
                 ok = False
         elif provider != "anthropic":
             # Warn if provider is neither anthropic nor openrouter
-            print(f"{WARN} AI_PROVIDER set to '{provider}' - only 'anthropic' and 'openrouter' are supported")
+            print(
+                f"{WARN} AI_PROVIDER set to '{provider}' - only 'anthropic' and 'openrouter' are supported"
+            )
 
     if settings.is_production:
         print()

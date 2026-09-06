@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any
 
-from ..schemas import ConfidenceLevel, QueryType
+from ..schemas import QueryType
 
 
 class AIProvider(ABC):
     """Abstract base class for AI providers."""
 
     @abstractmethod
-    async def classify_and_extract(self, query: str) -> Optional[Dict[str, Any]]:
+    async def classify_and_extract(self, query: str) -> dict[str, Any] | None:
         """Classify the query and extract entities.
 
         Returns None if unable to classify (caller should fall back to regex).
@@ -20,7 +20,7 @@ class AIProvider(ABC):
         self,
         query: str,
         query_type: QueryType,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         fallback_answer: str,
     ) -> str:
         """Compose a natural language answer from structured context.
@@ -32,9 +32,9 @@ class AIProvider(ABC):
     @abstractmethod
     async def generate_narrative(
         self,
-        case_summary: Dict[str, Any],
-        wallets_summary: list[Dict[str, Any]],
-        findings: Dict[str, Any],
+        case_summary: dict[str, Any],
+        wallets_summary: list[dict[str, Any]],
+        findings: dict[str, Any],
         fallback_narrative: str,
     ) -> str:
         """Generate an investigation narrative from structured data.
