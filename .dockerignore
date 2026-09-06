@@ -1,0 +1,44 @@
+# The frontend image builds from the repo root (it needs the npm workspace),
+# so everything here would otherwise be shipped to the daemon as build context.
+# .claude/ alone is multiple GB of agent worktrees.
+.claude/
+.git/
+.github/
+
+# Dependencies and build output -- reinstalled/rebuilt inside the image
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+**/dist/
+**/build/
+.turbo/
+
+# Python virtualenvs and caches
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.py[cod]
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pytest_cache/
+**/*.egg-info/
+.coverage
+htmlcov/
+
+# Local environment and secrets -- injected at runtime, never baked into images
+.env
+.env.*
+!.env.example
+!docker/.env.example
+
+# Runtime state
+**/celerybeat-schedule
+**/celerybeat.pid
+*.log
+
+# Editor / OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

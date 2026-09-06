@@ -163,3 +163,10 @@ wallet/
 investigations/
 exports/
 /reports/
+# Claude Code agent worktrees and local session state (multi-GB, never commit)
+.claude/
+
+# Celery beat scheduler state file (generated at runtime)
+celerybeat-schedule
+celerybeat-schedule.*
+celerybeat.pid
