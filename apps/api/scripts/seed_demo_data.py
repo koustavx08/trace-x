@@ -13,6 +13,7 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # Add apps/api (this script's parent's parent) to the path so `src` imports
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 API_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(API_ROOT))
 
+from src.auth import hash_password
 from src.core.config import get_settings
 from src.core.database import Base
 from src.graph.client import Neo4jClient
@@ -63,7 +65,7 @@ DEMO_CASES = [
         "status": CaseStatus.IN_PROGRESS,
         "wallets": [
             {
-                "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+                "address": "0x742D35CC6634c0532925A3b844BC9E7595F0BEb0",
                 "chain": "Ethereum",
                 "label": "Attacker - Flash Loan Originator",
                 "attribution_status": AttributionStatus.ATTRIBUTED,
@@ -99,7 +101,7 @@ DEMO_CASES = [
                 "entity_confidence": "CONFIRMED",
             },
             {
-                "address": "0xA0b86a33E6441b8C4C8C8C8C8C8C8C8C8C8C8C",
+                "address": "0xA0b86a33e6441b8C4C8c8C8c8c8c8c8c8c8C8c8C",
                 "chain": "Polygon",
                 "label": "Polygon Bridge - Cross-chain Transfer",
                 "attribution_status": AttributionStatus.CONFIRMED,
@@ -339,7 +341,7 @@ DEMO_CASES = [
                 "entity_confidence": "CONFIRMED",
             },
             {
-                "address": "0xA0b86a33E6441b8C4C8C8C8C8C8C8C8C8C8C8C",
+                "address": "0xA0b86a33e6441b8C4C8c8C8c8c8c8c8c8c8C8c8C",
                 "chain": "Polygon",
                 "label": "USDC on Polygon - Stablecoin Escrow",
                 "attribution_status": AttributionStatus.CONFIRMED,
@@ -659,7 +661,7 @@ DEMO_ENTITIES = [
     {
         "name": "USDC (Ethereum)",
         "entity_type": EntityType.DEFI,
-        "address": "0xA0b86a33E6441b8C4C8C8C8C8C8C8C8C8C8C8C",
+        "address": "0xA0b86a33e6441b8C4C8c8C8c8c8c8c8c8c8C8c8C",
         "chain": "Ethereum",
         "confidence": ConfidenceLevel.CONFIRMED,
         "source": "token_registry",
@@ -668,7 +670,7 @@ DEMO_ENTITIES = [
     {
         "name": "USDC (Polygon)",
         "entity_type": EntityType.DEFI,
-        "address": "0xA0b86a33E6441b8C4C8C8C8C8C8C8C8C8C8C8C",
+        "address": "0xA0b86a33e6441b8C4C8c8C8c8c8c8c8c8c8C8c8C",
         "chain": "Polygon",
         "confidence": ConfidenceLevel.CONFIRMED,
         "source": "token_registry",
@@ -708,6 +710,12 @@ DEMO_ENTITIES = [
 # DEMO USERS
 # ============================================================
 
+#: Password every seeded demo account shares. These are synthetic accounts in a
+#: local demo database; the seeder is never run against production (it writes
+#: SYNTHETIC_MARKER-tagged rows). `users.hashed_password` is NOT NULL, so a
+#: value has to be supplied here or the whole seed transaction aborts.
+DEMO_USER_PASSWORD = "tracex-demo-password"
+
 DEMO_USERS = [
     {
         "email": "analyst.a@tracex.gov",
@@ -745,20 +753,47 @@ async def seed_database():
         await conn.run_sync(Base.metadata.create_all)
 
     async with async_session() as session:
-        # Create users
+        # Re-seeding is idempotent, the same way the Neo4j half is. Without
+        # this a second run dies on the users.email / cases.case_number unique
+        # constraints, leaving a half-written database behind.
+        #
+        # Demo cases are deleted and rebuilt -- that cascades to their wallets,
+        # transactions, investigation runs and reports (all ON DELETE CASCADE).
+        await session.execute(
+            delete(Case).where(Case.case_number.in_([c["case_number"] for c in DEMO_CASES]))
+        )
+        await session.flush()
+
+        # Demo users are *upserted*, not deleted and recreated. They are
+        # referenced by rows this seeder does not own -- audit_log.actor_id
+        # from any login, reports.generated_by for reports raised against
+        # non-demo cases -- and neither FK cascades, so deleting the users
+        # fails with a ForeignKeyViolationError. Updating in place keeps every
+        # existing reference valid.
+        demo_password_hash = hash_password(DEMO_USER_PASSWORD)
+        demo_emails = [u["email"] for u in DEMO_USERS]
+        existing_users = (
+            (await session.execute(select(User).where(User.email.in_(demo_emails)))).scalars().all()
+        )
+        by_email = {u.email: u for u in existing_users}
+
         user_map = {}
+        created = 0
         for udata in DEMO_USERS:
-            user = User(
-                id=uuid4(),
-                email=udata["email"],
-                full_name=udata["full_name"],
-                role=udata["role"],
-                is_active=udata["is_active"],
-            )
-            session.add(user)
+            user = by_email.get(udata["email"])
+            if user is None:
+                user = User(id=uuid4(), email=udata["email"])
+                session.add(user)
+                created += 1
+            user.full_name = udata["full_name"]
+            user.hashed_password = demo_password_hash
+            user.role = udata["role"]
+            user.is_active = udata["is_active"]
             user_map[udata["email"]] = user
         await session.flush()
-        print(f"Created {len(user_map)} demo users")
+        print(
+            f"Seeded {len(user_map)} demo users ({created} created, {len(user_map) - created} updated)"
+        )
 
         # Create cases with wallets and transactions
         case_map = {}
@@ -795,7 +830,7 @@ async def seed_database():
                     risk_score=Decimal(str(wdata["risk_score"])),
                     entity_name=wdata.get("entity_name"),
                     entity_confidence=wdata.get("entity_confidence"),
-                    metadata={"source": SYNTHETIC_MARKER, "demo_index": idx},
+                    wallet_metadata={"source": SYNTHETIC_MARKER, "demo_index": idx},
                 )
                 session.add(wallet)
                 case_wallets.append(wallet)
@@ -821,27 +856,18 @@ async def seed_database():
                     token_symbol="ETH",
                     method=tdata["method"],
                     is_suspicious=tdata["suspicious"],
-                    metadata={"source": SYNTHETIC_MARKER},
+                    transaction_metadata={"source": SYNTHETIC_MARKER},
                 )
                 session.add(tx)
 
-                # Also add reverse transaction for to_wallet
-                tx2 = Transaction(
-                    id=uuid4(),
-                    wallet_id=to_wallet.id,
-                    tx_hash=tx.tx_hash,
-                    block_number=tx.block_number,
-                    timestamp=tx.timestamp,
-                    from_address=tx.from_address,
-                    to_address=tx.to_address,
-                    value=tx.value,
-                    value_usd=tx.value_usd,
-                    token_symbol=tx.token_symbol,
-                    method=tx.method,
-                    is_suspicious=tx.is_suspicious,
-                    metadata={"source": SYNTHETIC_MARKER},
-                )
-                session.add(tx2)
+                # One row per on-chain transaction, owned by the sending
+                # wallet. A mirrored row for `to_wallet` used to be inserted
+                # here reusing the same tx_hash, which violates the unique
+                # ix_transactions_tx_hash index (a transaction hash is globally
+                # unique on-chain) and aborted the whole seed. The receiving
+                # side of a transfer is reachable via `to_address`, and the
+                # Neo4j seed below models both directions explicitly with
+                # SENT/RECEIVED relationships.
 
         # Create investigation runs
         for cdata in DEMO_CASES:
@@ -874,7 +900,6 @@ async def seed_database():
                     }
                     if status == InvestigationStatus.COMPLETED
                     else None,
-                    metadata={"source": SYNTHETIC_MARKER},
                 )
                 session.add(inv)
 
@@ -902,7 +927,6 @@ async def seed_database():
                     },
                     generated_by=user_map["analyst.a@tracex.gov"].id,
                     format="pdf",
-                    metadata={"source": SYNTHETIC_MARKER},
                 )
                 session.add(report)
 
@@ -915,9 +939,17 @@ async def seed_neo4j():
     await Neo4jClient.initialize()
 
     async with Neo4jClient.session() as session:
-        # Clear existing demo data
+        # Clear existing demo data so re-running the seeder is idempotent.
+        # `metadata` is stored as a JSON *string* (Neo4j property values can
+        # only be primitives or arrays, so a nested map cannot be written at
+        # all -- see _dump_metadata in src/graph/repository.py). The previous
+        # `n.metadata.source = $marker` map access therefore raised a
+        # CypherTypeError and never deleted anything; substring-match the
+        # serialized marker instead.
         await session.run(
-            "MATCH (n) WHERE n.metadata.source = $marker DETACH DELETE n", marker=SYNTHETIC_MARKER
+            "MATCH (n) WHERE n.metadata IS NOT NULL AND n.metadata CONTAINS $marker "
+            "DETACH DELETE n",
+            marker=SYNTHETIC_MARKER,
         )
 
         # Create wallets
