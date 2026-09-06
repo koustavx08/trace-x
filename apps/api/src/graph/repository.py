@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import structlog
@@ -13,6 +14,46 @@ from .models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _as_float(value: Any) -> float | None:
+    """Coerce a numeric to a plain float for Neo4j, preserving None.
+
+    SQLAlchemy `Numeric` columns (Transaction.value_usd, Wallet.risk_score)
+    come back as `decimal.Decimal`, which the Bolt driver refuses with
+    "Values of type <class 'decimal.Decimal'> are not supported" -- that killed
+    graph_sync_task for any transaction carrying a USD value. GraphTransaction
+    already declares these as `float | None`; this enforces it at the boundary
+    so every caller is covered.
+    """
+    return None if value is None else float(value)
+
+
+def _dump_metadata(metadata: dict[str, Any] | None) -> str | None:
+    """Serialize a metadata dict for storage as a Neo4j property.
+
+    Neo4j property values must be primitives or arrays of primitives -- handing
+    it a nested map raises `Neo.ClientError.Statement.TypeError`, so any node
+    carrying non-empty metadata failed to write at all. Store it as a JSON
+    string and decode on read (see `_load_metadata`).
+    """
+    if not metadata:
+        return None
+    return json.dumps(metadata, default=str)
+
+
+def _load_metadata(value: Any) -> dict[str, Any]:
+    """Inverse of `_dump_metadata`, tolerant of pre-existing/legacy values."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            logger.warning("graph_metadata_decode_failed", value=value[:200])
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}
 
 
 class GraphRepository:
@@ -53,13 +94,13 @@ class GraphRepository:
             "address": wallet.address.lower(),
             "chain": wallet.chain,
             "label": wallet.label,
-            "risk_score": wallet.risk_score,
+            "risk_score": _as_float(wallet.risk_score),
             "first_seen": wallet.first_seen,
             "last_seen": wallet.last_seen,
             "total_sent": wallet.total_sent,
             "total_received": wallet.total_received,
             "tx_count": wallet.tx_count,
-            "metadata": wallet.metadata,
+            "metadata": _dump_metadata(wallet.metadata),
             "entity_name": wallet.entity_name,
             "entity_type": wallet.entity_type.value if wallet.entity_type else None,
             "entity_confidence": wallet.entity_confidence.value,
@@ -99,14 +140,14 @@ class GraphRepository:
             "from_address": tx.from_address.lower(),
             "to_address": tx.to_address.lower(),
             "value": tx.value,
-            "value_usd": tx.value_usd,
+            "value_usd": _as_float(tx.value_usd),
             "token_address": tx.token_address.lower() if tx.token_address else None,
             "token_symbol": tx.token_symbol,
             "method": tx.method,
             "gas_used": tx.gas_used,
             "gas_price": tx.gas_price,
             "is_suspicious": tx.is_suspicious,
-            "metadata": tx.metadata,
+            "metadata": _dump_metadata(tx.metadata),
         }
         await self._client.execute_write(query, params)
         return tx
@@ -167,7 +208,7 @@ class GraphRepository:
             "confidence": entity.confidence.value,
             "source": entity.source,
             "tags": entity.tags,
-            "metadata": entity.metadata,
+            "metadata": _dump_metadata(entity.metadata),
             "first_seen": entity.first_seen,
             "last_verified": entity.last_verified,
         }
@@ -213,7 +254,7 @@ class GraphRepository:
             total_sent=w.get("total_sent", 0),
             total_received=w.get("total_received", 0),
             tx_count=w.get("tx_count", 0),
-            metadata=w.get("metadata", {}),
+            metadata=_load_metadata(w.get("metadata")),
             entity_name=w.get("entity_name"),
             entity_type=EntityType(w["entity_type"]) if w.get("entity_type") else None,
             entity_confidence=ConfidenceLevel(w["entity_confidence"])
@@ -267,7 +308,10 @@ class GraphRepository:
         entity_filter = ""
         if entity_types:
             quoted_types = ", ".join(f'"{t.value}"' for t in entity_types)
-            entity_filter = f"AND e.entity_type IN [{quoted_types}]"
+            # The Entity node is bound as `end` in the query below, not `e`.
+            # Filtering on `e.entity_type` produced "Variable `e` not defined",
+            # so passing any entity_types at all made this a CypherSyntaxError.
+            entity_filter = f"AND end.entity_type IN [{quoted_types}]"
 
         confidence_order = {
             ConfidenceLevel.CONFIRMED: 4,

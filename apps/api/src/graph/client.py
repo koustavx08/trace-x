@@ -73,9 +73,17 @@ class Neo4jClient:
 
     @classmethod
     async def execute_write(cls, query: str, parameters: dict[str, Any] | None = None) -> Any:
-        async with cls.session() as session:
-            result = await session.execute_write(lambda tx: tx.run(query, parameters or {}))
+        # Records must be drained *inside* the transaction function. Returning
+        # the bare AsyncResult and iterating it after `execute_write` returns
+        # raises ResultConsumedError ("The result is out of scope. The
+        # associated transaction has been closed."), which made every Neo4j
+        # write path fail. `execute_transaction` below already does it this way.
+        async def _run_tx(tx: Any) -> list[Record]:
+            result = await tx.run(query, parameters or {})
             return [record async for record in result]
+
+        async with cls.session() as session:
+            return await session.execute_write(_run_tx)
 
     @classmethod
     async def execute_transaction(cls, queries: list[tuple[str, dict[str, Any]]]) -> list[Any]:
