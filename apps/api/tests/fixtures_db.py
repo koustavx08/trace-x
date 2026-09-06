@@ -27,6 +27,7 @@ from collections.abc import AsyncGenerator
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -36,8 +37,21 @@ from src.main import app
 
 
 def _test_database_url() -> str:
+    """DATABASE_URL with only the *database name* swapped for `tracex_test`.
+
+    A plain `.replace("tracex", "tracex_test")` also rewrote the credentials --
+    `postgresql+asyncpg://tracex:tracex@postgres:5432/tracex` became
+    `postgresql+asyncpg://tracex_test:tracex_test@postgres:5432/tracex_test`,
+    a role that does not exist. Connecting failed, and because these fixtures
+    skip rather than fail on connection errors, every database-backed test
+    silently skipped instead of ever running.
+    """
     settings = get_settings()
-    return settings.DATABASE_URL.replace("tracex", "tracex_test")
+    url = make_url(settings.DATABASE_URL)
+    name = url.database or "tracex"
+    if not name.endswith("_test"):
+        name = f"{name}_test"
+    return url.set(database=name).render_as_string(hide_password=False)
 
 
 @pytest.fixture
@@ -81,9 +95,34 @@ async def api_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, No
         yield db_session
 
     app.dependency_overrides[get_session] = _override_get_session
+
+    # The audit logger deliberately persists on its own session so audit rows
+    # survive a rolled-back request transaction -- which also means it ignores
+    # the dependency override above and would write to the real dev database.
+    # Point it at this test's engine for the duration of the test.
+    from src.auth import audit_logger, limiter
+
+    # The login rate limiter keys on client IP, and every test hits the app as
+    # 127.0.0.1 through the same process-wide Limiter. Without a reset, a test
+    # that deliberately trips the limit (test_login_rate_limiting) leaves the
+    # bucket full, and the *next* test's login silently gets a 429 instead of
+    # a 200 -- which is exactly how the audit-log test came to see no login
+    # row. Start each test with a clean limiter.
+    limiter.reset()
+
+    # Its own engine on the same test database: `db_session.get_bind()` hands
+    # back the sync Engine facade, which async_sessionmaker rejects.
+    audit_engine = create_async_engine(_test_database_url(), poolclass=NullPool)
+    previous_factory = audit_logger._session_factory
+    audit_logger.set_session_factory(
+        async_sessionmaker(audit_engine, class_=AsyncSession, expire_on_commit=False)
+    )
+
     transport = ASGITransport(app=app)
     try:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
     finally:
+        audit_logger.set_session_factory(previous_factory)
+        await audit_engine.dispose()
         app.dependency_overrides.pop(get_session, None)

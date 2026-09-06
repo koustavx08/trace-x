@@ -15,7 +15,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from src.core.config import get_settings
 from src.core.database import Base
 
 # ---------------------------------------------------------------------------
@@ -116,11 +115,12 @@ def event_loop():
 
 @pytest.fixture(scope="session")
 async def test_engine():
-    settings = get_settings()
-    engine = create_async_engine(
-        settings.DATABASE_URL.replace("tracex", "tracex_test"),
-        poolclass=NullPool,
-    )
+    # Swap only the database name -- a plain str.replace() would also rewrite
+    # the credentials (tracex:tracex@... -> tracex_test:tracex_test@...), a
+    # role that does not exist. See fixtures_db._test_database_url.
+    from fixtures_db import _test_database_url
+
+    engine = create_async_engine(_test_database_url(), poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine

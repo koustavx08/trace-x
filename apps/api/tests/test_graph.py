@@ -154,21 +154,22 @@ class TestGraphEndpointsWithWalletLookup:
         )
         assert response.status_code == 404
 
-    async def test_sync_wallet_to_graph_success(self, monkeypatch, api_client):
+    async def test_sync_wallet_to_graph_success(self, api_client):
+        """The endpoint dispatches to Celery and answers 202 immediately.
+
+        It no longer syncs inline (it returns "queued" plus the task id, not
+        "synced"), so there is nothing on graph_repository to stub here -- the
+        work happens in the worker.
+        """
         _, wallet = await _create_case_and_wallet(api_client)
-        monkeypatch.setattr(
-            graph_module.graph_repository, "upsert_wallet", AsyncMock(return_value=None)
-        )
-        monkeypatch.setattr(
-            graph_module.entity_intelligence, "enrich_wallet", AsyncMock(return_value=None)
-        )
         response = await api_client.post(
             "/api/v1/graph/wallets/sync", params={"wallet_id": wallet["id"]}
         )
         assert response.status_code == 202
         body = response.json()
-        assert body["status"] == "synced"
+        assert body["status"] == "queued"
         assert body["wallet_id"] == wallet["id"]
+        assert body["task_id"]
 
     async def test_paths_to_vasp_unknown_wallet_404(self, api_client):
         response = await api_client.post(
@@ -251,16 +252,17 @@ class TestGraphEndpointsWithWalletLookup:
         assert response.status_code == 200
         assert len(response.json()["temporal_flow"]) == 1
 
-    async def test_enrich_wallet_success(self, monkeypatch, api_client):
+    async def test_enrich_wallet_success(self, api_client):
+        """Enrichment is queued to Celery too -- 202 "queued", not an inline 200."""
         _, wallet = await _create_case_and_wallet(api_client)
-        monkeypatch.setattr(
-            graph_module.entity_intelligence, "enrich_wallet", AsyncMock(return_value=None)
-        )
         response = await api_client.post(
             "/api/v1/graph/entities/enrich", params={"wallet_id": wallet["id"]}
         )
-        assert response.status_code == 200
-        assert response.json()["enriched"] is False
+        assert response.status_code == 202
+        body = response.json()
+        assert body["status"] == "queued"
+        assert body["wallet_id"] == wallet["id"]
+        assert body["task_id"]
 
     async def test_enrich_wallet_unknown_wallet_404(self, api_client):
         response = await api_client.post(

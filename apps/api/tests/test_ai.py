@@ -248,18 +248,13 @@ class TestAIEndpointsWithDB:
         )
         assert response.status_code == 404
 
-    async def test_generate_narrative_currently_raises_on_undefined_chains_variable(
-        self, api_client, db_session
-    ):
-        """KNOWN BUG in the current `/ai/generate-narrative` implementation
-        (src/api/v1/ai.py's `generate_investigation_narrative`): it appends
-        a line referencing a local variable `chains` that is never assigned
-        anywhere in the function, so the endpoint unconditionally raises
-        `NameError` for any existing case (with or without wallets). This
-        test documents today's actual (broken) behavior so it fails loudly
-        if silently "fixed" by accident, and should be replaced with a
-        real success assertion once WS2's narrative rewrite (or a bugfix)
-        lands and defines `chains` before using it.
+    async def test_generate_narrative_succeeds_for_a_case(self, api_client, db_session):
+        """`/ai/generate-narrative` returns a narrative for an existing case.
+
+        This previously pinned a NameError: the handler referenced a local
+        `chains` that was never assigned. `chains` is now defined in
+        src/ai/api.py before use, so this asserts the success path the old
+        version of this test said to switch to.
         """
         from src.models import Case, CaseStatus, CrimeType
 
@@ -277,4 +272,5 @@ class TestAIEndpointsWithDB:
         response = await api_client.post(
             "/api/v1/ai/generate-narrative", params={"case_id": str(case.id)}
         )
-        assert response.status_code == 500
+        assert response.status_code == 200
+        assert response.json()["narrative"]

@@ -106,17 +106,16 @@ class TestAttributionEndpoint:
         response = await api_client.get(f"/api/v1/risk/wallets/{uuid4()}/attribution")
         assert response.status_code == 404
 
-    async def test_attribution_with_no_paths_currently_500s(self, monkeypatch, api_client):
-        """KNOWN BUG: when no attribution paths are found,
-        `attribution_engine.get_attribution_summary` returns a dict with
-        keys {attributed, nearest_vasp, confidence, total_attributions},
-        but `AttributionResponse` (the endpoint's `response_model`)
-        requires `all_attributions` and `summary` as well, with no
-        defaults. FastAPI's response validation therefore fails and the
-        endpoint 500s any time no VASP attribution is found -- which,
-        without real Neo4j graph data, is effectively always. This test
-        pins that behavior; once the dict shape and the Pydantic model are
-        reconciled, replace this with a 200 assertion."""
+    async def test_attribution_with_no_paths_returns_empty_summary(self, monkeypatch, api_client):
+        """No attribution paths is a normal outcome, not an error.
+
+        `get_attribution_summary` used to return {attributed, nearest_vasp,
+        confidence, total_attributions} on this path while
+        `AttributionResponse` also requires `all_attributions` and `summary`,
+        so response validation failed and the endpoint 500'd whenever no VASP
+        was found -- effectively always, without real Neo4j graph data. Both
+        branches now return the same keys, so this asserts the 200 the previous
+        version of this test said to switch to once they were reconciled."""
         _, wallet = await _create_case_and_wallet(api_client)
         import src.graph.repository as graph_repo_module
 
@@ -124,7 +123,12 @@ class TestAttributionEndpoint:
             graph_repo_module.graph_repository, "find_paths_to_entities", AsyncMock(return_value=[])
         )
         response = await api_client.get(f"/api/v1/risk/wallets/{wallet['id']}/attribution")
-        assert response.status_code == 500
+        assert response.status_code == 200
+        body = response.json()
+        assert body["attributed"] is False
+        assert body["nearest_vasp"] is None
+        assert body["all_attributions"] == []
+        assert body["summary"]["exchanges_found"] == 0
 
     async def test_attribution_with_a_found_path_succeeds(self, monkeypatch, api_client):
         _, wallet = await _create_case_and_wallet(api_client)
@@ -149,10 +153,15 @@ class TestAttributionEndpoint:
             ],
         )
 
-        import src.analytics.attribution_engine as attribution_engine_module
+        # NB: `import src.analytics.attribution_engine as m` does NOT give the
+        # module -- src/analytics/__init__.py re-exports the `attribution_engine`
+        # singleton under the same name, shadowing the submodule in the package
+        # namespace, so `m` is the AttributionEngine instance. Patch the
+        # singleton directly instead.
+        from src.analytics import attribution_engine
 
         monkeypatch.setattr(
-            attribution_engine_module.attribution_engine,
+            attribution_engine,
             "attribute_wallet",
             AsyncMock(return_value=[attribution]),
         )
@@ -169,10 +178,15 @@ class TestAttributionEndpoint:
 
     async def test_attribute_wallet_endpoint_returns_list(self, monkeypatch, api_client):
         _, wallet = await _create_case_and_wallet(api_client)
-        import src.analytics.attribution_engine as attribution_engine_module
+        # NB: `import src.analytics.attribution_engine as m` does NOT give the
+        # module -- src/analytics/__init__.py re-exports the `attribution_engine`
+        # singleton under the same name, shadowing the submodule in the package
+        # namespace, so `m` is the AttributionEngine instance. Patch the
+        # singleton directly instead.
+        from src.analytics import attribution_engine
 
         monkeypatch.setattr(
-            attribution_engine_module.attribution_engine,
+            attribution_engine,
             "attribute_wallet",
             AsyncMock(return_value=[]),
         )

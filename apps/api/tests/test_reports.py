@@ -49,6 +49,27 @@ async def _create_case(db_session):
     return case
 
 
+async def _create_user(db_session):
+    """A real `users` row to use as `generated_by`.
+
+    `reports.generated_by` is a FK to `users.id`, so passing a throwaway
+    `uuid4()` makes the INSERT fail with a ForeignKeyViolationError (surfacing
+    as a 500) rather than exercising the report-creation path under test.
+    """
+    from src.models import User, UserRole
+
+    user = User(
+        email=f"reporter-{uuid4().hex[:8]}@tracex.test",
+        full_name="Report Author",
+        hashed_password="not-a-real-hash",
+        role=UserRole.ANALYST,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    await db_session.commit()
+    return user
+
+
 # ---------------------------------------------------------------------------
 # src/api/v1/reports.py -- Report CRUD (real, DB-backed)
 # ---------------------------------------------------------------------------
@@ -57,10 +78,11 @@ async def _create_case(db_session):
 class TestReportCRUD:
     async def test_create_json_report(self, api_client, db_session):
         case = await _create_case(db_session)
+        user = await _create_user(db_session)
 
         response = await api_client.post(
             "/api/v1/reports",
-            params={"case_id": str(case.id), "generated_by": str(uuid4())},
+            params={"case_id": str(case.id), "generated_by": str(user.id)},
             json={
                 "title": "Investigation Summary",
                 "summary": "A short summary.",
@@ -76,10 +98,11 @@ class TestReportCRUD:
 
     async def test_create_html_report(self, api_client, db_session):
         case = await _create_case(db_session)
+        user = await _create_user(db_session)
 
         response = await api_client.post(
             "/api/v1/reports",
-            params={"case_id": str(case.id), "generated_by": str(uuid4())},
+            params={"case_id": str(case.id), "generated_by": str(user.id)},
             json={
                 "title": "HTML Report",
                 "summary": "Summary text",
@@ -122,10 +145,11 @@ class TestReportCRUD:
 
     async def test_list_reports_filtered_by_case(self, api_client, db_session):
         case = await _create_case(db_session)
+        user = await _create_user(db_session)
         for i in range(3):
             await api_client.post(
                 "/api/v1/reports",
-                params={"case_id": str(case.id), "generated_by": str(uuid4())},
+                params={"case_id": str(case.id), "generated_by": str(user.id)},
                 json={
                     "title": f"Report {i}",
                     "summary": "x",
@@ -142,9 +166,10 @@ class TestReportCRUD:
 
     async def test_get_report_by_id(self, api_client, db_session):
         case = await _create_case(db_session)
+        user = await _create_user(db_session)
         create_resp = await api_client.post(
             "/api/v1/reports",
-            params={"case_id": str(case.id), "generated_by": str(uuid4())},
+            params={"case_id": str(case.id), "generated_by": str(user.id)},
             json={
                 "title": "Fetchable Report",
                 "summary": "x",
@@ -169,26 +194,27 @@ class TestReportCRUD:
 
 
 class TestRiskReportGeneration:
-    async def test_generate_report_currently_500s_due_to_missing_report_import(
-        self, api_client, db_session
-    ):
-        """KNOWN BUG in the current `src/api/v1/risk.py`: `generate_report`
-        constructs `db_report = Report(...)` but the module never imports
-        `Report` from `src.models` (only `Wallet, Case, InvestigationRun`
-        are imported) -- so this endpoint unconditionally raises
-        `NameError` for any case that exists, regardless of format. This
-        pins today's actual (broken) behavior; once WS3 fixes the missing
-        import (or rewrites the endpoint), replace this with a real
-        success-path assertion (status 201, `report_id` present) plus the
-        download tests below.
+    async def test_generate_report_succeeds(self, api_client, db_session):
+        """The success path the previous version of this test said to switch to.
+
+        `src/api/v1/risk.py` now imports `Report` (the old NameError is gone)
+        and hands its request session to `report_generator.generate_report`,
+        so the generator reads the case from the same database/transaction the
+        test created it in instead of opening its own.
         """
         case = await _create_case(db_session)
+        user = await _create_user(db_session)
 
         response = await api_client.post(
             "/api/v1/risk/reports/generate",
-            json={"case_id": str(case.id), "format": "json"},
+            json={
+                "case_id": str(case.id),
+                "format": "json",
+                "generated_by": str(user.id),
+            },
         )
-        assert response.status_code == 500
+        assert response.status_code == 201
+        assert response.json()["report_id"]
 
     @pytest.mark.xfail(
         reason=(
@@ -202,9 +228,14 @@ class TestRiskReportGeneration:
     )
     async def test_download_pdf_report_has_pdf_magic_bytes(self, api_client, db_session):
         case = await _create_case(db_session)
+        user = await _create_user(db_session)
         generate_resp = await api_client.post(
             "/api/v1/risk/reports/generate",
-            json={"case_id": str(case.id), "format": "pdf"},
+            json={
+                "case_id": str(case.id),
+                "format": "pdf",
+                "generated_by": str(user.id),
+            },
         )
         report_id = generate_resp.json()["report_id"]
 
@@ -214,6 +245,10 @@ class TestRiskReportGeneration:
     async def test_generate_report_unknown_case_returns_404(self, api_client):
         response = await api_client.post(
             "/api/v1/risk/reports/generate",
-            json={"case_id": str(uuid4()), "format": "json"},
+            json={
+                "case_id": str(uuid4()),
+                "format": "json",
+                "generated_by": str(uuid4()),
+            },
         )
         assert response.status_code == 404
