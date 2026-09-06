@@ -5,6 +5,7 @@ Provides JWT-based authentication, role-based access control (RBAC),
 and comprehensive audit logging for investigation activities.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional
@@ -53,14 +54,28 @@ security = HTTPBearer(auto_error=False)
 
 # --- WS1 auth hardening: Redis-backed JTI blacklist (for /auth/logout) ---
 _redis_client: Optional["redis.Redis"] = None
+_redis_client_loop: asyncio.AbstractEventLoop | None = None
 _BLACKLIST_KEY_PREFIX = "auth:blacklist:jti:"
 
 
 def _get_redis_client() -> "redis.Redis":
-    """Lazily create a shared Redis client, reusing the configured REDIS_URL."""
-    global _redis_client
-    if _redis_client is None:
+    """Lazily create a shared Redis client, reusing the configured REDIS_URL.
+
+    A redis.asyncio client owns connections bound to the event loop that
+    created them, so reusing one from a different loop fails with "Event loop
+    is closed" / "attached to a different loop". The server runs a single loop
+    for the life of the process, but pytest-asyncio creates one per test
+    function -- so track the owning loop and rebuild the client when it
+    changes. A no-op in production.
+    """
+    global _redis_client, _redis_client_loop
+    try:
+        loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if _redis_client is None or _redis_client_loop is not loop:
         _redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        _redis_client_loop = loop
     return _redis_client
 
 
@@ -163,7 +178,7 @@ REFRESH_COOKIE_NAME = "refresh_token"
 def set_auth_cookies(response: Response, tokens: TokenResponse) -> None:
     cookie_kwargs: dict[str, Any] = {
         "httponly": True,
-        "secure": not settings.is_development,
+        "secure": settings.uses_secure_cookies,
         "samesite": "lax",
         "path": "/",
     }
@@ -251,6 +266,15 @@ class AuditLogger:
         # persist immediately (e.g. transient DB outage) land here and are
         # retried by _flush_buffer(), including on shutdown via close().
         self._buffer: list[AuditLogEntry] = []
+        # Audit entries are written on their own session, deliberately: an
+        # audit trail must survive a rolled-back request transaction. That also
+        # means they bypass FastAPI's `get_session` dependency override, so
+        # tests point this at their own factory to observe the writes.
+        self._session_factory = async_session_factory
+
+    def set_session_factory(self, session_factory) -> None:
+        """Override the session factory used to persist audit entries."""
+        self._session_factory = session_factory
 
     async def log(
         self,
@@ -321,7 +345,7 @@ class AuditLogger:
             entry.action.value if isinstance(entry.action, AuditAction) else str(entry.action)
         )
         try:
-            async with async_session_factory() as session:
+            async with self._session_factory() as session:
                 session.add(
                     AuditLog(
                         id=entry.id,
