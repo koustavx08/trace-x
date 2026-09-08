@@ -420,12 +420,15 @@ class GraphRepository:
 
         nodes = []
         edges = []
+        node_id_map = {}
         for record in result:
             for node in record["nodes"]:
                 if "Wallet" in node.labels:
+                    custom_id = f"Wallet:{node['chain']}:{node['address']}"
+                    node_id_map[node.id] = custom_id
                     nodes.append(
                         {
-                            "id": f"Wallet:{node['chain']}:{node['address']}",
+                            "id": custom_id,
                             "type": "wallet",
                             "address": node["address"],
                             "chain": node["chain"],
@@ -436,9 +439,11 @@ class GraphRepository:
                         }
                     )
                 elif "Entity" in node.labels:
+                    custom_id = f"Entity:{node['chain']}:{node['address']}"
+                    node_id_map[node.id] = custom_id
                     nodes.append(
                         {
-                            "id": f"Entity:{node['chain']}:{node['address']}",
+                            "id": custom_id,
                             "type": "entity",
                             "name": node["name"],
                             "entity_type": node["entity_type"],
@@ -448,9 +453,11 @@ class GraphRepository:
                         }
                     )
                 elif "Transaction" in node.labels:
+                    custom_id = f"Transaction:{node['chain']}:{node['tx_hash']}"
+                    node_id_map[node.id] = custom_id
                     nodes.append(
                         {
-                            "id": f"Transaction:{node['chain']}:{node['tx_hash']}",
+                            "id": custom_id,
                             "type": "transaction",
                             "tx_hash": node["tx_hash"],
                             "value": node.get("value"),
@@ -459,8 +466,8 @@ class GraphRepository:
                     )
 
             for rel in record["relationships"]:
-                start_id = rel.start_node.id
-                end_id = rel.end_node.id
+                start_id = node_id_map.get(rel.start_node.id, str(rel.start_node.id))
+                end_id = node_id_map.get(rel.end_node.id, str(rel.end_node.id))
                 edges.append(
                     {
                         "from": start_id,
