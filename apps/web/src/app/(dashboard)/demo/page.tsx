@@ -46,7 +46,7 @@ const demoCases = [
     crime_type: "fraud",
     description: "Major DeFi protocol exploit involving flash loan attack across multiple protocols. Attacker borrowed 50,000 ETH via flash loan, manipulated oracle prices, drained liquidity pools. Funds traced through Tornado Cash and multiple DEX swaps across Ethereum and Polygon.",
     status: "in_progress",
-    suspect_wallet: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+    suspect_wallet: "0x742D35CC6634c0532925A3b844BC9E7595F0BEb0",
     chains: ["Ethereum", "Polygon"],
     tags: ["Flash Loan", "Tornado Cash", "Multi-chain", "Flash Loan Exploit"],
     wallet_count: 6,

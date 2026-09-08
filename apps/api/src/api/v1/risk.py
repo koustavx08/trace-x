@@ -55,6 +55,7 @@ class ReportGenerateResponse(BaseModel):
 
 
 @router.post("/wallets/{wallet_id}/assess", response_model=RiskAssessmentResponse)
+@router.get("/wallets/{wallet_id}/assess", response_model=RiskAssessmentResponse)
 async def assess_wallet_risk(
     wallet_id: UUID,
     session: AsyncSession = Depends(get_session),
@@ -269,7 +270,28 @@ async def get_case_risk_summary(
     wallets = result.scalars().all()
 
     if not wallets:
-        return {"case_id": str(case_id), "wallets": 0, "message": "No wallets in case"}
+        return {
+            "case_id": str(case_id),
+            "case_number": case.case_number,
+            "total_wallets": 0,
+            "wallets": 0,
+            "chains": [],
+            "risk_distribution": {
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "info": 0,
+            },
+            "attribution": {
+                "confirmed": 0,
+                "probable": 0,
+                "unattributed": 0,
+            },
+            "average_risk_score": 0.0,
+            "top_risk_wallets": [],
+            "message": "No wallets in case",
+        }
 
     high_risk = len([w for w in wallets if float(w.risk_score or 0) >= 75])
     medium_risk = len([w for w in wallets if 40 <= float(w.risk_score or 0) < 75])
