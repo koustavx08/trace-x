@@ -62,6 +62,17 @@ TRACE-X is a Real-Time Cryptocurrency Fraud Attribution & Investigation Platform
 - **Interface**: Abstract provider pattern for extensibility
 - **Rate Limiting**: Built-in with exponential backoff
 
+### AI Investigation Assistant
+- **Framework**: FastAPI-backed service (`apps/api/src/ai/service.py`)
+- **Modes**: `live` (Anthropic/OpenRouter), `demo` (deterministic templates), `disabled` (clear message without DB access)
+- **Provider Pattern**: Pluggable AI providers (`AnthropicProvider`, `OpenRouterProvider`, `DeterministicDemoProvider`, `DisabledProvider`)
+- **Query Types**: 8 supported (RISK_SUMMARY, ATTRIBUTION, PATTERN_DETECTION, FUND_FLOW, ENTITY_LOOKUP, CASE_OVERVIEW, TIMELINE, COMPARISON)
+- **Evidence-Grounded**: All answers constrained to on-chain data + graph intelligence + entity registry; explicit confidence levels; "insufficient evidence" responses
+- **Anti-Hallucination Guardrails**: Never queries blockchain directly; constrained to investigation evidence; explicit confidence levels; "Insufficient evidence" vs. speculation; follow-up questions based on available data
+- **Endpoints**: `GET /api/v1/ai/capabilities`, `POST /api/v1/ai/query`, `GET /api/v1/ai/query/{task_id}`
+- **Configuration**: `AI_MODE`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AI_PROVIDER` in `.env`
+- **Dependencies**: `structlog`, `pydantic`, `graph_repository`, `attribution_engine`, `risk_scoring_engine`
+
 ### Cache (Redis 7)
 - **Use Cases**: Session storage, API response caching, rate limiting, Celery broker
 - **Configuration**: LRU eviction, 512MB max

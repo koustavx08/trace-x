@@ -269,6 +269,28 @@ npm run test:watch                # Watch mode
 npm run test:coverage             # Coverage
 ```
 
+### AI Investigation Assistant
+
+```bash
+# AI mode configuration is via APP_ENV and API keys in .env:
+#   - AI_MODE=live  - requires ANTHROPIC_API_KEY (or OPENROUTER_API_KEY)
+#   - AI_MODE=demo  - works without keys (deterministic templates)
+#   - AI_MODE=disabled - AI assistance disabled
+
+# Verify AI setup:
+cd apps/api && python scripts/validate_env.py
+
+# AI service endpoints (auto-registered under /api/v1/ai/):
+#   GET  /ai/capabilities          - List available AI modes & capabilities
+#   POST /ai/query                 - Submit a natural-language query
+#   GET  /ai/query/{task_id}       - Poll query status/result
+
+# Test AI query:
+curl -X POST http://localhost:8000/api/v1/ai/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is the risk score for wallet 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb?", "wallet_id": "wallet-uuid"}'
+```
+
 ### Docker
 
 ```bash
