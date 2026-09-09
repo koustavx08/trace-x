@@ -17,7 +17,7 @@ router = APIRouter(prefix="/graph", tags=["graph"])
 
 class WalletGraphRequest(BaseModel):
     wallet_id: UUID
-    depth: int = Field(2, ge=1, le=4)
+    depth: int = Field(2, ge=1, le=10)
     limit: int = Field(100, ge=10, le=500)
 
 
@@ -35,7 +35,7 @@ class EntityLookupRequest(BaseModel):
 class SubgraphRequest(BaseModel):
     addresses: list[str]
     chain: str
-    depth: int = Field(2, ge=1, le=3)
+    depth: int = Field(2, ge=1, le=10)
 
 
 class ClusterDetectionRequest(BaseModel):

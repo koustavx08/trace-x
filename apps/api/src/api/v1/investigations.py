@@ -51,7 +51,7 @@ async def create_investigation(
 async def list_investigations(
     case_id: UUID | None = None,
     wallet_id: UUID | None = None,
-    status: InvestigationStatus | None = None,
+    status: str | None = Query(None, description="Status or comma-separated list of statuses"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
@@ -63,7 +63,16 @@ async def list_investigations(
     if wallet_id:
         query = query.where(InvestigationRun.wallet_id == wallet_id)
     if status:
-        query = query.where(InvestigationRun.status == status)
+        status_values = [s.strip().lower() for s in status.split(",") if s.strip()]
+        valid_statuses = [
+            InvestigationStatus(s)
+            for s in status_values
+            if s in InvestigationStatus._value2member_map_
+        ]
+        if len(valid_statuses) == 1:
+            query = query.where(InvestigationRun.status == valid_statuses[0])
+        elif len(valid_statuses) > 1:
+            query = query.where(InvestigationRun.status.in_(valid_statuses))
 
     count_query = select(func.count()).select_from(query.subquery())
     total = await session.scalar(count_query) or 0

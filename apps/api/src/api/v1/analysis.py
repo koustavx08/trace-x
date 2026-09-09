@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core import NotFoundError, get_session
@@ -16,6 +17,26 @@ from src.workers.tasks import wallet_analysis_task
 # `entity_enrichment_task` from POST /graph/entities/enrich.
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
+
+
+async def _resolve_wallet(session: AsyncSession, wallet_id: str) -> Wallet:
+    """Resolve a wallet by UUID or EVM address."""
+    wallet = None
+    try:
+        uid = UUID(wallet_id)
+        wallet = await session.get(Wallet, uid)
+    except (ValueError, AttributeError):
+        pass
+
+    if not wallet:
+        result = await session.execute(
+            select(Wallet).where(Wallet.address.ilike(wallet_id.strip()))
+        )
+        wallet = result.scalars().first()
+
+    if not wallet:
+        raise NotFoundError("Wallet", str(wallet_id))
+    return wallet
 
 
 class WalletAnalyzeRequest(BaseModel):
@@ -142,16 +163,14 @@ async def get_analysis_task_status(task_id: str) -> TaskStatusResponse:
 
 @router.post("/wallets/{wallet_id}/trace", response_model=dict)
 async def trace_fund_flow(
-    wallet_id: UUID,
+    wallet_id: str,
     request: TraceRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    wallet = await session.get(Wallet, wallet_id)
-    if not wallet:
-        raise NotFoundError("Wallet", str(wallet_id))
+    wallet = await _resolve_wallet(session, wallet_id)
 
     result = await wallet_analysis_service.trace_fund_flow(
-        wallet_id=wallet_id,
+        wallet_id=wallet.id,
         max_hops=request.max_hops,
         min_value_eth=request.min_value_eth,
     )
@@ -161,22 +180,25 @@ async def trace_fund_flow(
 
 @router.get("/wallets/{wallet_id}/transactions")
 async def get_wallet_transactions(
-    wallet_id: UUID,
+    wallet_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
 ):
-    wallet = await session.get(Wallet, wallet_id)
-    if not wallet:
-        raise NotFoundError("Wallet", str(wallet_id))
+    wallet = await _resolve_wallet(session, wallet_id)
 
-    from sqlalchemy import func, select
-
+    from sqlalchemy import func
     from src.models import Transaction
 
     query = (
         select(Transaction)
-        .where(Transaction.wallet_id == wallet_id)
+        .where(
+            or_(
+                Transaction.wallet_id == wallet.id,
+                Transaction.from_address.ilike(wallet.address),
+                Transaction.to_address.ilike(wallet.address),
+            )
+        )
         .order_by(Transaction.block_number.desc())
     )
 

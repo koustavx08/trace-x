@@ -27,11 +27,12 @@ from src.auth import (
     security,
     set_auth_cookies,
 )
-from src.core import get_logger, get_session
+from src.core import get_logger, get_session, get_settings
 from src.models import User
 from src.schemas import PaginatedResponse
 
 logger = get_logger(__name__)
+settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
@@ -39,7 +40,7 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 # completely unthrottled -- a brute-force exposure. Strict per-IP limits
 # via the shared `limiter` (defined in src.auth) close that gap.
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("5/minute")
+@limiter.limit(lambda: settings.AUTH_RATE_LIMIT_LOGIN)
 async def login(
     request: Request,
     response: Response,
@@ -59,7 +60,7 @@ async def login(
 
 
 @router.post("/refresh", response_model=TokenResponse)
-@limiter.limit("5/minute")
+@limiter.limit(lambda: settings.AUTH_RATE_LIMIT_REFRESH)
 async def refresh_token(
     request: Request,
     response: Response,
