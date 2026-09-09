@@ -331,10 +331,28 @@ class GraphRepository:
             WHEN 'PROBABLE' THEN 2
             ELSE 1
         END >= $min_conf
-        CALL apoc.algo.dijkstra(start, end, 'SENT|RECEIVED', 'value') YIELD path, weight
-        WHERE length(path) <= $max_depth
+        // Wallets connect to each other through Transaction nodes (SENT/RECEIVED),
+        // but an Entity hangs off its wallet by BELONGS_TO. Traversing only
+        // SENT|RECEIVED therefore can never *terminate* on an :Entity, so this
+        // query returned zero paths for every input and attribution was always
+        // empty. BELONGS_TO is the final hop onto the entity.
+        //
+        // The 5th argument is dijkstra's defaultWeight. SENT/RECEIVED/BELONGS_TO
+        // carry no 'value' property, and APOC's default for a missing weight is
+        // NaN -- which poisons the cumulative path weight and drops the row.
+        // 1.0 makes the weight a plain hop count.
+        CALL apoc.algo.dijkstra(start, end, 'SENT|RECEIVED|BELONGS_TO', 'value', 1.0) YIELD path, weight
+        // max_depth is a count of WALLET hops (that is what callers pass and what
+        // GraphPath.length reports, since Transaction nodes are skipped when the
+        // path is rendered). Neo4j's length(path) counts RELATIONSHIPS, and one
+        // wallet-to-wallet hop is two of them (SENT then RECEIVED) plus the one
+        // terminal BELONGS_TO onto the entity. Comparing the two directly
+        // rejected paths well inside the requested depth.
+        WHERE length(path) <= $max_depth * 2 + 1
         RETURN path, weight, end
-        ORDER BY weight DESC
+        // Ascending: the caller wants the *nearest* VASP. With DESC the LIMIT
+        // kept the furthest entities and could cut the closest one entirely.
+        ORDER BY weight ASC
         LIMIT $limit
         """
         result = await self._client.execute_query(

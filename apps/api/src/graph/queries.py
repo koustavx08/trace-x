@@ -22,10 +22,17 @@ class GraphQueries:
         MATCH (start:Wallet {address: $start_address, chain: $chain})
         MATCH (vasp:Entity {entity_type: 'exchange', chain: $chain})
         WHERE vasp.confidence IN ['CONFIRMED', 'HIGH_CONFIDENCE']
-        CALL apoc.algo.dijkstra(start, vasp, 'SENT|RECEIVED', 'value') YIELD path, weight
-        WHERE length(path) <= $max_hops
+        // A VASP is an :Entity, hanging off its wallet by BELONGS_TO -- a
+        // SENT|RECEIVED-only traversal can never terminate on one, so this
+        // returned nothing for every input. 5th arg is dijkstra's
+        // defaultWeight: these relationships have no 'value' property and
+        // APOC defaults a missing weight to NaN, which drops the row.
+        CALL apoc.algo.dijkstra(start, vasp, 'SENT|RECEIVED|BELONGS_TO', 'value', 1.0) YIELD path, weight
+        WHERE length(path) <= $max_hops * 2 + 1
         RETURN path, weight, vasp
-        ORDER BY weight DESC
+        // Ascending -- the caller wants the NEAREST VASP, and with DESC the
+        // LIMIT kept the furthest and could cut the closest one entirely.
+        ORDER BY weight ASC
         LIMIT 10
         """
         result = await self._client.execute_query(
@@ -99,10 +106,22 @@ class GraphQueries:
         query = """
         MATCH (start:Wallet {address: $address, chain: $chain})
         MATCH (mixer:Entity {entity_type: 'mixer', chain: $chain})
-        CALL apoc.algo.dijkstra(start, mixer, 'SENT|RECEIVED', 'value') YIELD path, weight
-        WHERE length(path) <= $max_hops
+        // Same defect as graph/repository.py find_paths_to_entities: a mixer is
+        // an :Entity, reachable only by BELONGS_TO off its wallet, so a
+        // SENT|RECEIVED-only traversal could never terminate on one and this
+        // returned nothing for every wallet. The 5th arg is dijkstra's
+        // defaultWeight -- these relationships carry no 'value' property and
+        // APOC's default for a missing weight is NaN, which drops the row.
+        CALL apoc.algo.dijkstra(start, mixer, 'SENT|RECEIVED|BELONGS_TO', 'value', 1.0) YIELD path, weight
+        // max_hops counts WALLET hops (what callers pass, and what the rendered
+        // path reports, since :Transaction nodes are skipped). Neo4j's
+        // length(path) counts RELATIONSHIPS, and one wallet-to-wallet hop is two
+        // of them (SENT then RECEIVED), plus the terminal BELONGS_TO onto the
+        // entity. Comparing the two directly rejected paths well inside the
+        // requested depth.
+        WHERE length(path) <= $max_hops * 2 + 1
         RETURN path, weight, mixer
-        ORDER BY weight DESC
+        ORDER BY weight ASC
         LIMIT 10
         """
         result = await self._client.execute_query(
@@ -122,17 +141,33 @@ class GraphQueries:
         min_value_eth: float = 0.1,
         time_window_hours: int = 24,
     ) -> list[dict[str, Any]]:
-        query = """
-        MATCH (w:Wallet {chain: $chain})
+        # Three separate defects fixed here; the whole query was dead before.
+        #
+        # 1. `[:SENT*1..$max_hops]` -- Neo4j rejects a parameter as a
+        #    variable-length bound ("Parameter maps cannot be used in `MATCH`
+        #    patterns"), so this raised CypherSyntaxError on every call. The
+        #    bound must be an inlined literal; it is an int built from
+        #    validated ints here, never caller-supplied text.
+        # 2. Wallets are not joined to each other directly -- the graph is
+        #    (:Wallet)-[:SENT]->(:Transaction)-[:RECEIVED]->(:Wallet), so one
+        #    wallet-to-wallet hop is TWO relationships and traversing `SENT`
+        #    alone could never land on a :Wallet.
+        # 3. `r.value` -- SENT/RECEIVED carry only `timestamp`; the amount is a
+        #    property of the :Transaction NODE. Comparing the missing
+        #    relationship property made `ALL(...)` false for every path.
+        max_rel_depth = (min_hops + 2) * 2
+        query = f"""
+        MATCH (w:Wallet {{chain: $chain}})
         WHERE w.tx_count > 10
-        MATCH path = (w)-[:SENT*1..$max_hops]->(:Wallet)
-        WHERE ALL(r IN relationships(path) WHERE r.value > $min_value)
-        AND length(path) >= $min_hops
-        WITH w, path,
-             reduce(total = 0, r IN relationships(path) | total + toFloat(r.value)) as total_value,
-             [n IN nodes(path) | n.address] as addresses
+        MATCH path = (w)-[:SENT|RECEIVED*2..{max_rel_depth}]->(:Wallet)
+        WITH w, path, [n IN nodes(path) WHERE n:Transaction] AS txs
+        WHERE size(txs) >= $min_hops
+          AND ALL(t IN txs WHERE toFloat(t.value) > $min_value)
+        WITH w, path, txs,
+             reduce(total = 0.0, t IN txs | total + toFloat(t.value)) AS total_value,
+             [n IN nodes(path) WHERE n:Wallet | n.address] AS addresses
         WHERE total_value > $min_value * $min_hops
-        RETURN w.address as origin, addresses, total_value, length(path) as hops
+        RETURN w.address AS origin, addresses, total_value, size(txs) AS hops
         ORDER BY total_value DESC
         LIMIT 20
         """
@@ -141,7 +176,6 @@ class GraphQueries:
             {
                 "chain": chain,
                 "min_hops": min_hops,
-                "max_hops": min_hops + 2,
                 "min_value": min_value_eth * 1e18,
             },
         )

@@ -72,6 +72,30 @@ services:
       REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000"]'
       LOG_LEVEL: DEBUG
+      # Provider / AI credentials, interpolated from docker/.env (Compose reads
+      # .env from the directory of the first -f file). These were previously
+      # absent from every service block, so no key ever reached a container:
+      # ProviderFactory registered zero chains and every live analysis failed
+      # with "No provider configured for chain ID: 1". Empty values are fine --
+      # each is `str | None` in Settings and falsy-guarded at registration.
+      ALCHEMY_API_KEY: ${ALCHEMY_API_KEY:-}
+      INFURA_API_KEY: ${INFURA_API_KEY:-}
+      INFURA_API_SECRET: ${INFURA_API_SECRET:-}
+      ETHEREUM_RPC_URL: ${ETHEREUM_RPC_URL:-}
+      POLYGON_RPC_URL: ${POLYGON_RPC_URL:-}
+      ARBITRUM_RPC_URL: ${ARBITRUM_RPC_URL:-}
+      OPTIMISM_RPC_URL: ${OPTIMISM_RPC_URL:-}
+      BASE_RPC_URL: ${BASE_RPC_URL:-}
+      BSC_RPC_URL: ${BSC_RPC_URL:-}
+      CHAINALYSIS_API_KEY: ${CHAINALYSIS_API_KEY:-}
+      CIPHERTRACE_API_KEY: ${CIPHERTRACE_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
+      AI_PROVIDER: openrouter
+      AI_MODE: live
+      OPENROUTER_API_KEY: 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
+      OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+      OPENROUTER_MODEL: anthropic/claude-3.5-sonnet
     ports:
       - "8000:8000"
     volumes:
@@ -102,6 +126,30 @@ services:
       NEO4J_PASSWORD: tracexneo4j
       REDIS_URL: redis://redis:6379/0
       LOG_LEVEL: DEBUG
+      # Provider / AI credentials, interpolated from docker/.env (Compose reads
+      # .env from the directory of the first -f file). These were previously
+      # absent from every service block, so no key ever reached a container:
+      # ProviderFactory registered zero chains and every live analysis failed
+      # with "No provider configured for chain ID: 1". Empty values are fine --
+      # each is `str | None` in Settings and falsy-guarded at registration.
+      ALCHEMY_API_KEY: ${ALCHEMY_API_KEY:-}
+      INFURA_API_KEY: ${INFURA_API_KEY:-}
+      INFURA_API_SECRET: ${INFURA_API_SECRET:-}
+      ETHEREUM_RPC_URL: ${ETHEREUM_RPC_URL:-}
+      POLYGON_RPC_URL: ${POLYGON_RPC_URL:-}
+      ARBITRUM_RPC_URL: ${ARBITRUM_RPC_URL:-}
+      OPTIMISM_RPC_URL: ${OPTIMISM_RPC_URL:-}
+      BASE_RPC_URL: ${BASE_RPC_URL:-}
+      BSC_RPC_URL: ${BSC_RPC_URL:-}
+      CHAINALYSIS_API_KEY: ${CHAINALYSIS_API_KEY:-}
+      CIPHERTRACE_API_KEY: ${CIPHERTRACE_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_MODE: ${AI_MODE:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
     volumes:
       - ../apps/api:/app
       - /app/__pycache__
@@ -130,6 +178,30 @@ services:
       NEO4J_PASSWORD: tracexneo4j
       REDIS_URL: redis://redis:6379/0
       LOG_LEVEL: DEBUG
+      # Provider / AI credentials, interpolated from docker/.env (Compose reads
+      # .env from the directory of the first -f file). These were previously
+      # absent from every service block, so no key ever reached a container:
+      # ProviderFactory registered zero chains and every live analysis failed
+      # with "No provider configured for chain ID: 1". Empty values are fine --
+      # each is `str | None` in Settings and falsy-guarded at registration.
+      ALCHEMY_API_KEY: ${ALCHEMY_API_KEY:-}
+      INFURA_API_KEY: ${INFURA_API_KEY:-}
+      INFURA_API_SECRET: ${INFURA_API_SECRET:-}
+      ETHEREUM_RPC_URL: ${ETHEREUM_RPC_URL:-}
+      POLYGON_RPC_URL: ${POLYGON_RPC_URL:-}
+      ARBITRUM_RPC_URL: ${ARBITRUM_RPC_URL:-}
+      OPTIMISM_RPC_URL: ${OPTIMISM_RPC_URL:-}
+      BASE_RPC_URL: ${BASE_RPC_URL:-}
+      BSC_RPC_URL: ${BSC_RPC_URL:-}
+      CHAINALYSIS_API_KEY: ${CHAINALYSIS_API_KEY:-}
+      CIPHERTRACE_API_KEY: ${CIPHERTRACE_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_MODE: ${AI_MODE:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
     volumes:
       - ../apps/api:/app
       - /app/__pycache__

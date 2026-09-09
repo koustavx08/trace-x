@@ -40,7 +40,16 @@ class AlchemyProvider(EVMProvider):
             api_key=api_key,
             timeout=timeout,
         )
-        self._alchemy_url = f"https://{chain_name.lower()}-mainnet.g.alchemy.com/v2/{api_key}"
+        # Alchemy's host uses a short per-chain slug (eth, polygon, arb, opt,
+        # base), NOT the human chain name -- so building this from
+        # chain_name.lower() produced hosts like
+        # "ethereum-mainnet.g.alchemy.com", which do not resolve. Every
+        # alchemy_* enhanced-API call therefore died with
+        # "[Errno -2] Name or service not known" and returned no
+        # transactions, while plain JSON-RPC (balances) kept working off the
+        # correct `rpc_url`. The factory already builds that URL with the
+        # right slug and honours any *_RPC_URL override, so reuse it.
+        self._alchemy_url = rpc_url
         self._api_key = api_key
 
     def _raise_if_invalid_key(self, error: Exception) -> None:
