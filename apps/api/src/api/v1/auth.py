@@ -39,7 +39,12 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 # NOTE (WS1): /login and /refresh are unauthenticated and were previously
 # completely unthrottled -- a brute-force exposure. Strict per-IP limits
 # via the shared `limiter` (defined in src.auth) close that gap.
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="User login",
+    description="Authenticate user credentials, set httpOnly access/refresh cookies, and return both tokens in the body for API clients.",
+)
 @limiter.limit(lambda: settings.AUTH_RATE_LIMIT_LOGIN)
 async def login(
     request: Request,
@@ -59,7 +64,12 @@ async def login(
     return tokens
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Refresh access token",
+    description="Refresh access token. Browsers rely on the refresh_token cookie; a non-browser client may pass refresh_token in the JSON body.",
+)
 @limiter.limit(lambda: settings.AUTH_RATE_LIMIT_REFRESH)
 async def refresh_token(
     request: Request,
@@ -110,7 +120,12 @@ async def logout(
     return {"status": "logged_out"}
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    summary="Get current user info",
+    description="Retrieve the profile and permissions of the currently authenticated user.",
+)
 async def get_current_user_info(
     current_user: User = Depends(get_current_user),
 ):
@@ -118,7 +133,12 @@ async def get_current_user_info(
     return UserResponse.model_validate(current_user)
 
 
-@router.get("/users", response_model=PaginatedResponse)
+@router.get(
+    "/users",
+    response_model=PaginatedResponse,
+    summary="List users",
+    description="List all users (admin only). Pagination and filtering supported.",
+)
 async def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -143,7 +163,13 @@ async def list_users(
     )
 
 
-@router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/users",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create user",
+    description="Create a new user (admin only).",
+)
 async def create_user(
     request: Request,
     body: CreateUserRequest,
@@ -172,7 +198,11 @@ async def create_user(
     return UserResponse.model_validate(user)
 
 
-@router.post("/change-password")
+@router.post(
+    "/change-password",
+    summary="Change password",
+    description="Change the current user's password.",
+)
 async def change_password(
     request: Request,
     body: ChangePasswordRequest,
@@ -190,7 +220,12 @@ async def change_password(
     return {"status": "password_changed"}
 
 
-@router.patch("/users/{user_id}", response_model=UserResponse)
+@router.patch(
+    "/users/{user_id}",
+    response_model=UserResponse,
+    summary="Update user",
+    description="Activate/deactivate a user or change their role (admin only).",
+)
 async def update_user(
     user_id: UUID,
     body: UpdateUserRequest,

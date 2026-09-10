@@ -18,7 +18,13 @@ from src.schemas import (
 router = APIRouter(prefix="/cases", tags=["cases"])
 
 
-@router.post("", response_model=CaseResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CaseResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create case",
+    description="Create a new investigation case.",
+)
 async def create_case(
     case_data: CaseCreate, session: AsyncSession = Depends(get_session)
 ) -> CaseResponse:
@@ -42,7 +48,12 @@ async def create_case(
     return CaseResponse.model_validate(case)
 
 
-@router.get("", response_model=PaginatedResponse)
+@router.get(
+    "",
+    response_model=PaginatedResponse,
+    summary="List cases",
+    description="List investigation cases with pagination and filtering by status, crime type, assignee, or search term.",
+)
 async def list_cases(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -92,7 +103,12 @@ async def list_cases(
     )
 
 
-@router.get("/{case_id}", response_model=CaseResponse)
+@router.get(
+    "/{case_id}",
+    response_model=CaseResponse,
+    summary="Get case",
+    description="Retrieve a specific case by ID, including associated wallet information.",
+)
 async def get_case(case_id: UUID, session: AsyncSession = Depends(get_session)) -> CaseResponse:
     result = await session.execute(
         select(Case).options(selectinload(Case.wallets)).where(Case.id == case_id)
@@ -103,7 +119,12 @@ async def get_case(case_id: UUID, session: AsyncSession = Depends(get_session)) 
     return CaseResponse.model_validate(case)
 
 
-@router.patch("/{case_id}", response_model=CaseResponse)
+@router.patch(
+    "/{case_id}",
+    response_model=CaseResponse,
+    summary="Update case",
+    description="Update a case's status, assigned user, or other properties.",
+)
 async def update_case(
     case_id: UUID, case_data: CaseUpdate, session: AsyncSession = Depends(get_session)
 ) -> CaseResponse:
@@ -121,7 +142,12 @@ async def update_case(
     return CaseResponse.model_validate(case)
 
 
-@router.delete("/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{case_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete case",
+    description="Delete a case by ID.",
+)
 async def delete_case(case_id: UUID, session: AsyncSession = Depends(get_session)) -> None:
     result = await session.execute(select(Case).where(Case.id == case_id))
     case = result.scalar_one_or_none()

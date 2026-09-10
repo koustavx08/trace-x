@@ -70,7 +70,12 @@ class TraceRequest(BaseModel):
     min_value_eth: float = Field(0.001, ge=0)
 
 
-@router.post("/wallets/validate", response_model=dict)
+@router.post(
+    "/wallets/validate",
+    response_model=dict,
+    summary="Validate wallet address",
+    description="Validate an EVM wallet address format and detect the chain.",
+)
 async def validate_wallet_address(
     address: str = Query(..., min_length=42, max_length=42),
     chain_id: int | None = Query(None, ge=1),
@@ -111,7 +116,12 @@ async def validate_wallet_address(
     }
 
 
-@router.post("/cases/{case_id}/wallets/analyze", response_model=WalletAnalyzeResponse)
+@router.post(
+    "/cases/{case_id}/wallets/analyze",
+    response_model=WalletAnalyzeResponse,
+    summary="Analyze wallet in case",
+    description="Validate/register a wallet and dispatch background analysis task to Celery. Returns a task ID for status polling.",
+)
 async def analyze_wallet_in_case(
     case_id: UUID,
     request: WalletAnalyzeRequest,
@@ -141,7 +151,12 @@ async def analyze_wallet_in_case(
     return WalletAnalyzeResponse(wallet=wallet, task_id=task.id, status="queued")
 
 
-@router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
+@router.get(
+    "/tasks/{task_id}",
+    response_model=TaskStatusResponse,
+    summary="Get analysis task status",
+    description="Poll the status/result of a background analysis task started from the analysis router.",
+)
 async def get_analysis_task_status(task_id: str) -> TaskStatusResponse:
     """Poll the status/result of a background analysis (or other Celery) task
     started from this router, e.g. the task id returned by
@@ -165,7 +180,12 @@ async def get_analysis_task_status(task_id: str) -> TaskStatusResponse:
     )
 
 
-@router.post("/wallets/{wallet_id}/trace", response_model=dict)
+@router.post(
+    "/wallets/{wallet_id}/trace",
+    response_model=dict,
+    summary="Trace fund flow",
+    description="Trace the fund flow from a wallet address up to a specified number of hops.",
+)
 async def trace_fund_flow(
     wallet_id: str,
     request: TraceRequest,
@@ -182,7 +202,11 @@ async def trace_fund_flow(
     return result
 
 
-@router.get("/wallets/{wallet_id}/transactions")
+@router.get(
+    "/wallets/{wallet_id}/transactions",
+    summary="Get wallet transactions",
+    description="Retrieve transactions for a wallet address with pagination.",
+)
 async def get_wallet_transactions(
     wallet_id: str,
     page: int = Query(1, ge=1),
@@ -238,7 +262,11 @@ async def get_wallet_transactions(
     }
 
 
-@router.get("/chains")
+@router.get(
+    "/chains",
+    summary="List supported chains",
+    description="List all supported blockchain chains with their information.",
+)
 async def list_supported_chains():
     from src.core.validation import get_supported_chains
 

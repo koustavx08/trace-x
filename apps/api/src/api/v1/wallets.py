@@ -16,7 +16,13 @@ from src.schemas import PaginatedResponse, WalletCreate, WalletResponse, WalletU
 router = APIRouter(prefix="/wallets", tags=["wallets"])
 
 
-@router.post("", response_model=WalletResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=WalletResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create wallet",
+    description="Create a new wallet record associated with a case. The wallet receives an initial risk_score (prediction score 0-100) based on analysis.",
+)
 async def create_wallet(
     wallet_data: WalletCreate,
     case_id: UUID = Query(..., description="Case ID to associate wallet with"),
@@ -62,7 +68,12 @@ async def create_wallet(
     return WalletResponse.model_validate(wallet)
 
 
-@router.get("", response_model=PaginatedResponse)
+@router.get(
+    "",
+    response_model=PaginatedResponse,
+    summary="List wallets",
+    description="List wallets with optional filtering by case, chain, or attribution status. Each wallet includes a risk_score (prediction score 0-100).",
+)
 async def list_wallets(
     case_id: UUID | None = None,
     chain: str | None = None,
@@ -98,7 +109,12 @@ async def list_wallets(
     )
 
 
-@router.get("/{wallet_id}", response_model=WalletResponse)
+@router.get(
+    "/{wallet_id}",
+    response_model=WalletResponse,
+    summary="Get wallet",
+    description="Retrieve a specific wallet by ID, including its risk_score (prediction score 0-100) and entity information.",
+)
 async def get_wallet(
     wallet_id: UUID, session: AsyncSession = Depends(get_session)
 ) -> WalletResponse:
@@ -109,7 +125,12 @@ async def get_wallet(
     return WalletResponse.model_validate(wallet)
 
 
-@router.patch("/{wallet_id}", response_model=WalletResponse)
+@router.patch(
+    "/{wallet_id}",
+    response_model=WalletResponse,
+    summary="Update wallet",
+    description="Update wallet properties such as label, risk score, or attribution status.",
+)
 async def update_wallet(
     wallet_id: UUID, wallet_data: WalletUpdate, session: AsyncSession = Depends(get_session)
 ) -> WalletResponse:
@@ -127,7 +148,12 @@ async def update_wallet(
     return WalletResponse.model_validate(wallet)
 
 
-@router.delete("/{wallet_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{wallet_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete wallet",
+    description="Delete a wallet record by ID.",
+)
 async def delete_wallet(wallet_id: UUID, session: AsyncSession = Depends(get_session)) -> None:
     result = await session.execute(select(Wallet).where(Wallet.id == wallet_id))
     wallet = result.scalar_one_or_none()

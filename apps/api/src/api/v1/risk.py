@@ -79,8 +79,18 @@ class ReportGenerateResponse(BaseModel):
     generated_at: str
 
 
-@router.post("/wallets/{wallet_id}/assess", response_model=RiskAssessmentResponse)
-@router.get("/wallets/{wallet_id}/assess", response_model=RiskAssessmentResponse)
+@router.post(
+    "/wallets/{wallet_id}/assess",
+    response_model=RiskAssessmentResponse,
+    summary="Assess wallet risk",
+    description="Assess the risk level of a wallet address based on transaction history and graph analysis.",
+)
+@router.get(
+    "/wallets/{wallet_id}/assess",
+    response_model=RiskAssessmentResponse,
+    summary="Assess wallet risk (GET)",
+    description="Assess the risk level of a wallet address based on transaction history and graph analysis.",
+)
 async def assess_wallet_risk(
     wallet_id: str,
     session: AsyncSession = Depends(get_session),
@@ -154,7 +164,12 @@ async def assess_wallet_risk(
     return RiskAssessmentResponse(**assessment.to_dict())
 
 
-@router.get("/wallets/{wallet_id}/attribution", response_model=AttributionResponse)
+@router.get(
+    "/wallets/{wallet_id}/attribution",
+    response_model=AttributionResponse,
+    summary="Get wallet attribution",
+    description="Get attribution summary for a wallet address, showing nearest VASP and all attribution data.",
+)
 async def get_wallet_attribution(
     wallet_id: str,
     max_hops: int = Query(6, ge=1, le=10),
@@ -170,7 +185,12 @@ async def get_wallet_attribution(
     return AttributionResponse(**result)
 
 
-@router.post("/wallets/{wallet_id}/attribute", response_model=list[dict])
+@router.post(
+    "/wallets/{wallet_id}/attribute",
+    response_model=list[dict],
+    summary="Attribute wallet",
+    description="Attribute wallet addresses to entities based on transaction graph analysis.",
+)
 async def attribute_wallet(
     wallet_id: str,
     max_hops: int = Query(6, ge=1, le=10),
@@ -188,7 +208,11 @@ async def attribute_wallet(
 
 
 @router.post(
-    "/reports/generate", response_model=ReportGenerateResponse, status_code=status.HTTP_201_CREATED
+    "/reports/generate",
+    response_model=ReportGenerateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Generate report",
+    description="Generate an investigation report for a case using the specified template and format.",
 )
 async def generate_report(
     request: ReportGenerateRequest,
@@ -243,7 +267,11 @@ async def generate_report(
     )
 
 
-@router.get("/reports/{report_id}/download")
+@router.get(
+    "/reports/{report_id}/download",
+    summary="Download report",
+    description="Download a previously generated investigation report in the specified format.",
+)
 async def download_report(
     report_id: UUID,
     session: AsyncSession = Depends(get_session),
@@ -270,7 +298,11 @@ async def download_report(
     )
 
 
-@router.get("/cases/{case_id}/risk-summary")
+@router.get(
+    "/cases/{case_id}/risk-summary",
+    summary="Get case risk summary",
+    description="Get a risk summary for a case, including wallet risk distribution and attribution data.",
+)
 async def get_case_risk_summary(
     case_id: UUID,
     session: AsyncSession = Depends(get_session),

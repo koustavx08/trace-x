@@ -72,6 +72,15 @@ app = FastAPI(
     redoc_url="/redoc" if settings.is_development else None,
     openapi_url="/openapi.json" if settings.is_development else None,
     lifespan=lifespan,
+    contact={
+        "name": "TRACE-X Support",
+        "email": "support@trace-x.example",
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT",
+    },
+    terms_of_service="https://trace-x.example/terms",
 )
 
 app.add_middleware(

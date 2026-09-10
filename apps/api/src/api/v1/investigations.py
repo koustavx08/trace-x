@@ -16,7 +16,13 @@ from src.schemas import (
 router = APIRouter(prefix="/investigations", tags=["investigations"])
 
 
-@router.post("", response_model=InvestigationRunResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=InvestigationRunResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create investigation",
+    description="Create a new investigation run for a case and wallet.",
+)
 async def create_investigation(
     investigation_data: InvestigationRunCreate,
     case_id: UUID = Query(..., description="Case ID"),
@@ -47,7 +53,12 @@ async def create_investigation(
     return InvestigationRunResponse.model_validate(investigation)
 
 
-@router.get("", response_model=PaginatedResponse)
+@router.get(
+    "",
+    response_model=PaginatedResponse,
+    summary="List investigations",
+    description="List investigation runs with optional filtering by case, wallet, or status.",
+)
 async def list_investigations(
     case_id: UUID | None = None,
     wallet_id: UUID | None = None,
@@ -92,7 +103,12 @@ async def list_investigations(
     )
 
 
-@router.get("/{investigation_id}", response_model=InvestigationRunResponse)
+@router.get(
+    "/{investigation_id}",
+    response_model=InvestigationRunResponse,
+    summary="Get investigation",
+    description="Retrieve a specific investigation run by ID.",
+)
 async def get_investigation(
     investigation_id: UUID, session: AsyncSession = Depends(get_session)
 ) -> InvestigationRunResponse:
@@ -105,7 +121,12 @@ async def get_investigation(
     return InvestigationRunResponse.model_validate(investigation)
 
 
-@router.patch("/{investigation_id}", response_model=InvestigationRunResponse)
+@router.patch(
+    "/{investigation_id}",
+    response_model=InvestigationRunResponse,
+    summary="Update investigation",
+    description="Update an investigation run's status or configuration.",
+)
 async def update_investigation(
     investigation_id: UUID,
     investigation_data: InvestigationRunUpdate,
