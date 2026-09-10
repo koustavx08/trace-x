@@ -25,9 +25,11 @@ RUN npm ci
 # actually needs (alpine => musl, x64), pinned to the installed next version.
 # Regenerating the root lockfile would fix it at the source, but that also
 # re-resolves every frontend dependency, so it is deliberately not done here.
-RUN NEXT_VERSION="$(node -p "require('./apps/web/node_modules/next/package.json').version")" \
-    && npm install --no-save --ignore-scripts --workspace=apps/web \
-       "@next/swc-linux-x64-musl@${NEXT_VERSION}"
+# npm hoists `next` to the root node_modules of the workspace, so resolve it
+# by module name (with the nested path as a fallback for a non-hoisted
+# install) -- reading apps/web/node_modules/next directly fails with
+# MODULE_NOT_FOUND on a hoisted tree, which is every tree npm produces here.
+RUN NEXT_VERSION="$(node -p "require('next/package.json').version" 2>/dev/null || node -p "require('./apps/web/node_modules/next/package.json').version")" && npm install --no-save --ignore-scripts --workspace=apps/web "@next/swc-linux-x64-musl@${NEXT_VERSION}"
 
 COPY packages/shared packages/shared
 COPY apps/web apps/web
