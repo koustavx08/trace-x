@@ -37,11 +37,13 @@ RUN npm ci
 # fallback for a non-hoisted install.
 RUN SWC_VERSION="$(node -p "require('next/package.json').optionalDependencies['@next/swc-linux-x64-musl']" 2>/dev/null || node -p "require('./apps/web/node_modules/next/package.json').optionalDependencies['@next/swc-linux-x64-musl']")" && npm install --no-save --ignore-scripts --workspace=apps/web "@next/swc-linux-x64-musl@${SWC_VERSION}"
 
-# Build the application
-FROM base AS builder
+# Build the application. The dependency layers above are reused as-is: a
+# separate deps stage that copied only /app/node_modules forward dropped
+# /app/apps/web/node_modules with it, and `next build` then died on a
+# missing autoprefixer. npm places workspace dependencies in both trees, so
+# the build runs where the install ran.
+FROM deps AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY package.json package-lock.json ./
 COPY packages/shared packages/shared
 COPY apps/web apps/web
 
