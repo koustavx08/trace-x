@@ -1,17 +1,42 @@
+import contextlib
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.analytics import attribution_engine, risk_scoring_engine
 from src.core import NotFoundError, get_session
 from src.graph.models import ConfidenceLevel, GraphTransaction, GraphWallet
 from src.graph.queries import graph_queries
-from src.models import Case, InvestigationRun, Report, Wallet
+from src.models import Case, InvestigationRun, Report, Transaction, Wallet
 from src.reports import ReportFormat, ReportTemplate, report_generator
 
 router = APIRouter(prefix="/risk", tags=["risk"])
+
+
+async def _resolve_wallet(session: AsyncSession, wallet_id: str) -> Wallet:
+    """Resolve a wallet by UUID or EVM address.
+
+    The address branch compares lowercased values rather than using ILIKE:
+    ILIKE treats `%` and `_` in the path segment as wildcards, so a request for
+    `/wallets/%/...` would happily resolve to whichever wallet happened to be
+    first in the table.
+    """
+    wallet = None
+    with contextlib.suppress(ValueError, AttributeError):
+        wallet = await session.get(Wallet, UUID(wallet_id))
+
+    if not wallet:
+        result = await session.execute(
+            select(Wallet).where(func.lower(Wallet.address) == wallet_id.strip().lower())
+        )
+        wallet = result.scalars().first()
+
+    if not wallet:
+        raise NotFoundError("Wallet", str(wallet_id))
+    return wallet
 
 
 class RiskAssessmentResponse(BaseModel):
@@ -57,18 +82,12 @@ class ReportGenerateResponse(BaseModel):
 @router.post("/wallets/{wallet_id}/assess", response_model=RiskAssessmentResponse)
 @router.get("/wallets/{wallet_id}/assess", response_model=RiskAssessmentResponse)
 async def assess_wallet_risk(
-    wallet_id: UUID,
+    wallet_id: str,
     session: AsyncSession = Depends(get_session),
 ):
-    wallet = await session.get(Wallet, wallet_id)
-    if not wallet:
-        raise NotFoundError("Wallet", str(wallet_id))
+    wallet = await _resolve_wallet(session, wallet_id)
 
-    from sqlalchemy import select
-
-    from src.models import Transaction
-
-    result = await session.execute(select(Transaction).where(Transaction.wallet_id == wallet_id))
+    result = await session.execute(select(Transaction).where(Transaction.wallet_id == wallet.id))
     transactions = result.scalars().all()
 
     graph_transactions = [
@@ -137,13 +156,11 @@ async def assess_wallet_risk(
 
 @router.get("/wallets/{wallet_id}/attribution", response_model=AttributionResponse)
 async def get_wallet_attribution(
-    wallet_id: UUID,
+    wallet_id: str,
     max_hops: int = Query(6, ge=1, le=10),
     session: AsyncSession = Depends(get_session),
 ):
-    wallet = await session.get(Wallet, wallet_id)
-    if not wallet:
-        raise NotFoundError("Wallet", str(wallet_id))
+    wallet = await _resolve_wallet(session, wallet_id)
 
     result = await attribution_engine.get_attribution_summary(
         wallet_address=wallet.address,
@@ -155,13 +172,11 @@ async def get_wallet_attribution(
 
 @router.post("/wallets/{wallet_id}/attribute", response_model=list[dict])
 async def attribute_wallet(
-    wallet_id: UUID,
+    wallet_id: str,
     max_hops: int = Query(6, ge=1, le=10),
     session: AsyncSession = Depends(get_session),
 ):
-    wallet = await session.get(Wallet, wallet_id)
-    if not wallet:
-        raise NotFoundError("Wallet", str(wallet_id))
+    wallet = await _resolve_wallet(session, wallet_id)
 
     attributions = await attribution_engine.attribute_wallet(
         wallet_address=wallet.address,

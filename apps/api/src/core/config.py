@@ -63,8 +63,9 @@ class Settings(BaseSettings):
     # environment or a .env file -- pydantic-settings reads both, so no
     # explicit os.environ lookup is needed here.
     SECRET_KEY: str
-    # --- end SECRET_KEY block ---
     API_V1_PREFIX: str = "/api/v1"
+    AUTH_RATE_LIMIT_LOGIN: str = "60/minute"
+    AUTH_RATE_LIMIT_REFRESH: str = "60/minute"
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://tracex:tracex@localhost:5432/tracex"

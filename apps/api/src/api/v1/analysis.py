@@ -1,8 +1,10 @@
+import contextlib
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core import NotFoundError, get_session
@@ -16,6 +18,29 @@ from src.workers.tasks import wallet_analysis_task
 # `entity_enrichment_task` from POST /graph/entities/enrich.
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
+
+
+async def _resolve_wallet(session: AsyncSession, wallet_id: str) -> Wallet:
+    """Resolve a wallet by UUID or EVM address.
+
+    The address branch compares lowercased values rather than using ILIKE:
+    ILIKE treats `%` and `_` in the path segment as wildcards, so a request for
+    `/wallets/%/...` would happily resolve to whichever wallet happened to be
+    first in the table.
+    """
+    wallet = None
+    with contextlib.suppress(ValueError, AttributeError):
+        wallet = await session.get(Wallet, UUID(wallet_id))
+
+    if not wallet:
+        result = await session.execute(
+            select(Wallet).where(func.lower(Wallet.address) == wallet_id.strip().lower())
+        )
+        wallet = result.scalars().first()
+
+    if not wallet:
+        raise NotFoundError("Wallet", str(wallet_id))
+    return wallet
 
 
 class WalletAnalyzeRequest(BaseModel):
@@ -142,16 +167,14 @@ async def get_analysis_task_status(task_id: str) -> TaskStatusResponse:
 
 @router.post("/wallets/{wallet_id}/trace", response_model=dict)
 async def trace_fund_flow(
-    wallet_id: UUID,
+    wallet_id: str,
     request: TraceRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    wallet = await session.get(Wallet, wallet_id)
-    if not wallet:
-        raise NotFoundError("Wallet", str(wallet_id))
+    wallet = await _resolve_wallet(session, wallet_id)
 
     result = await wallet_analysis_service.trace_fund_flow(
-        wallet_id=wallet_id,
+        wallet_id=wallet.id,
         max_hops=request.max_hops,
         min_value_eth=request.min_value_eth,
     )
@@ -161,22 +184,24 @@ async def trace_fund_flow(
 
 @router.get("/wallets/{wallet_id}/transactions")
 async def get_wallet_transactions(
-    wallet_id: UUID,
+    wallet_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
 ):
-    wallet = await session.get(Wallet, wallet_id)
-    if not wallet:
-        raise NotFoundError("Wallet", str(wallet_id))
-
-    from sqlalchemy import func, select
+    wallet = await _resolve_wallet(session, wallet_id)
 
     from src.models import Transaction
 
     query = (
         select(Transaction)
-        .where(Transaction.wallet_id == wallet_id)
+        .where(
+            or_(
+                Transaction.wallet_id == wallet.id,
+                Transaction.from_address.ilike(wallet.address),
+                Transaction.to_address.ilike(wallet.address),
+            )
+        )
         .order_by(Transaction.block_number.desc())
     )
 
