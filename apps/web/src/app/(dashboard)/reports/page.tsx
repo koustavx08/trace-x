@@ -96,30 +96,35 @@ export default function ReportsPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredReports.map((r) => (
-                    <TableRow key={r.id}>
-                      <TableCell className="font-medium">{r.title}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{r.case_id}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{formatLabels[r.format] || r.format}</Badge>
+                    <TableRow key={r.id} className="hover:bg-muted/50">
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          {r.title?.includes("Section 91") && (
+                            <Badge variant="secondary" className="bg-purple-500/10 text-purple-400 border-purple-500/20 text-[10px] whitespace-nowrap">
+                              Sec 91 CrPC
+                            </Badge>
+                          )}
+                          <span className="truncate max-w-[320px]">{r.title}</span>
+                        </div>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{r.generated_by}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatRelativeTime(r.created_at)}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{r.case_id?.slice(0, 8)}...</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="uppercase text-[11px] font-mono">{formatLabels[r.format] || r.format}</Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-xs">{r.generated_by?.slice(0, 8)}...</TableCell>
+                      <TableCell className="text-muted-foreground text-xs">{formatRelativeTime(r.created_at)}</TableCell>
                       <TableCell className="text-right">
-                        {r.file_path ? (
-                          <a
-                            href={r.file_path}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title="Download report"
-                            className="inline-flex items-center justify-center h-10 w-10 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
-                          >
-                            <Download className="w-4 h-4" />
-                          </a>
-                        ) : (
-                          <Button variant="ghost" size="icon" disabled title="No file available">
-                            <Download className="w-4 h-4" />
-                          </Button>
-                        )}
+                        <a
+                          href={`/api/reports/${r.id}/download`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          download
+                          title="Download report file"
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold transition-colors"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Download
+                        </a>
                       </TableCell>
                     </TableRow>
                   ))}

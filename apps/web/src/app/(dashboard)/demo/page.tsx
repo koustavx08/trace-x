@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatAddress } from "@/lib/utils";
-import { analysisApi, casesApi, riskApi } from "@/lib/api";
+import { formatAddress, formatCurrency, formatRelativeTime } from "@/lib/utils";
+import { analysisApi, casesApi, riskApi, walletsApi, investigationsApi, Case, Wallet } from "@/lib/api";
 import {
   Shield,
   Search,
@@ -149,36 +149,143 @@ export default function DemoPage() {
     setAnalysisResult(null);
 
     try {
-      // Step 1: Create case
-      const caseResponse = await casesApi.create({
-        title: demoCase.title,
-        crime_type: demoCase.crime_type as any,
-        description: demoCase.description,
-        status: "in_progress",
-      });
+      // Step 1: Find existing seeded case in DB (by case_number) or fallback
+      let caseResponse: Case | null = null;
+      try {
+        const casesList = await casesApi.list({ search: demoCase.case_number });
+        if (casesList?.items?.length) {
+          caseResponse =
+            casesList.items.find((c) => c.case_number === demoCase.case_number) ||
+            casesList.items[0];
+        }
+      } catch (err) {
+        console.warn("Could not find seeded case by case_number", err);
+      }
 
-      // Step 2: Analyze wallet
-      const analysisResponse = await analysisApi.analyzeWallet(caseResponse.id, {
-        address: demoCase.suspect_wallet,
-        trace_depth: 5,
-        max_transactions: 1000,
-      });
+      // If not found in DB, create it
+      if (!caseResponse) {
+        caseResponse = await casesApi.create({
+          title: demoCase.title,
+          crime_type: demoCase.crime_type as any,
+          description: demoCase.description,
+          status: "in_progress",
+        });
+      }
 
-      // Step 3: Get attribution
-      const attributionResponse = await riskApi.getAttribution(analysisResponse.wallet.id, 6);
+      // Step 2: Find or create suspect wallet for this case
+      let targetWallet: Wallet | null = null;
+      try {
+        const walletsList = await walletsApi.list({ case_id: caseResponse.id });
+        if (walletsList?.items?.length) {
+          targetWallet =
+            walletsList.items.find(
+              (w) => w.address.toLowerCase() === demoCase.suspect_wallet.toLowerCase()
+            ) || walletsList.items[0];
+        }
+      } catch (err) {
+        console.warn("Could not list wallets for case", err);
+      }
 
-      // Step 4: Get risk assessment
-      const riskResponse = await riskApi.assessWallet(analysisResponse.wallet.id);
+      if (!targetWallet) {
+        targetWallet = await walletsApi.create({
+          case_id: caseResponse.id,
+          address: demoCase.suspect_wallet,
+          chain: demoCase.chains[0] || "Ethereum",
+          label: "Suspect Wallet",
+        });
+      }
+
+      // Step 3: Find completed investigation run
+      let investigation: any = null;
+      try {
+        const invList = await investigationsApi.list({ case_id: caseResponse.id });
+        if (invList?.items?.length) {
+          investigation =
+            invList.items.find((i) => i.status === "completed") || invList.items[0];
+        }
+      } catch (err) {
+        console.warn("Could not list investigations", err);
+      }
+
+      if (!investigation) {
+        investigation = {
+          id: caseResponse.id,
+          status: "completed",
+          result_summary: {
+            transactions_found: demoCase.wallet_count,
+            unique_addresses: demoCase.wallet_count,
+            demo: true,
+          },
+        };
+      }
+
+      // Step 4: Get attribution from riskApi
+      let attributionResponse: any = null;
+      try {
+        attributionResponse = await riskApi.getAttribution(targetWallet.id, 6);
+      } catch (err) {
+        console.warn("Attribution lookup failed, using synthetic fallback", err);
+        attributionResponse = {
+          attributed: true,
+          nearest_vasp: {
+            entity_name: demoCase.vasp,
+            confidence: demoCase.vasp_confidence,
+            confidence_score: demoCase.vasp_confidence === "CONFIRMED" ? 0.95 : 0.85,
+            distance_hops: 2,
+          },
+        };
+      }
+
+      // Step 5: Get risk assessment from riskApi
+      let riskResponse: any = null;
+      try {
+        riskResponse = await riskApi.assessWallet(targetWallet.id);
+      } catch (err) {
+        console.warn("Risk assessment failed, using synthetic score", err);
+        riskResponse = {
+          overall_score: demoCase.risk_score,
+          risk_level: demoCase.risk_score >= 75 ? "CRITICAL" : "HIGH",
+          factors: [],
+          methodology: "12-factor behavioral and on-chain intelligence risk engine",
+        };
+      }
+
+      // Step 6: Get transactions from analysisApi
+      let transactions: any[] = [];
+      try {
+        const txResponse = await analysisApi.getWalletTransactions(targetWallet.id, { page: 1, page_size: 100 });
+        transactions = txResponse?.items || [];
+
+        // Fallback: if suspect wallet has no direct tx rows, check other case wallets
+        if (transactions.length === 0 && caseResponse) {
+          const walletsList = await walletsApi.list({ case_id: caseResponse.id });
+          for (const w of walletsList?.items || []) {
+            if (w.id === targetWallet.id) continue;
+            try {
+              const otherTx = await analysisApi.getWalletTransactions(w.id, { page: 1, page_size: 50 });
+              if (otherTx?.items?.length) {
+                transactions = [...transactions, ...otherTx.items];
+              }
+            } catch {
+              // ignore
+            }
+            if (transactions.length >= 50) break;
+          }
+        }
+      } catch (err) {
+        console.warn("Could not fetch wallet transactions", err);
+      }
 
       setAnalysisResult({
         case: caseResponse,
-        wallet: analysisResponse.wallet,
-        investigation: analysisResponse.investigation,
+        wallet: targetWallet,
+        investigation,
         attribution: attributionResponse,
         risk: riskResponse,
+        transactions,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Demo failed");
+      setError(err instanceof Error ? err.message : "Demo failed to load");
     } finally {
       setLoading(false);
     }
@@ -218,7 +325,7 @@ export default function DemoPage() {
       {!selectedCase ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {demoCases.map((demoCase) => (
-            <Card key={demoCase.id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => setSelectedCase(demoCase)}>
+            <Card key={demoCase.id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => handleRunDemo(demoCase)}>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <Badge variant="outline" className="capitalize text-sm">
@@ -309,11 +416,21 @@ export default function DemoPage() {
             </div>
           )}
 
+          {loading && (
+            <div className="flex flex-col items-center justify-center p-12 text-center bg-card rounded-xl border border-border">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
+              <p className="text-lg font-medium">Loading Synthetic Investigation Data...</p>
+              <p className="text-sm text-muted-foreground">Tracing fund flows, querying Neo4j graph, and computing 12-factor risk score</p>
+            </div>
+          )}
+
           {analysisResult && (
             <Tabs defaultValue="overview" className="space-y-4">
               <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="transactions">Transactions</TabsTrigger>
+                <TabsTrigger value="transactions">
+                  Transactions {analysisResult.transactions?.length ? `(${analysisResult.transactions.length})` : ""}
+                </TabsTrigger>
                 <TabsTrigger value="attribution">Attribution</TabsTrigger>
                 <TabsTrigger value="risk">Risk Assessment</TabsTrigger>
                 <TabsTrigger value="graph">Graph</TabsTrigger>
@@ -326,7 +443,9 @@ export default function DemoPage() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-medium text-muted-foreground">Transactions Analyzed</p>
-                          <p className="text-3xl font-bold tracking-tight">{analysisResult.investigation?.result_summary?.transactions_found || 0}</p>
+                          <p className="text-3xl font-bold tracking-tight">
+                            {analysisResult.transactions?.length || analysisResult.investigation?.result_summary?.transactions_found || 0}
+                          </p>
                         </div>
                         <div className="p-3 rounded-lg bg-primary/10 text-primary">
                           <Activity className="w-6 h-6" />
@@ -441,18 +560,118 @@ export default function DemoPage() {
               </TabsContent>
 
               <TabsContent value="transactions">
-                {analysisResult.investigation && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Transactions ({analysisResult.investigation?.result_summary?.transactions_found || 0})</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">
-                        Transaction data loaded from blockchain analysis. View full transaction history in the Analyze page.
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle>
+                        Transactions ({analysisResult.transactions?.length || 0})
+                      </CardTitle>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        On-chain activity for suspect wallet{" "}
+                        <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
+                          {formatAddress(selectedCase?.suspect_wallet || analysisResult.wallet?.address || "")}
+                        </code>
                       </p>
-                    </CardContent>
-                  </Card>
-                )}
+                    </div>
+                    <Link
+                      href={`/analyze?address=${selectedCase?.suspect_wallet || analysisResult.wallet?.address || ""}`}
+                      className="text-xs text-primary hover:underline flex items-center gap-1"
+                    >
+                      Open in Analyze <ExternalLink className="w-3 h-3" />
+                    </Link>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {(!analysisResult.transactions || analysisResult.transactions.length === 0) ? (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <FileText className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                        <p className="text-base font-medium">No transactions recorded</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          No transactions found for this wallet in the seeded database.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Tx Hash</TableHead>
+                              <TableHead>Block</TableHead>
+                              <TableHead>Time</TableHead>
+                              <TableHead>From</TableHead>
+                              <TableHead>To</TableHead>
+                              <TableHead>Value (USD)</TableHead>
+                              <TableHead>Token</TableHead>
+                              <TableHead>Method</TableHead>
+                              <TableHead>Flags</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {analysisResult.transactions.map((tx: any) => {
+                              const isFromSuspect =
+                                tx.from_address?.toLowerCase() ===
+                                (selectedCase?.suspect_wallet || analysisResult.wallet?.address || "").toLowerCase();
+                              const isToSuspect =
+                                tx.to_address?.toLowerCase() ===
+                                (selectedCase?.suspect_wallet || analysisResult.wallet?.address || "").toLowerCase();
+
+                              return (
+                                <TableRow key={tx.tx_hash} className="hover:bg-muted/50">
+                                  <TableCell>
+                                    <code className="font-mono text-sm">{formatAddress(tx.tx_hash)}</code>
+                                  </TableCell>
+                                  <TableCell className="font-mono text-sm">
+                                    #{tx.block_number?.toLocaleString()}
+                                  </TableCell>
+                                  <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+                                    {formatRelativeTime(tx.timestamp)}
+                                  </TableCell>
+                                  <TableCell>
+                                    <code
+                                      className={`font-mono text-sm ${
+                                        isFromSuspect ? "text-amber-400 font-semibold" : ""
+                                      }`}
+                                      title={tx.from_address}
+                                    >
+                                      {formatAddress(tx.from_address)}
+                                      {isFromSuspect && " (Suspect)"}
+                                    </code>
+                                  </TableCell>
+                                  <TableCell>
+                                    <code
+                                      className={`font-mono text-sm ${
+                                        isToSuspect ? "text-amber-400 font-semibold" : ""
+                                      }`}
+                                      title={tx.to_address}
+                                    >
+                                      {formatAddress(tx.to_address)}
+                                      {isToSuspect && " (Suspect)"}
+                                    </code>
+                                  </TableCell>
+                                  <TableCell className="font-mono tabular-nums text-sm font-medium">
+                                    {formatCurrency(tx.value_usd ?? tx.value ?? 0)}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline">{tx.token_symbol || "ETH"}</Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline">{tx.method || "transfer"}</Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    {tx.is_suspicious && (
+                                      <Badge variant="destructive" className="gap-1">
+                                        <AlertTriangle className="w-3 h-3" /> Suspicious
+                                      </Badge>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </TabsContent>
 
               <TabsContent value="attribution">
@@ -667,7 +886,7 @@ export default function DemoPage() {
                         <GitBranch className="w-12 h-12 mx-auto mb-4 opacity-50" />
                         <p className="text-lg font-medium">Graph Visualization</p>
                         <p className="text-sm mt-1">Interactive fund flow graph (React Flow)</p>
-                        <p className="text-xs mt-2">View full graph in <Button variant="ghost" size="sm" asChild><Link href={`/graph?wallet=${analysisResult.wallet?.id}`}><ExternalLink className="w-4 h-4 mr-1" />Open Graph</Link></Button></p>
+                        <p className="text-xs mt-2">View full graph in <Button variant="ghost" size="sm" asChild><Link href={`/graph?address=${encodeURIComponent(analysisResult.wallet?.address || selectedCase?.suspect_wallet || "")}`}><ExternalLink className="w-4 h-4 mr-1" />Open Graph</Link></Button></p>
                       </div>
                     </div>
                   </CardContent>
