@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth import get_current_user
 from src.core import NotFoundError, get_session
-from src.models import Report
+from src.models import Report, User
 from src.schemas import PaginatedResponse, ReportCreate, ReportResponse
 from src.workers.main import celery_app
 from src.workers.tasks import report_generation_task
@@ -37,26 +38,43 @@ class ReportTaskStatusResponse(BaseModel):
 
 
 @router.post(
-    "/generate", response_model=ReportGenerateResponse, status_code=status.HTTP_202_ACCEPTED
+    "/generate",
+    response_model=ReportGenerateResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Generate report",
+    description="Kick off report generation as a background Celery task. Poll `GET /reports/tasks/{task_id}` for completion.",
 )
-async def generate_report(request: ReportGenerateRequest) -> ReportGenerateResponse:
+async def generate_report(
+    request: ReportGenerateRequest,
+    current_user: User = Depends(get_current_user),
+) -> ReportGenerateResponse:
     """Kick off report generation (build content from case/investigation
     data + render to PDF/JSON/HTML) as a background Celery task instead of
     doing it synchronously in the request path. Poll
     `GET /reports/tasks/{task_id}` for completion; the task persists the
-    resulting `Report` row itself (see `report_generation_task`)."""
+    resulting `Report` row itself (see `report_generation_task`).
+
+    `generated_by` is the authenticated caller. It used to be the literal
+    string "system", which is not a users.id, so every task raised on the
+    NOT NULL foreign key `reports.generated_by` and no report generated
+    through this route ever succeeded."""
     task = report_generation_task.delay(
         str(request.case_id),
         str(request.investigation_run_id) if request.investigation_run_id else None,
         request.title,
         request.template,
         request.format,
-        "system",
+        str(current_user.id),
     )
     return ReportGenerateResponse(task_id=task.id, status="queued")
 
 
-@router.get("/tasks/{task_id}", response_model=ReportTaskStatusResponse)
+@router.get(
+    "/tasks/{task_id}",
+    response_model=ReportTaskStatusResponse,
+    summary="Get report task status",
+    description="Poll the status/result of a background report generation task.",
+)
 async def get_report_task_status(task_id: str) -> ReportTaskStatusResponse:
     async_result = celery_app.AsyncResult(task_id)
 
@@ -77,7 +95,13 @@ async def get_report_task_status(task_id: str) -> ReportTaskStatusResponse:
     )
 
 
-@router.post("", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ReportResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create report",
+    description="Create a new report record for a case.",
+)
 async def create_report(
     report_data: ReportCreate,
     case_id: UUID = Query(..., description="Case ID"),
@@ -116,7 +140,12 @@ async def create_report(
     return ReportResponse.model_validate(report)
 
 
-@router.get("", response_model=PaginatedResponse)
+@router.get(
+    "",
+    response_model=PaginatedResponse,
+    summary="List reports",
+    description="List reports with optional filtering by case ID.",
+)
 async def list_reports(
     case_id: UUID | None = None,
     page: int = Query(1, ge=1),
@@ -146,7 +175,12 @@ async def list_reports(
     )
 
 
-@router.get("/{report_id}", response_model=ReportResponse)
+@router.get(
+    "/{report_id}",
+    response_model=ReportResponse,
+    summary="Get report",
+    description="Retrieve a specific report by ID.",
+)
 async def get_report(
     report_id: UUID, session: AsyncSession = Depends(get_session)
 ) -> ReportResponse:
