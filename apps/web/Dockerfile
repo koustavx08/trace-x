@@ -19,17 +19,17 @@ RUN npm ci
 
 # The committed root lockfile was generated on Windows, so the only native SWC
 # binary it records is @next/swc-win32-x64-msvc. On Linux `npm ci` therefore
-# installs no SWC at all, and `next dev` tries to fetch one at runtime -- which
-# fails inside a workspace ("npm error code ENOWORKSPACES") and silently drops
-# Next.js to its much slower WASM compiler. Install the binary this image
-# actually needs (alpine => musl, x64), pinned to the installed next version.
-# Regenerating the root lockfile would fix it at the source, but that also
-# re-resolves every frontend dependency, so it is deliberately not done here.
-# npm hoists `next` to the root node_modules of the workspace, so resolve it
-# by module name (with the nested path as a fallback for a non-hoisted
-# install) -- reading apps/web/node_modules/next directly fails with
-# MODULE_NOT_FOUND on a hoisted tree, which is every tree npm produces here.
-RUN NEXT_VERSION="$(node -p "require('next/package.json').version" 2>/dev/null || node -p "require('./apps/web/node_modules/next/package.json').version")" && npm install --no-save --ignore-scripts --workspace=apps/web "@next/swc-linux-x64-musl@${NEXT_VERSION}"
+# installs no SWC at all and the build falls back to the much slower WASM
+# compiler. Install the binary this image needs (alpine => musl, x64).
+#
+# The version comes from next's own optionalDependencies, not from next's
+# version: the two drift apart. next 14.2.35 pins its SWC packages at
+# 14.2.33, and @next/swc-linux-x64-musl@14.2.35 does not exist at all, so
+# assuming they match fails the build with npm ETARGET.
+#
+# next is hoisted to the workspace root, with the nested path kept as a
+# fallback for a non-hoisted install.
+RUN SWC_VERSION="$(node -p "require('next/package.json').optionalDependencies['@next/swc-linux-x64-musl']" 2>/dev/null || node -p "require('./apps/web/node_modules/next/package.json').optionalDependencies['@next/swc-linux-x64-musl']")" && npm install --no-save --ignore-scripts --workspace=apps/web "@next/swc-linux-x64-musl@${SWC_VERSION}"
 
 COPY packages/shared packages/shared
 COPY apps/web apps/web
