@@ -1,12 +1,32 @@
 # gitleaks configuration for TRACE-X (see .github/workflows/security.yml).
 #
-# Starts from the upstream rule set and only adds allowlists -- no rule is
-# disabled, so a real credential is still caught wherever it lands.
+# Starts from the upstream rule set, adds rules it is missing, and allowlists
+# paths that hold placeholders. No upstream rule is disabled, so a real
+# credential is still caught wherever it lands.
 [extend]
 useDefault = true
 
+# The upstream rule set has no OpenRouter pattern, so a live `sk-or-v1-...`
+# key committed to docker-compose.yml passed every scan. Keys are a fixed
+# prefix followed by 64 hex characters.
+[[rules]]
+id = "openrouter-api-key"
+description = "OpenRouter API key"
+regex = '''sk-or-v1-[0-9a-f]{64}'''
+keywords = ["sk-or-v1-"]
+
 [allowlist]
-description = "Committed templates and lockfiles hold placeholders, not credentials"
+description = "Committed templates, lockfiles, and one already-burned key"
+# 4862504c committed a live OpenRouter key into docker-compose.yml. It has
+# been taken back out, but it is still in history, which gitleaks scans with
+# fetch-depth: 0.
+# History cannot be un-leaked, so the key must be treated as burned and
+# rotated at openrouter.ai; this entry stops that one unchangeable commit
+# from failing every future scan, and applies to nothing else.
+commits = [
+  "4862504c61fd31c33f83fa29aeb48aeeef877945",
+]
+
 paths = [
   # *.example files exist to be read: they document which variables must be
   # set, with obviously fake values (`change-me`, `your-api-key-here`).

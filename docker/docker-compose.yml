@@ -91,11 +91,17 @@ services:
       CIPHERTRACE_API_KEY: ${CIPHERTRACE_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
-      AI_PROVIDER: openrouter
-      AI_MODE: live
-      OPENROUTER_API_KEY: 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
-      OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
-      OPENROUTER_MODEL: anthropic/claude-3.5-sonnet
+      # Interpolated from docker/.env like every other credential here. The
+      # key used to be written inline, which committed a live OpenRouter
+      # secret to a public repository; it must be treated as burned and
+      # rotated. The model default is a current OpenRouter slug --
+      # anthropic/claude-3.5-sonnet has been retired, and every request for it
+      # returns 404, which the AI provider swallows into a template answer.
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_MODE: ${AI_MODE:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-5}
     ports:
       - "8000:8000"
     volumes:
@@ -149,7 +155,7 @@ services:
       AI_MODE: ${AI_MODE:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-5}
     volumes:
       - ../apps/api:/app
       - /app/__pycache__
@@ -201,7 +207,7 @@ services:
       AI_MODE: ${AI_MODE:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-5}
     volumes:
       - ../apps/api:/app
       - /app/__pycache__
