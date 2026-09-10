@@ -73,7 +73,10 @@ async def load_wallet_graph(client: Any, chain: str) -> tuple[nx.DiGraph, dict[s
 
     attributes = {record["address"]: dict(record) for record in nodes}
 
-    graph = nx.DiGraph()
+    # Subscripted for networkx's stubs, which make DiGraph generic. Safe
+    # unquoted despite the class not being subscriptable at runtime:
+    # annotations on local variables are never evaluated (PEP 526).
+    graph: nx.DiGraph[str] = nx.DiGraph()
     graph.add_nodes_from(attributes)
     for record in edges:
         graph.add_edge(
@@ -211,7 +214,7 @@ def detect_communities(
         undirected, weight="value_usd", seed=_LOUVAIN_SEED
     )
 
-    clusters = []
+    clusters: list[dict[str, Any]] = []
     for index, members in enumerate(sorted(communities, key=len, reverse=True)):
         if len(members) < min_cluster_size:
             continue
@@ -231,5 +234,8 @@ def detect_communities(
             }
         )
 
-    clusters.sort(key=lambda c: (c["avg_risk"] is None, -(c["avg_risk"] or 0.0)))
+    # Highest average risk first, with unscored clusters last. The float()
+    # is for the type checker: the dict is heterogeneous, so `avg_risk`
+    # widens to object and cannot be negated as it stands.
+    clusters.sort(key=lambda c: (c["avg_risk"] is None, -float(c["avg_risk"] or 0.0)))
     return clusters
