@@ -1,0 +1,19 @@
+# gitleaks configuration for TRACE-X (see .github/workflows/security.yml).
+#
+# Starts from the upstream rule set and only adds allowlists -- no rule is
+# disabled, so a real credential is still caught wherever it lands.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Committed templates and lockfiles hold placeholders, not credentials"
+paths = [
+  # *.example files exist to be read: they document which variables must be
+  # set, with obviously fake values (`change-me`, `your-api-key-here`).
+  '''\.env\.example$''',
+  '''.*\.example$''',
+  # Integrity hashes in lockfiles look like high-entropy secrets to any
+  # entropy-based rule, and are published data by definition.
+  '''package-lock\.json$''',
+  '''uv\.lock$''',
+]

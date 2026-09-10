@@ -1,15 +1,32 @@
-name: Docker Compose Validation
+name: Docker Build
 
 on:
   push:
     branches: [main]
     paths:
       - "docker/**"
+      - "apps/api/**"
+      - "apps/web/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/docker-build.yml"
   pull_request:
     paths:
       - "docker/**"
+      - "apps/api/**"
+      - "apps/web/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/docker-build.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   compose-config:
@@ -24,3 +41,47 @@ jobs:
 
       - name: Validate docker-compose.prod.yml
         run: docker compose -f docker/docker-compose.prod.yml config --quiet
+
+  build-images:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    # `compose config` only proves the YAML parses. These builds prove the
+    # images the compose files reference can actually be built -- a broken
+    # Dockerfile used to reach main unnoticed, because nothing built one.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api (dev)
+            context: apps/api
+            dockerfile: apps/api/Dockerfile
+          - name: api (prod)
+            context: apps/api
+            dockerfile: apps/api/Dockerfile.prod
+          # Both web images build from the repo root: apps/web depends on the
+          # @trace-x/shared workspace package, which npm can only resolve
+          # against the root lockfile.
+          - name: web (dev)
+            context: .
+            dockerfile: apps/web/Dockerfile
+          - name: web (prod)
+            context: .
+            dockerfile: apps/web/Dockerfile.prod
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          # Build only -- nothing is published. The image is proven to build
+          # and then discarded; no registry, no credentials, no secrets.
+          push: false
+          load: false
+          cache-from: type=gha,scope=${{ matrix.dockerfile }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.dockerfile }}

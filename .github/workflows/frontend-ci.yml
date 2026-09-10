@@ -17,6 +17,17 @@ on:
       - "package-lock.json"
       - ".github/workflows/frontend-ci.yml"
 
+# Read-only by default: nothing here writes to the repository or publishes
+# anything.
+permissions:
+  contents: read
+
+# A newer push to the same branch supersedes this run; cancel it rather than
+# letting two builds of the same branch compete for runners.
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-build-test:
     name: Lint, build, test

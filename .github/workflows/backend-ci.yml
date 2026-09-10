@@ -13,6 +13,19 @@ on:
       - "pytest.ini"
       - ".github/workflows/backend-ci.yml"
 
+# Read-only by default: nothing here writes to the repository, publishes a
+# package or comments on a pull request.
+permissions:
+  contents: read
+
+# A second push to the same branch makes the first run's result irrelevant.
+# Cancelling it frees the runner instead of queueing behind stale work.
+# `github.ref` is the branch for pushes and the PR merge ref for pull
+# requests, so pushes to main and PR updates never cancel each other.
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
     working-directory: apps/api
@@ -71,12 +84,24 @@ jobs:
       - name: Mypy type-check
         run: mypy src
 
+      # The demo dataset validates itself (EIP-55 checksums, one chain per
+      # transaction, unique hashes, block heights that match their timestamps,
+      # consistent attribution, conservation of funds). Running it as its own
+      # step means a broken scenario reads as a data failure here rather than
+      # as an opaque test failure further down.
+      - name: Validate synthetic demo dataset
+        run: python scripts/demo_dataset.py
+
       - name: Create test database
         env:
           PGPASSWORD: tracex
         run: |
           psql -h localhost -U tracex -d tracex -c "CREATE DATABASE tracex_test;" || true
 
+      # --cov-fail-under is a ratchet, not a target: it sits just below the
+      # measured coverage so an ordinary refactor does not trip it, while a
+      # real drop (a whole module losing its tests) does. Raise it when
+      # coverage rises; never lower it to make a red build green.
       - name: Run tests with coverage
         working-directory: .
         env:
@@ -84,4 +109,15 @@ jobs:
           APP_ENV: test
           DATABASE_URL: postgresql+asyncpg://tracex:tracex@localhost:5432/tracex
           REDIS_URL: redis://localhost:6379/0
-        run: pytest --cov=src --cov-report=term-missing --cov-report=xml
+        run: pytest --cov=src --cov-report=term-missing --cov-report=xml --cov-fail-under=60
+
+      - name: Upload coverage report
+        # Also upload when the coverage gate is what failed -- that is exactly
+        # when someone wants to see which lines went uncovered.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: coverage.xml
+          if-no-files-found: warn
+          retention-days: 14

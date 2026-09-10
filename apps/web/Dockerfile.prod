@@ -1,4 +1,11 @@
-# Production Dockerfile for Next.js Frontend
+# Production Dockerfile for the Next.js frontend.
+#
+# Build context is the REPO ROOT, not apps/web (see docker/docker-compose.prod.yml
+# and apps/web/Dockerfile, which builds the same way). apps/web depends on the
+# `@trace-x/shared` workspace package, so the install has to run from the
+# monorepo root against the root lockfile. Installing from apps/web alone makes
+# npm resolve @trace-x/shared against the public registry and fail with:
+#   npm error 404  '@trace-x/shared@*' is not in this registry.
 FROM node:20-alpine AS base
 
 # Install dependencies only when needed
@@ -6,14 +13,44 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm ci --only=production
+# Manifests first, so the install layer caches across source edits.
+COPY package.json package-lock.json ./
+COPY apps/web/package.json apps/web/
+COPY packages/shared/package.json packages/shared/
+# The full dependency set, not --omit=dev: `next build` needs TypeScript,
+# Tailwind and PostCSS, all of which are devDependencies. Only the built
+# standalone output is carried into the runtime image, so nothing from here
+# ends up being shipped.
+RUN npm ci
+
+# The committed root lockfile was generated on Windows, so the only native SWC
+# binary it records is @next/swc-win32-x64-msvc. On Linux `npm ci` therefore
+# installs no SWC at all and the build silently falls back to the much slower
+# WASM compiler. Install the binary this image needs (alpine => musl, x64),
+# pinned to the installed next version.
+RUN NEXT_VERSION="$(node -p "require('./apps/web/node_modules/next/package.json').version")" \
+    && npm install --no-save --ignore-scripts --workspace=apps/web \
+       "@next/swc-linux-x64-musl@${NEXT_VERSION}"
 
 # Build the application
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY package.json package-lock.json ./
+COPY packages/shared packages/shared
+COPY apps/web apps/web
+
+# @trace-x/shared is consumed through its "main"/"types" (dist/), so it must be
+# compiled before the web app can import it.
+RUN npm run build --workspace=packages/shared --if-present
+
+# apps/web carries a stale pre-workspace lockfile. Next.js picks the closest
+# lockfile as its file-tracing root, so leaving it in place puts the standalone
+# output at .next/standalone/server.js in one layout and
+# .next/standalone/apps/web/server.js in the other, depending on which lockfile
+# it finds. Dropping it inside the image (never in the repository) makes the
+# root lockfile the only candidate, so the monorepo layout below is definite.
+RUN rm -f apps/web/package-lock.json
 
 # NEXT_PUBLIC_* vars are inlined into the client bundle at build time, not
 # read at container-start -- setting NEXT_PUBLIC_API_URL in docker-compose's
@@ -24,7 +61,7 @@ COPY . .
 ARG NEXT_PUBLIC_API_URL=/api/v1
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN npm run build --workspace=apps/web
 
 # Production image
 FROM base AS runner
@@ -36,13 +73,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-COPY --from=builder /app/public ./public
-
-# Set the correct permission for prerender cache
-RUN mkdir .next && chown nextjs:nodejs .next
-
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# `output: 'standalone'` in a workspace mirrors the monorepo layout: the
+# server entrypoint lands at apps/web/server.js with hoisted node_modules
+# beside it at the root of the standalone bundle.
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 
 USER nextjs
 
@@ -51,4 +87,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["node", "server.js"]
+CMD ["node", "apps/web/server.js"]

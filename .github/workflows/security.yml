@@ -1,0 +1,111 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Advisories land after code does. A weekly run catches a dependency that
+  # became vulnerable without anyone touching the repository.
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # gitleaks scans history, not just the working tree -- a secret that
+          # was committed and then deleted is still a leaked secret.
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  python-dependencies:
+    name: Python dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      # Audits the declared dependency set rather than the resolved
+      # environment, so a finding names something this project actually asks
+      # for. This is a hard gate: the backend dependency set is clean today
+      # and a new advisory should stop a merge until it is looked at. If one
+      # is genuinely not applicable, add `--ignore-vuln <ID>` here with a
+      # comment saying why.
+      - name: Audit backend dependencies
+        working-directory: apps/api
+        run: |
+          python - <<'PY' > requirements-audit.txt
+          import tomllib
+          print("\n".join(tomllib.load(open("pyproject.toml", "rb"))["project"]["dependencies"]))
+          PY
+          pip-audit -r requirements-audit.txt --strict
+
+  node-dependencies:
+    name: Node dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Reported, not enforced. The outstanding advisories against Next.js
+      # 14.2.x are only fixed in Next.js 16, a major upgrade with its own
+      # migration; failing every unrelated pull request on it would train
+      # people to ignore this job. The report is written to the run summary so
+      # the list stays visible, and this becomes a hard gate once the app is
+      # on a release line where a clean audit is achievable.
+      - name: Audit frontend dependencies
+        run: |
+          echo "## npm audit (production dependencies)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          npm audit --omit=dev >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail on new critical advisories outside Next.js
+        run: |
+          npm audit --omit=dev --json > npm-audit.json || true
+          node -e "
+            const report = require('./npm-audit.json');
+            const vulns = Object.values(report.vulnerabilities || {});
+            const blocking = vulns.filter(
+              (v) => v.severity === 'critical' && !['next', 'postcss'].includes(v.name)
+            );
+            if (blocking.length) {
+              console.error('Critical advisories outside the known Next.js chain:');
+              for (const v of blocking) console.error('  ' + v.name + ' ' + v.range);
+              process.exit(1);
+            }
+            console.log('No blocking advisories (' + vulns.length + ' known, all in the Next.js chain).');
+          "

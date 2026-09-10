@@ -26,8 +26,11 @@ services:
 
   frontend:
     build:
-      context: ../apps/web
-      dockerfile: Dockerfile.prod
+      # Repo root, so the npm workspace install can see packages/shared --
+      # apps/web alone cannot resolve the @trace-x/shared dependency (the dev
+      # compose file builds the same way, for the same reason).
+      context: ..
+      dockerfile: apps/web/Dockerfile.prod
       # NEXT_PUBLIC_* vars are baked into the client bundle at `next build`
       # time -- setting NEXT_PUBLIC_API_URL under `environment:` below has
       # no effect on it (that only affects the running container, long
