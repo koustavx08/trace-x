@@ -1,14 +1,26 @@
 #!/usr/bin/env python3
 """
 TRACE-X Demo Data Seeder
-Generates synthetic SIH 2026 investigation cases for demonstration purposes.
-All data is explicitly marked as SYNTHETIC.
+
+Writes the synthetic SIH 2026 demonstration dataset into PostgreSQL and Neo4j.
+Every row and node it creates carries `SYNTHETIC_DEMO_DATA` in its metadata,
+and re-running the seeder deletes and rebuilds only what carries that marker.
+
+The dataset itself -- cases, wallets, flows, prices, block heights -- lives in
+`demo_dataset.py`, which can be built and validated on its own:
+
+    python scripts/demo_dataset.py
+
+This module is the part that talks to the databases: it maps the dataset onto
+the ORM models and the graph repository, and derives the investigation runs
+and case reports from the transactions actually written (rather than from
+random numbers, which is how a demo ends up claiming 400 transactions on a
+case that holds 20).
 """
 
 import asyncio
-import random
 import sys
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -17,9 +29,22 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # Add apps/api (this script's parent's parent) to the path so `src` imports
-# resolve regardless of the caller's cwd.
+# resolve regardless of the caller's cwd, and this script's own directory so
+# `demo_dataset` resolves the same way.
 API_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(API_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from demo_dataset import (
+    SYNTHETIC_MARKER,
+    build_dataset,
+    case_summary,
+    entity_catalogue,
+    wallet_activity,
+)
+from demo_dataset import (
+    Case as DemoCase,
+)
 
 from src.auth import hash_password
 from src.core.config import get_settings
@@ -43,669 +68,6 @@ from src.models import (
 
 settings = get_settings()
 
-SYNTHETIC_MARKER = "SYNTHETIC_DEMO_DATA"
-
-# ============================================================
-# SYNTHETIC CASES - SIH 2026 Demo Scenarios
-# ============================================================
-
-DEMO_CASES = [
-    {
-        "case_number": "TRX-20240115-0042",
-        "title": "DeFi Protocol Flash Loan Exploit - Protocol X",
-        "crime_type": CrimeType.FRAUD,
-        "description": (
-            "Major DeFi protocol exploit involving flash loan attack across multiple protocols. "
-            "Initial attack vector identified as a vulnerable oracle price feed on Protocol X. "
-            "Attacker borrowed 50,000 ETH via flash loan, manipulated oracle prices on DEX Y, "
-            "drained liquidity pools, then repaid loan. Funds traced through Tornado Cash "
-            "and multiple DEX swaps across Ethereum and Polygon. "
-            "[SYNTHETIC DEMO DATA - Not real investigation]"
-        ),
-        "status": CaseStatus.IN_PROGRESS,
-        "wallets": [
-            {
-                "address": "0x742D35CC6634c0532925A3b844BC9E7595F0BEb0",
-                "chain": "Ethereum",
-                "label": "Attacker - Flash Loan Originator",
-                "attribution_status": AttributionStatus.ATTRIBUTED,
-                "risk_score": 95.0,
-                "entity_name": "Unknown Attacker",
-                "entity_confidence": "PROBABLE",
-            },
-            {
-                "address": "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
-                "chain": "Ethereum",
-                "label": "Uniswap V3 Router - First Hop",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 45.0,
-                "entity_name": "Uniswap V3",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-                "chain": "Ethereum",
-                "label": "Uniswap V2 Router - Intermediate",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 42.0,
-                "entity_name": "Uniswap V2",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0x722122dF12D4e14e13Ac3b6895a86e84145b6967",
-                "chain": "Ethereum",
-                "label": "Tornado Cash - Mixer Deposit",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 98.0,
-                "entity_name": "Tornado Cash",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0xA0b86a33e6441b8C4C8c8C8c8c8c8c8c8c8C8c8C",
-                "chain": "Polygon",
-                "label": "Polygon Bridge - Cross-chain Transfer",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 55.0,
-                "entity_name": "Polygon Bridge",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-                "chain": "Ethereum",
-                "label": "Binance Deposit - Final Destination",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 88.0,
-                "entity_name": "Binance",
-                "entity_confidence": "CONFIRMED",
-            },
-        ],
-        "transactions": [
-            {
-                "from_idx": 0,
-                "to_idx": 1,
-                "value_eth": 50000,
-                "method": "flash_loan",
-                "suspicious": True,
-            },
-            {"from_idx": 1, "to_idx": 2, "value_eth": 49800, "method": "swap", "suspicious": True},
-            {
-                "from_idx": 2,
-                "to_idx": 3,
-                "value_eth": 49500,
-                "method": "deposit",
-                "suspicious": True,
-            },
-            {
-                "from_idx": 3,
-                "to_idx": 4,
-                "value_eth": 49000,
-                "method": "bridge",
-                "suspicious": True,
-            },
-            {
-                "from_idx": 4,
-                "to_idx": 5,
-                "value_eth": 48500,
-                "method": "deposit",
-                "suspicious": True,
-            },
-        ],
-    },
-    {
-        "case_number": "TRX-20240114-0038",
-        "title": "Ransomware Payment Tracing - LockBit 3.0 Affiliate",
-        "crime_type": CrimeType.RANSOMWARE,
-        "description": (
-            "Tracing ransomware payments from LockBit 3.0 affiliate across multiple chains. "
-            "Victim organization paid 25 BTC equivalent in ETH/USDT. Payments split across "
-            "multiple wallets, traced through Wasabi Wallet coinjoins, then to nested "
-            "exchange deposits. Cross-chain movement via Polygon and Arbitrum bridges. "
-            "[SYNTHETIC DEMO DATA - Not real investigation]"
-        ),
-        "status": CaseStatus.OPEN,
-        "wallets": [
-            {
-                "address": "0x8aD1e08C7793af67e9d92fe308d5697FB81d3E43",
-                "chain": "Ethereum",
-                "label": "Ransom Payment - Initial Wallet",
-                "attribution_status": AttributionStatus.UNDER_REVIEW,
-                "risk_score": 92.0,
-                "entity_name": "LockBit Affiliate Wallet",
-                "entity_confidence": "HIGH_CONFIDENCE",
-            },
-            {
-                "address": "0x503828976D22510aad0201ac7EC88293211D23Da",
-                "chain": "Ethereum",
-                "label": "CoinJoin - Wasabi Wallet",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 85.0,
-                "entity_name": "Wasabi Wallet",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0x2910543Af39abA0Cd09dBb2D50200b3E800A63D2",
-                "chain": "Ethereum",
-                "label": "Kraken Deposit - Exchange Off-ramp",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 78.0,
-                "entity_name": "Kraken",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0x0A869d79a7052c7f1b55a8EBabAa43105310D4D2",
-                "chain": "Ethereum",
-                "label": "Kraken Deposit - Secondary",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 75.0,
-                "entity_name": "Kraken",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0x831517E7E53A5A6cC7A8A8A8A8A8A8A8A8A8A8A8",
-                "chain": "Arbitrum",
-                "label": "Arbitrum Bridge - Layer 2 Movement",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 60.0,
-                "entity_name": "Arbitrum Bridge",
-                "entity_confidence": "HIGH_CONFIDENCE",
-            },
-        ],
-        "transactions": [
-            {
-                "from_idx": 0,
-                "to_idx": 1,
-                "value_eth": 850,
-                "method": "coinjoin",
-                "suspicious": True,
-            },
-            {"from_idx": 1, "to_idx": 2, "value_eth": 420, "method": "deposit", "suspicious": True},
-            {"from_idx": 1, "to_idx": 3, "value_eth": 430, "method": "deposit", "suspicious": True},
-            {"from_idx": 0, "to_idx": 4, "value_eth": 100, "method": "bridge", "suspicious": False},
-        ],
-    },
-    {
-        "case_number": "TRX-20240113-0029",
-        "title": "International Money Laundering Ring - Nested Exchanges",
-        "crime_type": CrimeType.MONEY_LAUNDERING,
-        "description": (
-            "International money laundering operation using nested exchange structure. "
-            "Funds from predicate offenses (fraud, drug trafficking) moved through "
-            "layered exchange deposits, DEX swaps, and cross-chain bridges. "
-            "Network of 40+ wallets identified. Peel chain pattern with round amounts. "
-            "Final off-ramps at Huobi, OKX, and Gate.io. "
-            "[SYNTHETIC DEMO DATA - Not real investigation]"
-        ),
-        "status": CaseStatus.CLOSED,
-        "wallets": [
-            {
-                "address": "0x0000000000000000000000000000000000001010",
-                "chain": "Ethereum",
-                "label": "Huobi Hot Wallet - Primary Off-ramp",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 82.0,
-                "entity_name": "Huobi",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0x0000000000000000000000000000000000001011",
-                "chain": "Ethereum",
-                "label": "OKX Deposit Wallet",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 80.0,
-                "entity_name": "OKX",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0x0000000000000000000000000000000000001012",
-                "chain": "Ethereum",
-                "label": "Gate.io Deposit Wallet",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 78.0,
-                "entity_name": "Gate.io",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
-                "chain": "Ethereum",
-                "label": "DAI Stablecoin - Intermediate",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 12.0,
-                "entity_name": "DAI Stablecoin",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-                "chain": "Ethereum",
-                "label": "WETH - Wrapped Ether Contract",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 10.0,
-                "entity_name": "WETH",
-                "entity_confidence": "CONFIRMED",
-            },
-        ],
-        "transactions": [
-            {"from_idx": 3, "to_idx": 4, "value_eth": 10000, "method": "wrap", "suspicious": False},
-            {
-                "from_idx": 4,
-                "to_idx": 0,
-                "value_eth": 5000,
-                "method": "deposit",
-                "suspicious": True,
-            },
-            {
-                "from_idx": 4,
-                "to_idx": 1,
-                "value_eth": 3000,
-                "method": "deposit",
-                "suspicious": True,
-            },
-            {
-                "from_idx": 4,
-                "to_idx": 2,
-                "value_eth": 2000,
-                "method": "deposit",
-                "suspicious": True,
-            },
-        ],
-    },
-    {
-        "case_number": "TRX-20240112-0017",
-        "title": "Darknet Market Seizure - Hydra Market Successor",
-        "crime_type": CrimeType.DARKNET_MARKET,
-        "description": (
-            "Cryptocurrency seizure from darknet marketplace successor to Hydra. "
-            "Marketplace operated on Tor with Bitcoin and Monero primary, "
-            "but used Ethereum/Polygon for vendor bond escrow. "
-            "Seized 150+ vendor wallets, 500+ buyer wallets. "
-            "Funds traced to multiple nested exchange deposits. "
-            "[SYNTHETIC DEMO DATA - Not real investigation]"
-        ),
-        "status": CaseStatus.ARCHIVED,
-        "wallets": [
-            {
-                "address": "0x159939f79D0B3D4e752912fA658A4D3776c9b5e3",
-                "chain": "Ethereum",
-                "label": "Bybit Deposit - Vendor Proceeds",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 75.0,
-                "entity_name": "Bybit",
-                "entity_confidence": "HIGH_CONFIDENCE",
-            },
-            {
-                "address": "0x0000000000000000000000000000000000001010",
-                "chain": "Polygon",
-                "label": "Polygon Bridge - Cross-chain Escrow",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 65.0,
-                "entity_name": "Polygon Bridge",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0xA0b86a33e6441b8C4C8c8C8c8c8c8c8c8c8C8c8C",
-                "chain": "Polygon",
-                "label": "USDC on Polygon - Stablecoin Escrow",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 25.0,
-                "entity_name": "USDC (Polygon)",
-                "entity_confidence": "CONFIRMED",
-            },
-        ],
-        "transactions": [
-            {"from_idx": 0, "to_idx": 1, "value_eth": 250, "method": "bridge", "suspicious": True},
-            {
-                "from_idx": 1,
-                "to_idx": 2,
-                "value_eth": 245,
-                "method": "transfer",
-                "suspicious": False,
-            },
-        ],
-    },
-    {
-        "case_number": "TRX-20240111-0009",
-        "title": "Sanctions Evasion - Russian Oligarch Crypto Holdings",
-        "crime_type": CrimeType.SANCTIONS_EVASION,
-        "description": (
-            "Tracking sanctions evasion through crypto mixers and DeFi protocols. "
-            "OFAC SDN-listed individual using Tornado Cash, Railgun, and cross-chain "
-            "bridges to obscure ownership of ~$50M in crypto assets. "
-            "Nested transactions through multiple DeFi protocols before "
-            "final conversion to stablecoins on centralized exchanges. "
-            "[SYNTHETIC DEMO DATA - Not real investigation]"
-        ),
-        "status": CaseStatus.IN_PROGRESS,
-        "wallets": [
-            {
-                "address": "0x169455c72558a2D9A2C4a5b8F6e9e8D7a6B5c4D3",
-                "chain": "Ethereum",
-                "label": "Tornado Cash - Secondary Contract",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 99.0,
-                "entity_name": "Tornado Cash",
-                "entity_confidence": "CONFIRMED",
-            },
-            {
-                "address": "0x0000000000000000000000000000000000001013",
-                "chain": "Ethereum",
-                "label": "Railgun - Privacy Protocol",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 95.0,
-                "entity_name": "Railgun",
-                "entity_confidence": "HIGH_CONFIDENCE",
-            },
-            {
-                "address": "0x0000000000000000000000000000000000001014",
-                "chain": "BSC",
-                "label": "Binance Smart Chain - Bridge Destination",
-                "attribution_status": AttributionStatus.ATTRIBUTED,
-                "risk_score": 85.0,
-                "entity_name": "BSC Bridge",
-                "entity_confidence": "PROBABLE",
-            },
-            {
-                "address": "0x0000000000000000000000000000000000001015",
-                "chain": "Ethereum",
-                "label": "Binance - Final Off-ramp",
-                "attribution_status": AttributionStatus.CONFIRMED,
-                "risk_score": 90.0,
-                "entity_name": "Binance",
-                "entity_confidence": "CONFIRMED",
-            },
-        ],
-        "transactions": [
-            {
-                "from_idx": 0,
-                "to_idx": 1,
-                "value_eth": 5000,
-                "method": "privacy_transfer",
-                "suspicious": True,
-            },
-            {"from_idx": 1, "to_idx": 2, "value_eth": 4900, "method": "bridge", "suspicious": True},
-            {
-                "from_idx": 2,
-                "to_idx": 3,
-                "value_eth": 4800,
-                "method": "deposit",
-                "suspicious": True,
-            },
-        ],
-    },
-]
-
-# ============================================================
-# ENTITY INTELLIGENCE - Pre-loaded Known Entities
-# ============================================================
-
-DEMO_ENTITIES = [
-    # Major Exchanges (CONFIRMED)
-    {
-        "name": "Binance",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0x28C6c06298d514Db089934071355E5743bf21d60",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    {
-        "name": "Binance",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0x21a31Ee1afC51d94C2eF3CAaDB94D5c86C1F9e3d",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    {
-        "name": "Binance",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    {
-        "name": "Coinbase",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0xA9d1e08C7793af67e9d92fe308d5697FB81d3E43",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    {
-        "name": "Coinbase",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0x503828976D22510aad0201ac7EC88293211D23Da",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    {
-        "name": "Kraken",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0x2910543Af39abA0Cd09dBb2D50200b3E800A63D2",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    {
-        "name": "Kraken",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0x0A869d79a7052c7f1b55a8EBabAa43105310D4D2",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    {
-        "name": "OKX",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0x8A96747c82B41E8B7A0000000000000000000000",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    {
-        "name": "Bybit",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0x159939f79D0B3D4e752912fA658A4D3776c9b5e3",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    {
-        "name": "Huobi",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0x0000000000000000000000000000000000001010",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    {
-        "name": "KuCoin",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0x0000000000000000000000000000000000001011",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    {
-        "name": "Gate.io",
-        "entity_type": EntityType.EXCHANGE,
-        "address": "0x0000000000000000000000000000000000001012",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.PROBABLE,
-        "source": "exchange_directory",
-        "tags": ["cex", "kyc"],
-    },
-    # Mixers (CONFIRMED/HIGH)
-    {
-        "name": "Tornado Cash",
-        "entity_type": EntityType.MIXER,
-        "address": "0x722122dF12D4e14e13Ac3b6895a86e84145b6967",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "mixer_directory",
-        "tags": ["mixer", "privacy", "high_risk"],
-    },
-    {
-        "name": "Tornado Cash",
-        "entity_type": EntityType.MIXER,
-        "address": "0x169455c72558a2D9A2C4a5b8F6e9e8D7a6B5c4D3",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "mixer_directory",
-        "tags": ["mixer", "privacy", "high_risk"],
-    },
-    {
-        "name": "Wasabi Wallet",
-        "entity_type": EntityType.MIXER,
-        "address": "0x0000000000000000000000000000000000001010",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.PROBABLE,
-        "source": "mixer_directory",
-        "tags": ["mixer", "coinjoin", "privacy"],
-    },
-    {
-        "name": "Railgun",
-        "entity_type": EntityType.MIXER,
-        "address": "0x0000000000000000000000000000000000001013",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
-        "source": "mixer_directory",
-        "tags": ["mixer", "privacy", "zk"],
-    },
-    # Bridges (CONFIRMED/HIGH)
-    {
-        "name": "Polygon Bridge",
-        "entity_type": EntityType.BRIDGE,
-        "address": "0xA0c68C638235ee32657e8f720a23ceC1bFc77C77",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "bridge_directory",
-        "tags": ["bridge", "cross_chain"],
-    },
-    {
-        "name": "Polygon Bridge",
-        "entity_type": EntityType.BRIDGE,
-        "address": "0x0000000000000000000000000000000000001010",
-        "chain": "Polygon",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "bridge_directory",
-        "tags": ["bridge", "cross_chain"],
-    },
-    {
-        "name": "Arbitrum Bridge",
-        "entity_type": EntityType.BRIDGE,
-        "address": "0x831517E7E53A5A6cC7A8A8A8A8A8A8A8A8A8A8A8",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
-        "source": "bridge_directory",
-        "tags": ["bridge", "l2"],
-    },
-    {
-        "name": "Optimism Bridge",
-        "entity_type": EntityType.BRIDGE,
-        "address": "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
-        "source": "bridge_directory",
-        "tags": ["bridge", "l2"],
-    },
-    {
-        "name": "BSC Bridge",
-        "entity_type": EntityType.BRIDGE,
-        "address": "0x0000000000000000000000000000000000001014",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.PROBABLE,
-        "source": "bridge_directory",
-        "tags": ["bridge", "cross_chain"],
-    },
-    # DeFi Protocols
-    {
-        "name": "Uniswap V3",
-        "entity_type": EntityType.DEFI,
-        "address": "0x1F98431c8aD98523631AE4a59f267346ea31F984",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "defi_directory",
-        "tags": ["defi", "dex"],
-    },
-    {
-        "name": "Uniswap V2",
-        "entity_type": EntityType.DEFI,
-        "address": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "defi_directory",
-        "tags": ["defi", "dex"],
-    },
-    {
-        "name": "Aave V3",
-        "entity_type": EntityType.DEFI,
-        "address": "0x87870B93F8aD8E5F8a8A8A8A8A8A8A8A8A8A8A8A",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.HIGH_CONFIDENCE,
-        "source": "defi_directory",
-        "tags": ["defi", "lending"],
-    },
-    # Stablecoins/Tokens
-    {
-        "name": "USDC (Ethereum)",
-        "entity_type": EntityType.DEFI,
-        "address": "0xA0b86a33e6441b8C4C8c8C8c8c8c8c8c8c8C8c8C",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "token_registry",
-        "tags": ["stablecoin", "usdc"],
-    },
-    {
-        "name": "USDC (Polygon)",
-        "entity_type": EntityType.DEFI,
-        "address": "0xA0b86a33e6441b8C4C8c8C8c8c8c8c8c8c8C8c8C",
-        "chain": "Polygon",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "token_registry",
-        "tags": ["stablecoin", "usdc"],
-    },
-    {
-        "name": "DAI Stablecoin",
-        "entity_type": EntityType.DEFI,
-        "address": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "token_registry",
-        "tags": ["stablecoin", "dai"],
-    },
-    {
-        "name": "WETH",
-        "entity_type": EntityType.DEFI,
-        "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "token_registry",
-        "tags": ["wrapped", "eth"],
-    },
-    # Sanctions (OFAC)
-    {
-        "name": "OFAC: Sanctioned Entity A",
-        "entity_type": EntityType.SANCTIONED,
-        "address": "0x0000000000000000000000000000000000001015",
-        "chain": "Ethereum",
-        "confidence": ConfidenceLevel.CONFIRMED,
-        "source": "ofac_sdn",
-        "tags": ["sanctions", "ofac", "high_risk"],
-    },
-]
-
 # ============================================================
 # DEMO USERS
 # ============================================================
@@ -719,29 +81,124 @@ DEMO_USER_PASSWORD = "tracex-demo-password"
 DEMO_USERS = [
     {
         "email": "analyst.a@tracex.gov",
-        "full_name": "Analyst A",
+        "full_name": "Analyst A - Crypto Forensics Desk",
         "role": UserRole.ANALYST,
         "is_active": True,
     },
     {
         "email": "analyst.b@tracex.gov",
-        "full_name": "Analyst B",
+        "full_name": "Analyst B - Crypto Forensics Desk",
         "role": UserRole.ANALYST,
         "is_active": True,
     },
     {
         "email": "supervisor@tracex.gov",
-        "full_name": "Supervisor",
+        "full_name": "Supervising Officer - Cyber Crime Unit",
         "role": UserRole.SUPERVISOR,
         "is_active": True,
     },
     {
         "email": "admin@tracex.gov",
-        "full_name": "Administrator",
+        "full_name": "System Administrator",
         "role": UserRole.ADMIN,
         "is_active": True,
     },
 ]
+
+CASES: list[DemoCase] = build_dataset()
+
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+
+def _case_close(case: DemoCase):
+    """When the case last changed: its final transaction, or when it opened."""
+    return max([case.opened_at, *(tx.timestamp for tx in case.txs)])
+
+
+def _entity_type(value: str | None) -> EntityType:
+    try:
+        return EntityType(value) if value else EntityType.UNKNOWN
+    except ValueError:
+        return EntityType.UNKNOWN
+
+
+def _confidence(value: str | None) -> ConfidenceLevel:
+    try:
+        return ConfidenceLevel(value) if value else ConfidenceLevel.UNKNOWN
+    except ValueError:
+        return ConfidenceLevel.UNKNOWN
+
+
+def _tx_metadata(case: DemoCase, tx) -> dict:
+    """Everything about a transaction that has no dedicated column.
+
+    Gas, fee and nonce are what an analyst uses to tell a contract call from a
+    plain transfer and to spot a freshly created wallet, so they are recorded
+    even though the ORM model has no column for them.
+    """
+    metadata = {
+        "source": SYNTHETIC_MARKER,
+        "case_number": case.case_number,
+        "gas_used": tx.gas_used,
+        "gas_price_wei": str(tx.gas_price_wei),
+        "gas_price_gwei": f"{Decimal(tx.gas_price_wei) / 10**9:.3f}",
+        "fee_native": f"{tx.fee_native}",
+        "nonce": tx.nonce,
+    }
+    if tx.token_transfers:
+        metadata["token_transfers"] = tx.token_transfers
+    if tx.note:
+        metadata["analyst_note"] = tx.note
+    return metadata
+
+
+def _investigation_plan(case: DemoCase) -> list[tuple[str, InvestigationStatus]]:
+    """Which wallets have been run through the tracer, and how far each got.
+
+    Closed and archived cases are finished, so every run on them is COMPLETED;
+    live cases have one finished run, one still going and one queued.
+    """
+    # Only the scenario's own actors are worth tracing. Ranking every wallet
+    # would queue a run against the Tornado Cash pool or a Uniswap router
+    # purely because published infrastructure carries the highest risk score.
+    ranked = sorted((w for w in case.wallets if w.synthetic), key=lambda w: w.risk, reverse=True)
+    keys = [case.primary_key] + [w.key for w in ranked if w.key != case.primary_key]
+    if case.status in ("closed", "archived"):
+        return [(key, InvestigationStatus.COMPLETED) for key in keys[:3]]
+    return list(
+        zip(
+            keys[:3],
+            [
+                InvestigationStatus.COMPLETED,
+                InvestigationStatus.RUNNING,
+                InvestigationStatus.PENDING,
+            ],
+            strict=False,
+        )
+    )
+
+
+def _result_summary(case: DemoCase, summary: dict) -> dict:
+    return {
+        "transactions_found": summary["transaction_count"],
+        "suspicious_transactions": summary["suspicious_count"],
+        "unique_addresses": summary["wallet_count"],
+        "aggregate_flow_usd": round(summary["traced_flow_usd"], 2),
+        "largest_transaction_usd": round(summary["largest_tx_usd"], 2),
+        "mixer_transactions": summary["mixer_transactions"],
+        "chains_analyzed": summary["chains"],
+        "vasp_endpoints": summary["vasp_endpoints"],
+        "trace_window": [summary["first_tx"], summary["last_tx"]],
+        "demo": True,
+    }
+
+
+# ============================================================
+# POSTGRES
+# ============================================================
 
 
 async def seed_database():
@@ -760,7 +217,7 @@ async def seed_database():
         # Demo cases are deleted and rebuilt -- that cascades to their wallets,
         # transactions, investigation runs and reports (all ON DELETE CASCADE).
         await session.execute(
-            delete(Case).where(Case.case_number.in_([c["case_number"] for c in DEMO_CASES]))
+            delete(Case).where(Case.case_number.in_([c.case_number for c in CASES]))
         )
         await session.flush()
 
@@ -795,255 +252,325 @@ async def seed_database():
             f"Seeded {len(user_map)} demo users ({created} created, {len(user_map) - created} updated)"
         )
 
-        # Create cases with wallets and transactions
-        case_map = {}
-        wallet_map = {}
+        analyst_a = user_map["analyst.a@tracex.gov"]
+        analyst_b = user_map["analyst.b@tracex.gov"]
+        supervisor = user_map["supervisor@tracex.gov"]
 
-        for cdata in DEMO_CASES:
-            # Find assigned user
-            assigned_user = user_map.get("analyst.a@tracex.gov")
+        for index, demo_case in enumerate(CASES):
+            summary = case_summary(demo_case)
+            closed_at = _case_close(demo_case)
+            # Live cases go to the analysts, finished ones sit with the
+            # supervisor who signed them off.
+            owner = (
+                supervisor
+                if demo_case.status in ("closed", "archived")
+                else (analyst_a if index % 2 == 0 else analyst_b)
+            )
 
             case = Case(
                 id=uuid4(),
-                case_number=cdata["case_number"],
-                title=cdata["title"],
-                crime_type=cdata["crime_type"],
-                description=cdata["description"],
-                status=cdata["status"],
-                assigned_to=assigned_user.id if assigned_user else None,
+                case_number=demo_case.case_number,
+                title=demo_case.title,
+                crime_type=CrimeType(demo_case.crime_type),
+                description=demo_case.description,
+                status=CaseStatus(demo_case.status),
+                assigned_to=owner.id,
+                case_metadata={
+                    "source": SYNTHETIC_MARKER,
+                    "opened_at": demo_case.opened_at.isoformat(),
+                    "chains": summary["chains"],
+                    "tags": demo_case.tags,
+                    "aggregate_flow_usd": round(summary["traced_flow_usd"], 2),
+                    "trace_window": [summary["first_tx"], summary["last_tx"]],
+                    "primary_wallet": summary["primary_wallet"],
+                },
+                created_at=demo_case.opened_at,
+                updated_at=closed_at,
             )
             session.add(case)
             await session.flush()
-            case_map[cdata["case_number"]] = case
-            print(f"Created case: {cdata['case_number']} - {cdata['title']}")
 
-            # Create wallets
-            case_wallets = []
-            for idx, wdata in enumerate(cdata["wallets"]):
-                wallet = Wallet(
+            # --- wallets ---------------------------------------------------
+            first_tx_hash: dict[str, str] = {}
+            for tx in demo_case.txs:
+                first_tx_hash.setdefault(tx.from_key, tx.tx_hash)
+                first_tx_hash.setdefault(tx.to_key, tx.tx_hash)
+
+            wallet_rows: dict[str, Wallet] = {}
+            for demo_wallet in demo_case.wallets:
+                row = Wallet(
                     id=uuid4(),
                     case_id=case.id,
-                    address=wdata["address"],
-                    chain=wdata["chain"],
-                    label=wdata["label"],
-                    attribution_status=wdata["attribution_status"],
-                    risk_score=Decimal(str(wdata["risk_score"])),
-                    entity_name=wdata.get("entity_name"),
-                    entity_confidence=wdata.get("entity_confidence"),
-                    wallet_metadata={"source": SYNTHETIC_MARKER, "demo_index": idx},
+                    address=demo_wallet.address,
+                    chain=demo_wallet.chain,
+                    label=demo_wallet.label[:100],
+                    attribution_status=AttributionStatus(demo_wallet.attribution),
+                    risk_score=demo_wallet.risk,
+                    entity_name=demo_wallet.entity_name,
+                    entity_type=demo_wallet.entity_type,
+                    entity_confidence=demo_wallet.entity_confidence,
+                    first_seen_tx_hash=first_tx_hash.get(demo_wallet.key),
+                    wallet_metadata={
+                        "source": SYNTHETIC_MARKER,
+                        "role": "infrastructure" if not demo_wallet.synthetic else "actor",
+                        "note": demo_wallet.note,
+                    },
+                    created_at=demo_case.opened_at,
+                    updated_at=closed_at,
                 )
-                session.add(wallet)
-                case_wallets.append(wallet)
-                wallet_key = f"{cdata['case_number']}:{idx}"
-                wallet_map[wallet_key] = wallet
+                session.add(row)
+                wallet_rows[demo_wallet.key] = row
             await session.flush()
 
-            # Create transactions
-            for tdata in cdata.get("transactions", []):
-                from_wallet = case_wallets[tdata["from_idx"]]
-                to_wallet = case_wallets[tdata["to_idx"]]
-
-                tx = Transaction(
-                    id=uuid4(),
-                    wallet_id=from_wallet.id,
-                    tx_hash=f"0x{uuid4().hex[:64]}",
-                    block_number=random.randint(18000000, 19500000),
-                    timestamp=datetime.utcnow() - timedelta(days=random.randint(1, 30)),
-                    from_address=from_wallet.address,
-                    to_address=to_wallet.address,
-                    value=str(int(tdata["value_eth"] * 1e18)),
-                    value_usd=Decimal(str(tdata["value_eth"] * 2500)),
-                    token_symbol="ETH",
-                    method=tdata["method"],
-                    is_suspicious=tdata["suspicious"],
-                    transaction_metadata={"source": SYNTHETIC_MARKER},
-                )
-                session.add(tx)
-
-                # One row per on-chain transaction, owned by the sending
-                # wallet. A mirrored row for `to_wallet` used to be inserted
-                # here reusing the same tx_hash, which violates the unique
-                # ix_transactions_tx_hash index (a transaction hash is globally
-                # unique on-chain) and aborted the whole seed. The receiving
-                # side of a transfer is reachable via `to_address`, and the
-                # Neo4j seed below models both directions explicitly with
-                # SENT/RECEIVED relationships.
-
-        # Create investigation runs
-        for cdata in DEMO_CASES:
-            case = case_map[cdata["case_number"]]
-            case_wallets = [w for w in wallet_map.values() if w.case_id == case.id]
-
-            for idx, wallet in enumerate(case_wallets[:3]):  # First 3 wallets per case
-                status = (
-                    InvestigationStatus.COMPLETED
-                    if idx == 0
-                    else (InvestigationStatus.RUNNING if idx == 1 else InvestigationStatus.PENDING)
+            # --- transactions ----------------------------------------------
+            #
+            # One row per on-chain transaction, owned by the sending wallet. A
+            # mirrored row for the receiving wallet reusing the same tx_hash
+            # would violate the unique ix_transactions_tx_hash index (a hash is
+            # globally unique on-chain). The receiving side is reachable via
+            # `to_address`, and the Neo4j half below models both directions
+            # explicitly with SENT/RECEIVED relationships.
+            for tx in demo_case.txs:
+                session.add(
+                    Transaction(
+                        id=uuid4(),
+                        wallet_id=wallet_rows[tx.from_key].id,
+                        tx_hash=tx.tx_hash,
+                        block_number=tx.block_number,
+                        timestamp=tx.timestamp,
+                        from_address=tx.from_address,
+                        to_address=tx.to_address,
+                        value=tx.value_units,
+                        value_usd=tx.value_usd,
+                        token_address=tx.token_address,
+                        token_symbol=tx.token_symbol,
+                        method=tx.method,
+                        is_suspicious=tx.is_suspicious,
+                        transaction_metadata=_tx_metadata(demo_case, tx),
+                        created_at=tx.timestamp,
+                        updated_at=tx.timestamp,
+                    )
                 )
 
-                inv = InvestigationRun(
-                    id=uuid4(),
-                    case_id=case.id,
-                    wallet_id=wallet.id,
-                    status=status,
-                    started_at=datetime.utcnow() - timedelta(hours=random.randint(1, 48)),
-                    completed_at=datetime.utcnow() - timedelta(hours=random.randint(0, 12))
-                    if status == InvestigationStatus.COMPLETED
-                    else None,
-                    config={"trace_depth": 5, "max_transactions": 1000, "demo": True},
-                    result_summary={
-                        "transactions_found": random.randint(50, 500),
-                        "unique_addresses": random.randint(10, 100),
-                        "total_value_eth": str(random.randint(100, 50000)),
-                        "chains_analyzed": [wallet.chain],
-                        "demo": True,
-                    }
-                    if status == InvestigationStatus.COMPLETED
-                    else None,
+            # --- investigation runs -----------------------------------------
+            started = demo_case.opened_at + timedelta(minutes=25)
+            for wallet_key, status in _investigation_plan(demo_case):
+                duration = timedelta(minutes=3 + len(demo_case.txs) // 4)
+                completed = started + duration if status == InvestigationStatus.COMPLETED else None
+                session.add(
+                    InvestigationRun(
+                        id=uuid4(),
+                        case_id=case.id,
+                        wallet_id=wallet_rows[wallet_key].id,
+                        status=status,
+                        started_at=started,
+                        completed_at=completed,
+                        config={
+                            "trace_depth": 6,
+                            "max_transactions": 1000,
+                            "chains": summary["chains"],
+                            "include_exchange_sweeps": True,
+                            "demo": True,
+                        },
+                        result_summary=_result_summary(demo_case, summary)
+                        if status == InvestigationStatus.COMPLETED
+                        else None,
+                        created_at=started,
+                        updated_at=completed or started,
+                    )
                 )
-                session.add(inv)
+                started += duration + timedelta(minutes=17)
 
-        # Create reports
-        for cdata in DEMO_CASES:
-            if cdata["status"] in [CaseStatus.CLOSED, CaseStatus.IN_PROGRESS]:
-                case = case_map[cdata["case_number"]]
-                report = Report(
-                    id=uuid4(),
-                    case_id=case.id,
-                    title=f"{cdata['title']} - Investigation Report",
-                    summary=f"Comprehensive analysis of {cdata['crime_type'].value} case involving {len([w for w in wallet_map.values() if w.case_id == case.id])} wallets.",
-                    findings={
-                        "executive_summary": f"Case {cdata['case_number']} involved tracing funds through multiple wallets and exchanges.",
-                        "key_findings": [
-                            f"Identified {random.randint(1, 3)} confirmed VASP endpoints",
-                            f"Detected {random.randint(0, 2)} mixer interactions",
-                            f"Traced ${random.randint(1, 50)}M in total value",
-                        ],
-                    },
-                    risk_assessment={
-                        "overall_risk": "HIGH",
-                        "average_score": 72.5,
-                        "critical_wallets": 2,
-                    },
-                    generated_by=user_map["analyst.a@tracex.gov"].id,
-                    format="pdf",
+            # --- report ------------------------------------------------------
+            if demo_case.status in ("closed", "in_progress"):
+                risks = [w.risk for w in demo_case.wallets]
+                report_at = closed_at + timedelta(hours=6)
+                session.add(
+                    Report(
+                        id=uuid4(),
+                        case_id=case.id,
+                        title=f"{demo_case.title} - Investigation Report",
+                        summary=(
+                            f"{summary['transaction_count']} transactions across "
+                            f"{len(summary['chains'])} chain(s) and {summary['wallet_count']} wallets, "
+                            f"USD {summary['traced_flow_usd']:,.0f} of aggregate traced flow, "
+                            f"{summary['mixer_transactions']} mixer interaction(s), "
+                            f"{len(summary['vasp_endpoints'])} attributed exchange endpoint(s)."
+                        ),
+                        findings={
+                            "executive_summary": demo_case.description,
+                            "key_findings": demo_case.findings,
+                            "vasp_endpoints": summary["vasp_endpoints"],
+                            "trace_window": [summary["first_tx"], summary["last_tx"]],
+                        },
+                        risk_assessment={
+                            "overall_risk": "HIGH" if max(risks) >= 85 else "MEDIUM",
+                            "highest_score": float(max(risks)),
+                            "average_score": float(round(sum(risks) / len(risks), 2)),
+                            "critical_wallets": sum(1 for r in risks if r >= 85),
+                            "mixer_exposure": summary["mixer_transactions"] > 0,
+                        },
+                        generated_by=owner.id,
+                        format="pdf",
+                        created_at=report_at,
+                        updated_at=report_at,
+                    )
                 )
-                session.add(report)
+
+            print(
+                f"Created case {demo_case.case_number}: {summary['wallet_count']} wallets, "
+                f"{summary['transaction_count']} transactions, USD {summary['traced_flow_usd']:,.0f} traced"
+            )
 
         await session.commit()
         print("Database seeding completed!")
 
+    await engine.dispose()
+
+
+# ============================================================
+# NEO4J
+# ============================================================
+
 
 async def seed_neo4j():
-    """Seed Neo4j with demo graph data."""
+    """Seed Neo4j with the same flows, as a graph."""
     await Neo4jClient.initialize()
 
     async with Neo4jClient.session() as session:
         # Clear existing demo data so re-running the seeder is idempotent.
         # `metadata` is stored as a JSON *string* (Neo4j property values can
         # only be primitives or arrays, so a nested map cannot be written at
-        # all -- see _dump_metadata in src/graph/repository.py). The previous
-        # `n.metadata.source = $marker` map access therefore raised a
-        # CypherTypeError and never deleted anything; substring-match the
-        # serialized marker instead.
+        # all -- see _dump_metadata in src/graph/repository.py). A
+        # `n.metadata.source = $marker` map access would raise a
+        # CypherTypeError and delete nothing; substring-match the serialized
+        # marker instead.
         await session.run(
             "MATCH (n) WHERE n.metadata IS NOT NULL AND n.metadata CONTAINS $marker "
             "DETACH DELETE n",
             marker=SYNTHETIC_MARKER,
         )
 
-        # Create wallets
-        for cdata in DEMO_CASES:
-            for _idx, wdata in enumerate(cdata["wallets"]):
-                wallet = GraphWallet(
-                    address=wdata["address"],
-                    chain=wdata["chain"],
-                    label=wdata["label"],
-                    risk_score=wdata["risk_score"],
-                    first_seen=datetime.utcnow() - timedelta(days=30),
-                    last_seen=datetime.utcnow(),
-                    total_sent=random.randint(10, 10000),
-                    total_received=random.randint(10, 10000),
-                    tx_count=random.randint(5, 500),
-                    entity_name=wdata.get("entity_name"),
-                    entity_type=EntityType.EXCHANGE
-                    if wdata.get("entity_name")
-                    else EntityType.UNKNOWN,
-                    entity_confidence=ConfidenceLevel(wdata["entity_confidence"])
-                    if wdata.get("entity_confidence")
-                    else ConfidenceLevel.UNKNOWN,
-                    metadata={"source": SYNTHETIC_MARKER, "case_number": cdata["case_number"]},
-                )
-                await graph_repository.upsert_wallet(wallet)
+    activity = wallet_activity(CASES)
 
-                # Link to entity if attributed
-                if wdata.get("entity_name") and wdata.get("entity_confidence"):
-                    entity = GraphEntity(
-                        name=wdata["entity_name"],
-                        entity_type=EntityType.EXCHANGE,
-                        address=wdata["address"],
-                        chain=wdata["chain"],
-                        confidence=ConfidenceLevel(wdata["entity_confidence"]),
-                        source="analysis",
-                        tags=["demo"],
-                        metadata={"source": SYNTHETIC_MARKER},
-                    )
-                    await graph_repository.upsert_entity(entity)
-                    await graph_repository.link_wallet_entity(
-                        wdata["address"], wdata["chain"], wdata["address"]
-                    )
+    # --- wallets ---------------------------------------------------------
+    #
+    # One node per (chain, address), not per case row: an address that appears
+    # in two investigations is one wallet on the graph, and merging them is
+    # what lets an analyst pivot from one case to another. Counters come from
+    # `wallet_activity`, so they match the edges actually written.
+    merged: dict[tuple[str, str], dict] = {}
+    for case in CASES:
+        for wallet in case.wallets:
+            ident = (wallet.chain, wallet.address)
+            current = merged.get(ident)
+            if current is None or wallet.risk > current["risk"]:
+                merged[ident] = {
+                    "wallet": wallet,
+                    "risk": wallet.risk,
+                    "cases": (current or {}).get("cases", []),
+                }
+            merged[ident]["cases"] = sorted({*merged[ident].get("cases", []), case.case_number})
 
-        # Create entities
-        for edata in DEMO_ENTITIES:
-            entity = GraphEntity(
-                name=edata["name"],
-                entity_type=edata["entity_type"],
-                address=edata["address"],
-                chain=edata["chain"],
-                confidence=edata["confidence"],
-                source=edata["source"],
-                tags=edata["tags"],
+    for (chain, address), entry in merged.items():
+        wallet = entry["wallet"]
+        stats = activity[(chain, address)]
+        await graph_repository.upsert_wallet(
+            GraphWallet(
+                address=address,
+                chain=chain,
+                label=wallet.label,
+                risk_score=float(entry["risk"]),
+                first_seen=stats.first_seen,
+                last_seen=stats.last_seen,
+                total_sent=int(stats.sent_usd),
+                total_received=int(stats.received_usd),
+                tx_count=stats.tx_count,
+                entity_name=wallet.entity_name,
+                entity_type=_entity_type(wallet.entity_type),
+                entity_confidence=_confidence(wallet.entity_confidence),
+                metadata={
+                    "source": SYNTHETIC_MARKER,
+                    "cases": entry["cases"],
+                    "volume_unit": "usd",
+                    "role": "infrastructure" if not wallet.synthetic else "actor",
+                },
+            )
+        )
+
+    # --- entities ---------------------------------------------------------
+    for record in entity_catalogue(CASES):
+        await graph_repository.upsert_entity(
+            GraphEntity(
+                name=str(record["name"]),
+                entity_type=_entity_type(str(record["entity_type"])),
+                address=str(record["address"]),
+                chain=str(record["chain"]),
+                confidence=_confidence(str(record["confidence"])),
+                source=str(record["source"]),
+                tags=list(record["tags"]),  # type: ignore[arg-type]
                 metadata={"source": SYNTHETIC_MARKER},
             )
-            await graph_repository.upsert_entity(entity)
+        )
 
-        # Create transactions and links
-        for cdata in DEMO_CASES:
-            case_wallets = list(cdata["wallets"])
-            for tdata in cdata.get("transactions", []):
-                from_w = case_wallets[tdata["from_idx"]]
-                to_w = case_wallets[tdata["to_idx"]]
+    # Link every attributed wallet to the entity node sitting at the same
+    # address. `entity_catalogue` only emits a node for a typed entity, so
+    # wallets whose entity_type is still "unknown" are skipped rather than
+    # issuing a MATCH that silently finds nothing.
+    for (chain, address), entry in merged.items():
+        wallet = entry["wallet"]
+        if wallet.entity_name and wallet.entity_type != "unknown":
+            await graph_repository.link_wallet_entity(address, chain, address)
 
-                tx = GraphTransaction(
-                    tx_hash=f"0x{uuid4().hex[:64]}",
-                    chain=from_w["chain"],
-                    block_number=random.randint(18000000, 19500000),
-                    timestamp=datetime.utcnow() - timedelta(days=random.randint(1, 30)),
-                    from_address=from_w["address"],
-                    to_address=to_w["address"],
-                    value=str(int(tdata["value_eth"] * 1e18)),
-                    value_usd=tdata["value_eth"] * 2500,
-                    token_symbol="ETH",
-                    method=tdata["method"],
-                    is_suspicious=tdata["suspicious"],
-                    metadata={"source": SYNTHETIC_MARKER, "case_number": cdata["case_number"]},
+    # --- transactions -----------------------------------------------------
+    for case in CASES:
+        for tx in case.txs:
+            await graph_repository.upsert_transaction(
+                GraphTransaction(
+                    tx_hash=tx.tx_hash,
+                    chain=tx.chain,
+                    block_number=tx.block_number,
+                    timestamp=tx.timestamp,
+                    from_address=tx.from_address,
+                    to_address=tx.to_address,
+                    value=tx.value_units,
+                    value_usd=float(tx.value_usd),
+                    token_address=tx.token_address,
+                    token_symbol=tx.token_symbol,
+                    method=tx.method,
+                    gas_used=tx.gas_used,
+                    gas_price=str(tx.gas_price_wei),
+                    is_suspicious=tx.is_suspicious,
+                    metadata={
+                        "source": SYNTHETIC_MARKER,
+                        "case_number": case.case_number,
+                        "fee_native": f"{tx.fee_native}",
+                        "nonce": tx.nonce,
+                        "note": tx.note,
+                    },
                 )
-                await graph_repository.upsert_transaction(tx)
-                await graph_repository.link_wallet_transaction(
-                    from_w["address"], from_w["chain"], tx.tx_hash, "sent"
-                )
-                await graph_repository.link_wallet_transaction(
-                    to_w["address"], to_w["chain"], tx.tx_hash, "received"
-                )
+            )
+            # Both endpoints are on the transaction's own chain (cross-chain
+            # movement is modelled as a deposit tx plus a separate mint tx),
+            # so both links match.
+            await graph_repository.link_wallet_transaction(
+                tx.from_address, tx.chain, tx.tx_hash, "sent"
+            )
+            await graph_repository.link_wallet_transaction(
+                tx.to_address, tx.chain, tx.tx_hash, "received"
+            )
 
-    print("Neo4j seeding completed!")
+    print(
+        f"Neo4j seeding completed: {len(merged)} wallets, "
+        f"{sum(len(c.txs) for c in CASES)} transactions, {len(entity_catalogue(CASES))} entities"
+    )
 
 
 async def main():
     print("=" * 60)
     print("TRACE-X Demo Data Seeder")
     print("=" * 60)
-    print("Seeding SYNTHETIC demo data for SIH 2026 demonstration")
+    print(f"Seeding SYNTHETIC demo data for SIH 2026 ({len(CASES)} cases)")
     print("=" * 60)
 
     await seed_database()
@@ -1051,6 +578,7 @@ async def main():
 
     print("=" * 60)
     print("All demo data seeded successfully!")
+    print(f"Demo logins: {', '.join(u['email'] for u in DEMO_USERS)} / {DEMO_USER_PASSWORD}")
     print("=" * 60)
 
 

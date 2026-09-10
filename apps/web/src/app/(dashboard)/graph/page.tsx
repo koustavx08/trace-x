@@ -315,7 +315,7 @@ export default function GraphPage() {
               <div className="flex gap-2">
                 <Input
                   id="wallet-id"
-                  placeholder="0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+                  placeholder="0xa241ec91A7D0c2c8bf11d01C168579Ee1201a209"
                   value={walletId}
                   onChange={(e) => setWalletId(e.target.value)}
                 />

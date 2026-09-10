@@ -52,7 +52,7 @@ Law enforcement and compliance teams face an unprecedented challenge: cryptocurr
 | 17 | Evidence grounding | ✅ WORKING | Structured evidence with confidence |
 | 17 | Interactive graph | ✅ WORKING | React Flow, custom nodes/edges |
 | 20 | Report generation | ✅ WORKING | 4 templates, 3 formats |
-| 21 | Synthetic demo dataset | ✅ WORKING | 5 SIH cases, 50+ entities |
+| 21 | Synthetic demo dataset | ✅ WORKING | 5 SIH cases, 117 wallets, 141 transactions, 71 entities |
 | 22 | Docker infrastructure | ✅ WORKING | Dev + prod compose |
 | 23 | Monitoring | ✅ WORKING | Prometheus + Grafana |
 | 23 | Incident runbooks | ✅ WORKING | Deployment + incident response |

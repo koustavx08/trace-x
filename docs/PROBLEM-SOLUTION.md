@@ -128,7 +128,7 @@ Type: mixer (CONFIRMED)                     Type: exchange (CONFIRMED)
 ### 4. VASP Attribution with Confidence
 
 ```
-Suspect Wallet (0x742d...)
+Suspect Wallet (0xa241...)
     │
     ├─→ Uniswap V3 (0x1f98...) ──→ 0xA0b8... (Polygon Bridge)
     │                                    │
@@ -159,7 +159,7 @@ Suspect Wallet (0x742d...)
 
 | Query Type | Example | Response Includes |
 |------------|---------|-------------------|
-| Risk Summary | "Risk for wallet 0x742d..." | Score, factors, evidence, follow-ups |
+| Risk Summary | "Risk for wallet 0xa241..." | Score, factors, evidence, follow-ups |
 | Attribution | "Where did funds from 0x... go?" | VASP, path, confidence, evidence |
 | Patterns | "Suspicious patterns on Ethereum?" | Peel chains, round amounts, mixers |
 | Fund Flow | "Trace money from 0x..." | Path, hops, value, VASP endpoint |

@@ -85,9 +85,26 @@ curl http://localhost:3000
 ### 5. Seed Demo Data (Optional)
 
 ```bash
-# Run demo data seeder (creates 5 SIH cases with synthetic data)
+# Run demo data seeder (5 SIH cases: 117 wallets, 141 transactions, 71 entities)
 docker exec tracex-backend python scripts/seed_demo_data.py
 ```
+
+The dataset itself lives in `apps/api/scripts/demo_dataset.py` and needs no
+database to inspect or check. It builds the cases, then validates them --
+EIP-55 checksums, one chain per transaction, unique transaction hashes, block
+heights that match their timestamps, consistent attribution across cases and
+conservation of funds:
+
+```bash
+# Print the per-case summary and run the validator
+python scripts/demo_dataset.py          # add --json for machine-readable output
+```
+
+Suspect, victim and exchange-deposit addresses are generated from a fixed salt,
+so they are fictional by construction; only public infrastructure (exchange hot
+wallets, mixer pools, bridges, DEX routers, token contracts) uses real mainnet
+addresses. After changing a scenario, re-run the command above and update the
+`demoCases` list in `apps/web/src/app/(dashboard)/demo/page.tsx` to match.
 
 ---
 
@@ -288,7 +305,7 @@ cd apps/api && python scripts/validate_env.py
 # Test AI query:
 curl -X POST http://localhost:8000/api/v1/ai/query \
   -H "Content-Type: application/json" \
-  -d '{"query": "What is the risk score for wallet 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb?", "wallet_id": "wallet-uuid"}'
+  -d '{"query": "What is the risk score for wallet 0xa241ec91A7D0c2c8bf11d01C168579Ee1201a209?", "wallet_id": "wallet-uuid"}'
 ```
 
 ### Docker
