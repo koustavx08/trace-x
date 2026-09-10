@@ -17,6 +17,30 @@ from .base import AIProvider
 logger = structlog.get_logger(__name__)
 
 
+def _message_text(data: dict[str, Any]) -> str:
+    """Pull the assistant text out of an OpenAI-shaped completion.
+
+    `content` is not always a string. A model that answers entirely from a
+    reasoning block, or that is cut off by the token limit, returns
+    `"content": null`, and indexing straight into `.strip()` raised
+    AttributeError -- which the callers turned into a silent template answer.
+    Some models also return content as a list of typed parts rather than a
+    plain string.
+    """
+    choices = data.get("choices") or []
+    if not choices:
+        return ""
+    message = choices[0].get("message") or {}
+    content = message.get("content")
+
+    if isinstance(content, list):
+        content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+    if not content:
+        # Reasoning models put the answer here when they emit no content block.
+        content = message.get("reasoning") or ""
+    return str(content).strip()
+
+
 class OpenRouterProvider(AIProvider):
     """
     OpenRouter provider for AI services.
@@ -35,6 +59,7 @@ class OpenRouterProvider(AIProvider):
         self._api_key = api_key if api_key is not None else settings.OPENROUTER_API_KEY
         self._base_url = base_url if base_url is not None else settings.OPENROUTER_BASE_URL
         self._model = model if model is not None else settings.OPENROUTER_MODEL
+        self.model_name = self._model
 
         # Only initialize HTTP client if we have both required fields
         self._http_client: httpx.AsyncClient | None
@@ -120,10 +145,11 @@ class OpenRouterProvider(AIProvider):
 
             response = await self._require_http_client().post("/chat/completions", json=payload)
             response.raise_for_status()
+            self._record_success()
             data = response.json()
 
             # Extract the JSON from the model's response
-            content = data["choices"][0]["message"]["content"].strip()
+            content = _message_text(data)
             # Try to parse the JSON
             try:
                 result: dict[str, Any] = json.loads(content)
@@ -148,6 +174,7 @@ class OpenRouterProvider(AIProvider):
                 return None
 
         except Exception as e:
+            self._record_failure(e)
             logger.warning("openrouter_classify_failed", error=str(e), query=query)
             return None
 
@@ -210,12 +237,14 @@ class OpenRouterProvider(AIProvider):
 
             response = await self._require_http_client().post("/chat/completions", json=payload)
             response.raise_for_status()
+            self._record_success()
             data = response.json()
 
-            text = data["choices"][0]["message"]["content"].strip()
+            text = _message_text(data)
             return text or fallback_answer
 
         except Exception as e:
+            self._record_failure(e)
             logger.warning(
                 "openrouter_compose_answer_failed",
                 error=str(e),
@@ -275,12 +304,14 @@ class OpenRouterProvider(AIProvider):
 
             response = await self._require_http_client().post("/chat/completions", json=payload)
             response.raise_for_status()
+            self._record_success()
             data = response.json()
 
-            text = data["choices"][0]["message"]["content"].strip()
+            text = _message_text(data)
             return text or fallback_narrative
 
         except Exception as e:
+            self._record_failure(e)
             logger.warning("openrouter_generate_narrative_failed", error=str(e))
             return fallback_narrative
 

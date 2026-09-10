@@ -21,6 +21,7 @@ import pytest
 from fixtures_db import api_client, db_session  # noqa: F401
 from httpx import ASGITransport, AsyncClient
 
+from src.ai.providers.deterministic_demo import DeterministicDemoProvider
 from src.ai.service import InvestigationAssistant, QueryType, investigation_assistant
 from src.graph.models import ConfidenceLevel
 from src.main import app
@@ -86,6 +87,20 @@ class TestExtractEntities:
 
 
 class TestAnswerQueryNoDB:
+    @pytest.fixture
+    def template_provider(self):
+        """Force deterministic template answers for the duration of a test.
+
+        `investigation_assistant` is a module-level singleton whose provider is
+        chosen from settings at import time, so a developer with AI_MODE=live
+        in their environment otherwise runs these assertions against whatever
+        a real model decides to say.
+        """
+        original = investigation_assistant.provider
+        investigation_assistant.provider = DeterministicDemoProvider()
+        yield
+        investigation_assistant.provider = original
+
     async def test_risk_summary_without_wallet_or_case_asks_for_more_info(self):
         response = await investigation_assistant.answer_query(query="how risky is this wallet")
         assert response.query_type == QueryType.RISK_SUMMARY
@@ -117,7 +132,14 @@ class TestAnswerQueryNoDB:
         assert response.query_type == QueryType.COMPARISON
         assert "two" in response.answer.lower()
 
-    async def test_general_fallback_lists_capabilities(self):
+    async def test_general_fallback_lists_capabilities(self, template_provider):
+        """The unrecognised-query branch offers the assistant's capabilities.
+
+        Pinned to the template provider: this asserts the wording of the
+        fallback, which a live model is free to rewrite. Left to inherit the
+        deployment's configuration, the test passed or failed depending on
+        whether the machine running it happened to have an API key set.
+        """
         response = await investigation_assistant.answer_query(query="asdkjhaskjdh")
         assert response.query_type == QueryType.CASE_OVERVIEW
         assert "risk analysis" in response.answer.lower()
@@ -160,15 +182,32 @@ class TestAIEndpointsNoDB:
         assert "confidence_levels" in body
 
     async def test_capabilities_reports_mode_honestly(self, plain_client):
-        """`/ai/capabilities` reports the real live/demo/disabled mode (see
-        `Settings.effective_ai_mode`) rather than a fixed value - this
-        sandbox has no ANTHROPIC_API_KEY, so it should honestly say "demo",
-        not "live"."""
+        """`/ai/capabilities` reports the mode, provider and model actually in
+        use (see `Settings.effective_ai_mode`) rather than a fixed value.
+
+        Asserted against the configuration this run has, not against one
+        particular deployment: pinning the answer to "demo" made the test fail
+        for anyone with a key in their environment, which says nothing about
+        whether the endpoint is honest.
+        """
+        from src.ai.service import investigation_assistant
+
+        expected_mode = investigation_assistant.mode
         response = await plain_client.get("/api/v1/ai/capabilities")
         body = response.json()
-        assert body["mode"] in ("live", "demo", "disabled")
-        assert body["mode"] == "demo"
-        assert body["model"] is None
+
+        assert body["mode"] == expected_mode
+        assert body["provider"] == investigation_assistant.provider.provider_name
+        if expected_mode == "live":
+            # A live deployment must name the model it is talking to; reporting
+            # a model it was never configured with is the bug this pins.
+            assert body["model"] == investigation_assistant.provider.model_name
+            assert body["model"]
+        else:
+            assert body["model"] is None
+        assert body["degraded"] is (
+            expected_mode == "live" and investigation_assistant.provider.degraded
+        )
 
     @pytest.fixture
     async def _require_redis(self):

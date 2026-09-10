@@ -55,6 +55,7 @@ class AnthropicProvider(AIProvider):
         settings = get_settings()
         self._api_key = api_key if api_key is not None else settings.ANTHROPIC_API_KEY
         self._model = model if model is not None else settings.ANTHROPIC_MODEL
+        self.model_name = self._model
 
         if not self._api_key:
             self._client = None
@@ -102,10 +103,12 @@ class AnthropicProvider(AIProvider):
                 tool_choice={"type": "tool", "name": "classify_investigation_query"},
                 messages=[{"role": "user", "content": query}],
             )  # type: ignore[call-overload]
+            self._record_success()
             for block in response.content:
                 if isinstance(block, anthropic.types.ToolUseBlock):
                     return dict(block.input)  # type: ignore[arg-type]
         except Exception as e:
+            self._record_failure(e)
             logger.warning("anthropic_classify_failed", error=str(e))
         return None
 
@@ -146,12 +149,14 @@ class AnthropicProvider(AIProvider):
                 system=system_prompt,
                 messages=[{"role": "user", "content": json.dumps(payload, default=str)}],
             )
+            self._record_success()
             text = next(
                 (b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)),
                 "",
             )
             return text.strip() or fallback_answer
         except Exception as e:
+            self._record_failure(e)
             logger.warning(
                 "anthropic_compose_answer_failed", error=str(e), query_type=query_type.value
             )
@@ -199,12 +204,14 @@ class AnthropicProvider(AIProvider):
                 system=narrative_system_prompt,
                 messages=[{"role": "user", "content": json.dumps(payload, default=str)}],
             )
+            self._record_success()
             text = next(
                 (b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)),
                 "",
             )
             return text.strip() or fallback_narrative
         except Exception as e:
+            self._record_failure(e)
             logger.warning("anthropic_generate_narrative_failed", error=str(e))
             return fallback_narrative
 

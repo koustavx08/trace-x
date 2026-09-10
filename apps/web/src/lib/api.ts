@@ -544,6 +544,20 @@ export interface ChatResponse {
 }
 
 export interface CapabilitiesResponse {
+  /** "live" | "demo" | "disabled" */
+  mode: string;
+  /** Provider actually in use, e.g. "openrouter" or "anthropic". */
+  provider: string;
+  /** Model the provider talks to; null outside live mode. */
+  model: string | null;
+  /**
+   * True when the deployment is configured as live but its provider calls are
+   * failing, so answers are coming from templates. Without this the UI cannot
+   * tell a working assistant from one whose model id has been retired.
+   */
+  degraded: boolean;
+  degraded_reason: string | null;
+  description: string;
   capabilities: Capability[];
   confidence_levels: Array<{ level: string; description: string }>;
 }

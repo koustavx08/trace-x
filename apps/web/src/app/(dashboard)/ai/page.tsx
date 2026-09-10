@@ -83,6 +83,10 @@ export default function AIAssistantPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [showCapabilities, setShowCapabilities] = useState(false);
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
+  const [assistantStatus, setAssistantStatus] = useState<{
+    degraded: boolean;
+    description: string;
+  } | null>(null);
   const [suggestedActions, setSuggestedActions] = useState<string[]>([]);
   const [selectedQuickQuery, setSelectedQuickQuery] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -121,6 +125,7 @@ export default function AIAssistantPage() {
     try {
       const data = await aiApi.getCapabilities();
       setCapabilities(data.capabilities);
+      setAssistantStatus({ degraded: data.degraded, description: data.description });
     } catch (err) {
       console.error("Failed to load capabilities:", err);
     }
@@ -261,6 +266,16 @@ export default function AIAssistantPage() {
           </Button>
         </div>
       </div>
+
+      {assistantStatus?.degraded && (
+        <div className="border-b border-tracex-border bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
+          <div className="text-sm">
+            <p className="font-medium text-amber-500">Assistant is running on templates</p>
+            <p className="text-muted-foreground">{assistantStatus.description}</p>
+          </div>
+        </div>
+      )}
 
       {showCapabilities && (
         <div className="border-b border-tracex-border p-4 bg-tracex-surface-hover/30">
