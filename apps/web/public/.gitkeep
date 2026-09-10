@@ -1,0 +1,4 @@
+# Keeps apps/web/public in git. Next.js serves this directory as static
+# assets, and the production image copies it -- an empty, untracked directory
+# exists locally but not in a Docker build context, which failed the build
+# with: "/app/apps/web/public": not found.

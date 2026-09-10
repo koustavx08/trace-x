@@ -87,6 +87,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 
+# `output: 'standalone'` in a workspace mirrors the monorepo layout, so the
+# entrypoint has to be at apps/web/server.js. Assert it here rather than
+# discovering a silently wrong layout when the container exits at runtime.
+RUN test -f apps/web/server.js
+
 USER nextjs
 
 EXPOSE 3000
