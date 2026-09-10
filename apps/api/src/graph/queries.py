@@ -3,6 +3,7 @@ from typing import Any
 
 import structlog
 
+from .analytics import load_wallet_graph, rank_by_centrality
 from .client import Neo4jClient
 
 logger = structlog.get_logger(__name__)
@@ -187,15 +188,27 @@ class GraphQueries:
         min_occurrences: int = 3,
         time_window_hours: int = 24,
     ) -> list[dict[str, Any]]:
+        # The window is measured back from the most recent transaction on the
+        # chain rather than from `datetime()`. Anchoring it to wall-clock time
+        # meant the query could only ever see data captured in the last N hours,
+        # so it returned nothing for any imported or historical case.
+        #
+        # "Round amount" here is the structuring signal the grouping was written
+        # for: the same sender moving the *same exact amount* repeatedly.
+        # `t.value` is a base-unit string (wei), so a numeric roundness test on
+        # it is meaningless -- every integer passes `% 1 = 0`.
         query = """
         MATCH (t:Transaction {chain: $chain})
-        WHERE t.timestamp >= datetime() - duration({hours: $time_window})
-        AND toFloat(t.value) % 1 = 0
-        AND toFloat(t.value) > 0
-        WITH t.from_address as address, t.value, count(*) as occurrences
+        WITH max(t.timestamp) AS latest
+        MATCH (tx:Transaction {chain: $chain})
+        WHERE tx.timestamp >= latest - duration({hours: $time_window})
+          AND toFloat(tx.value) > 0
+        WITH tx.from_address AS address, tx.value AS value, count(*) AS occurrences,
+             collect(tx.tx_hash)[0..5] AS sample_txs
         WHERE occurrences >= $min_occurrences
         MATCH (w:Wallet {address: address, chain: $chain})
-        RETURN address, w.label, w.risk_score, collect(t.value) as values, occurrences
+        RETURN address, w.label AS label, w.risk_score AS risk_score,
+               value, occurrences, sample_txs
         ORDER BY occurrences DESC
         LIMIT 20
         """
@@ -215,16 +228,22 @@ class GraphQueries:
         max_time_between_txs_seconds: int = 300,
         min_hops: int = 3,
     ) -> list[dict[str, Any]]:
+        # Neo4j cannot subtract one DateTime from another -- the original
+        # `t2.timestamp - t1.timestamp` raised CypherTypeError on every call.
+        # `duration.inSeconds` is used rather than `duration.between` because
+        # only the former puts the whole span in the `.seconds` component;
+        # `duration.between(...).seconds` is just the seconds *part* of the
+        # span, so a two-day gap would measure as a handful of seconds and be
+        # reported as rapid movement.
         query = """
-        MATCH path = (w1:Wallet {chain: $chain})-[:SENT]->(t1:Transaction)-[:RECEIVED]->(w2:Wallet)-[:SENT]->(t2:Transaction)-[:RECEIVED]->(w3:Wallet)
-        WHERE t2.timestamp - t1.timestamp <= duration({seconds: $max_time})
-        AND w1 <> w3
-        WITH path, w1, w2, w3, t1, t2,
-             t2.timestamp - t1.timestamp as time_diff
-        WHERE time_diff.seconds <= $max_time
+        MATCH (w1:Wallet {chain: $chain})-[:SENT]->(t1:Transaction)-[:RECEIVED]->(w2:Wallet)-[:SENT]->(t2:Transaction)-[:RECEIVED]->(w3:Wallet)
+        WHERE w1 <> w3 AND t1 <> t2
+        WITH w1, w2, w3, t1, t2,
+             duration.inSeconds(t1.timestamp, t2.timestamp).seconds AS seconds_between
+        WHERE seconds_between >= 0 AND seconds_between <= $max_time
         RETURN w1.address as origin, w2.address as intermediate, w3.address as destination,
                t1.tx_hash as tx1, t2.tx_hash as tx2,
-               time_diff.seconds as seconds_between,
+               seconds_between,
                t1.value as value1, t2.value as value2
         ORDER BY seconds_between
         LIMIT 20
@@ -244,36 +263,19 @@ class GraphQueries:
         algorithm: str = "pagerank",
         top_n: int = 50,
     ) -> list[dict[str, Any]]:
-        if algorithm == "pagerank":
-            query = """
-            CALL gds.pageRank.stream('wallet-graph', {maxIterations: 20, dampingFactor: 0.85})
-            YIELD nodeId, score
-            WITH gds.util.asNode(nodeId) as node, score
-            WHERE node.chain = $chain
-            RETURN node.address as address, node.label as label, node.risk_score as risk_score, score
-            ORDER BY score DESC
-            LIMIT $top_n
-            """
-        elif algorithm == "betweenness":
-            query = """
-            CALL gds.betweenness.stream('wallet-graph')
-            YIELD nodeId, score
-            WITH gds.util.asNode(nodeId) as node, score
-            WHERE node.chain = $chain
-            RETURN node.address as address, node.label as label, node.risk_score as risk_score, score
-            ORDER BY score DESC
-            LIMIT $top_n
-            """
-        else:
-            query = """
-            MATCH (w:Wallet {chain: $chain})
-            RETURN w.address as address, w.label as label, w.risk_score as risk_score,
-                   w.tx_count as score
-            ORDER BY w.tx_count DESC
-            LIMIT $top_n
-            """
-        result = await self._client.execute_query(query, {"chain": chain, "top_n": top_n})
-        return [dict(r) for r in result]
+        """Rank wallets by their centrality in the flow of funds.
+
+        Computed in-process from a Cypher projection (see `graph.analytics`).
+        This used to call `gds.pageRank.stream` / `gds.betweenness.stream`
+        against a named projection that nothing created, with the Graph Data
+        Science library not installed -- both branches raised
+        ProcedureNotFound on every request.
+        """
+        if algorithm not in ("pagerank", "betweenness", "degree"):
+            algorithm = "pagerank"
+
+        graph, attributes = await load_wallet_graph(self._client, chain)
+        return rank_by_centrality(graph, attributes, algorithm, top_n)
 
     async def get_temporal_flow(
         self,

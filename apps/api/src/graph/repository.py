@@ -3,6 +3,7 @@ from typing import Any
 
 import structlog
 
+from .analytics import detect_communities, load_wallet_graph
 from .client import Neo4jClient
 from .models import (
     ConfidenceLevel,
@@ -498,27 +499,16 @@ class GraphRepository:
         return {"nodes": nodes, "edges": edges}
 
     async def detect_clusters(self, chain: str, min_cluster_size: int = 3) -> list[dict[str, Any]]:
-        query = """
-        MATCH (w:Wallet {chain: $chain})
-        WHERE w.tx_count > 5
-        CALL algo.louvain.stream('Wallet', 'SENT|RECEIVED', {write: false})
-        YIELD nodeId, community
-        WITH community, collect(nodeId) as nodes
-        WHERE size(nodes) >= $min_size
-        MATCH (w:Wallet) WHERE id(w) IN nodes
-        RETURN community, nodes,
-               avg(w.risk_score) as avg_risk,
-               collect(w.address)[0..5] as sample_addresses
-        ORDER BY avg_risk DESC
+        """Group wallets that move funds among themselves into clusters.
+
+        Computed in-process from a Cypher projection (see `graph.analytics`).
+        The previous implementation called `algo.louvain.stream`, the Neo4j 3.x
+        procedure namespace, which has not existed for several major versions
+        and is not what the Graph Data Science library provides either -- every
+        request failed with ProcedureNotFound.
         """
-        result = await self._client.execute_query(
-            query,
-            {
-                "chain": chain,
-                "min_size": min_cluster_size,
-            },
-        )
-        return [dict(r) for r in result]
+        graph, attributes = await load_wallet_graph(self._client, chain)
+        return detect_communities(graph, attributes, min_cluster_size)
 
     async def get_wallet_stats(self, address: str, chain: str) -> dict[str, Any]:
         query = """
