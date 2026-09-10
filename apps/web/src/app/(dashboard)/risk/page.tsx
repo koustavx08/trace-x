@@ -455,28 +455,34 @@ export default function RiskPage() {
               <Card>
                 <CardContent className="p-6">
                   <p className="text-sm font-medium text-muted-foreground">Total Wallets</p>
-                  <p className="text-3xl font-bold tracking-tight">{caseRisk.total_wallets}</p>
+                  <p className="text-3xl font-bold tracking-tight">{caseRisk?.total_wallets ?? 0}</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-6">
                   <p className="text-sm font-medium text-muted-foreground">Avg Risk Score</p>
-                  <p className="text-3xl font-bold tracking-tight text-destructive">{caseRisk.average_risk_score}</p>
+                  <p className="text-3xl font-bold tracking-tight text-destructive">{caseRisk?.average_risk_score ?? 0}</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-6">
                   <p className="text-sm font-medium text-muted-foreground">Confirmed Attributions</p>
-                  <p className="text-3xl font-bold tracking-tight text-green-400">{caseRisk.attribution.confirmed}</p>
+                  <p className="text-3xl font-bold tracking-tight text-green-400">{caseRisk?.attribution?.confirmed ?? 0}</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-6">
                   <p className="text-sm font-medium text-muted-foreground">Chains</p>
-                  <p className="text-3xl font-bold tracking-tight">{caseRisk.chains.length}</p>
+                  <p className="text-3xl font-bold tracking-tight">{caseRisk?.chains?.length ?? 0}</p>
                 </CardContent>
               </Card>
             </div>
+
+            {(!caseRisk?.total_wallets || caseRisk.total_wallets === 0) && (
+              <div className="p-4 mb-6 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 text-sm">
+                No suspect wallets added to this case yet. Add suspect addresses in the Case detail view to generate live risk scoring.
+              </div>
+            )}
 
             <div className="grid gap-6 md:grid-cols-2">
               <Card>
@@ -485,7 +491,7 @@ export default function RiskPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {Object.entries(caseRisk.risk_distribution).map(([level, count]) => (
+                    {Object.entries(caseRisk?.risk_distribution || {}).map(([level, count]) => (
                       <div key={level} className="flex items-center gap-4">
                         <Badge 
                           variant={
@@ -499,7 +505,7 @@ export default function RiskPage() {
                           {level.toUpperCase()}
                         </Badge>
                         <div className="flex-1 h-2 bg-tracex-border rounded-full overflow-hidden">
-                          <div className={`h-full ${level === "critical" ? "bg-destructive" : level === "high" ? "bg-destructive" : level === "medium" ? "bg-amber-400" : level === "low" ? "bg-green-400" : "bg-blue-400"}`} style={{ width: `${caseRisk.total_wallets > 0 ? (count / caseRisk.total_wallets) * 100 : 0}%` }} />
+                          <div className={`h-full ${level === "critical" ? "bg-destructive" : level === "high" ? "bg-destructive" : level === "medium" ? "bg-amber-400" : level === "low" ? "bg-green-400" : "bg-blue-400"}`} style={{ width: `${(caseRisk?.total_wallets || 0) > 0 ? (count / (caseRisk?.total_wallets || 1)) * 100 : 0}%` }} />
                         </div>
                         <span className="font-mono w-10 text-right">{count}</span>
                       </div>
@@ -513,7 +519,7 @@ export default function RiskPage() {
                   <CardTitle>Top Risk Wallets</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {caseRisk.top_risk_wallets.length > 0 ? (
+                  {caseRisk?.top_risk_wallets && caseRisk.top_risk_wallets.length > 0 ? (
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -540,7 +546,7 @@ export default function RiskPage() {
                       </TableBody>
                     </Table>
                   ) : (
-                    <p className="text-muted-foreground">No wallets in case</p>
+                    <p className="text-muted-foreground">No suspect wallets added yet</p>
                   )}
                 </CardContent>
               </Card>

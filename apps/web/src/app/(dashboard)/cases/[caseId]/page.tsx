@@ -50,29 +50,30 @@ const investigationStatusLabels: Record<string, string> = {
 export default function CaseDetailPage() {
   const params = useParams();
   const caseId = params.caseId as string;
+  const isValidId = Boolean(caseId && caseId !== "new");
 
   const { data: caseData, isLoading: caseLoading, error: caseError } = useQuery({
     queryKey: ["case", caseId],
     queryFn: () => casesApi.get(caseId),
-    enabled: !!caseId,
+    enabled: isValidId,
   });
 
   const { data: walletsData, isLoading: walletsLoading } = useQuery({
     queryKey: ["wallets", { case_id: caseId }],
     queryFn: () => walletsApi.list({ case_id: caseId, page_size: 100 }),
-    enabled: !!caseId,
+    enabled: isValidId,
   });
 
   const { data: investigationsData, isLoading: investigationsLoading } = useQuery({
     queryKey: ["investigations", { case_id: caseId }],
     queryFn: () => investigationsApi.list({ case_id: caseId, page_size: 100 }),
-    enabled: !!caseId,
+    enabled: isValidId,
   });
 
   const { data: caseRiskSummary } = useQuery({
     queryKey: ["caseRiskSummary", caseId],
     queryFn: () => riskApi.getCaseRiskSummary(caseId),
-    enabled: !!caseId,
+    enabled: isValidId,
   });
 
   if (caseLoading) {
@@ -412,28 +413,34 @@ export default function CaseDetailPage() {
                       <Card>
                         <CardContent className="p-6">
                           <p className="text-sm font-medium text-muted-foreground">Total Wallets</p>
-                          <p className="text-3xl font-bold tracking-tight">{caseRiskSummary.total_wallets}</p>
+                          <p className="text-3xl font-bold tracking-tight">{caseRiskSummary?.total_wallets ?? 0}</p>
                         </CardContent>
                       </Card>
                       <Card>
                         <CardContent className="p-6">
                           <p className="text-sm font-medium text-muted-foreground">Avg Risk Score</p>
-                          <p className="text-3xl font-bold tracking-tight text-destructive">{caseRiskSummary.average_risk_score}</p>
+                          <p className="text-3xl font-bold tracking-tight text-destructive">{caseRiskSummary?.average_risk_score ?? 0}</p>
                         </CardContent>
                       </Card>
                       <Card>
                         <CardContent className="p-6">
                           <p className="text-sm font-medium text-muted-foreground">Confirmed Attributions</p>
-                          <p className="text-3xl font-bold tracking-tight text-green-400">{caseRiskSummary.attribution.confirmed}</p>
+                          <p className="text-3xl font-bold tracking-tight text-green-400">{caseRiskSummary?.attribution?.confirmed ?? 0}</p>
                         </CardContent>
                       </Card>
                       <Card>
                         <CardContent className="p-6">
                           <p className="text-sm font-medium text-muted-foreground">Chains</p>
-                          <p className="text-3xl font-bold tracking-tight">{caseRiskSummary.chains.length}</p>
+                          <p className="text-3xl font-bold tracking-tight">{caseRiskSummary?.chains?.length ?? 0}</p>
                         </CardContent>
                       </Card>
                     </div>
+
+                    {(!caseRiskSummary?.total_wallets || caseRiskSummary.total_wallets === 0) && (
+                      <div className="p-4 mb-6 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 text-sm flex items-center justify-between">
+                        <span>No suspect wallets added to this case yet. Add suspect addresses above to generate live forensic risk scoring.</span>
+                      </div>
+                    )}
 
                     <div className="grid gap-6 md:grid-cols-2">
                       <Card>
@@ -442,7 +449,7 @@ export default function CaseDetailPage() {
                         </CardHeader>
                         <CardContent>
                           <div className="space-y-3">
-                            {Object.entries(caseRiskSummary.risk_distribution).map(([level, count]) => (
+                            {Object.entries(caseRiskSummary?.risk_distribution || {}).map(([level, count]) => (
                               <div key={level} className="flex items-center gap-4">
                                 <Badge 
                                   variant={
@@ -456,7 +463,7 @@ export default function CaseDetailPage() {
                                   {level.toUpperCase()}
                                 </Badge>
                                 <div className="flex-1 h-2 bg-tracex-border rounded-full overflow-hidden">
-                                  <div className={`h-full ${level === "critical" ? "bg-destructive" : level === "high" ? "bg-destructive" : level === "medium" ? "bg-amber-400" : level === "low" ? "bg-green-400" : "bg-blue-400"}`} style={{ width: `${caseRiskSummary.total_wallets > 0 ? (count / caseRiskSummary.total_wallets) * 100 : 0}%` }} />
+                                  <div className={`h-full ${level === "critical" ? "bg-destructive" : level === "high" ? "bg-destructive" : level === "medium" ? "bg-amber-400" : level === "low" ? "bg-green-400" : "bg-blue-400"}`} style={{ width: `${(caseRiskSummary?.total_wallets || 0) > 0 ? (count / (caseRiskSummary?.total_wallets || 1)) * 100 : 0}%` }} />
                                 </div>
                                 <span className="font-mono w-10 text-right">{count}</span>
                               </div>
@@ -470,7 +477,7 @@ export default function CaseDetailPage() {
                           <CardTitle>Top Risk Wallets</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          {caseRiskSummary.top_risk_wallets.length > 0 ? (
+                          {caseRiskSummary?.top_risk_wallets && caseRiskSummary.top_risk_wallets.length > 0 ? (
                             <Table>
                               <TableHeader>
                                 <TableRow>
@@ -497,7 +504,7 @@ export default function CaseDetailPage() {
                               </TableBody>
                             </Table>
                           ) : (
-                            <p className="text-muted-foreground">No wallets in case</p>
+                            <p className="text-muted-foreground">No suspect wallets added yet</p>
                           )}
                         </CardContent>
                       </Card>

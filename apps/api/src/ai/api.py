@@ -213,7 +213,7 @@ async def get_ai_capabilities():
                 "name": "Risk Analysis",
                 "description": "Explainable risk scoring with factor breakdown for wallets and cases",
                 "example_queries": [
-                    "What's the risk score for wallet 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb?",
+                    "What's the risk score for wallet 0xa241ec91A7D0c2c8bf11d01C168579Ee1201a209?",
                     "Show me the risk distribution for case TRX-20240115-0042",
                     "Why is wallet 0x... flagged as high risk?",
                 ],

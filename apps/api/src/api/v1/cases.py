@@ -1,3 +1,4 @@
+import contextlib
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -45,7 +46,7 @@ async def create_case(
 async def list_cases(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: CaseStatus | None = None,
+    status: str | None = None,
     crime_type: CrimeType | None = None,
     assigned_to: UUID | None = None,
     search: str | None = None,
@@ -54,7 +55,17 @@ async def list_cases(
     query = select(Case).order_by(Case.created_at.desc())
 
     if status:
-        query = query.where(Case.status == status)
+        raw_statuses = [s.strip() for s in status.split(",") if s.strip()]
+        valid_statuses = []
+        for s in raw_statuses:
+            # Unknown values are ignored rather than rejected: the filter is a
+            # UI convenience, and a stale bookmark should not 422 the case list.
+            with contextlib.suppress(ValueError):
+                valid_statuses.append(CaseStatus(s))
+        if len(valid_statuses) == 1:
+            query = query.where(Case.status == valid_statuses[0])
+        elif len(valid_statuses) > 1:
+            query = query.where(Case.status.in_(valid_statuses))
     if crime_type:
         query = query.where(Case.crime_type == crime_type)
     if assigned_to:
