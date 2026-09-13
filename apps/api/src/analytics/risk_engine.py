@@ -169,10 +169,15 @@ class RiskScoringEngine:
         if not mixer_interactions:
             return factors
 
+        seen_mixers: set[tuple] = set()
         for interaction in mixer_interactions:
             mixer_name = interaction.get("mixer", {}).get("name", "Unknown Mixer")
             hops = interaction.get("length", 0)
             value = interaction.get("weight", 0)
+            mixer_key = (mixer_name, hops, round(value, 4))
+            if mixer_key in seen_mixers:
+                continue
+            seen_mixers.add(mixer_key)
 
             factors.append(
                 RiskFactor(
@@ -208,11 +213,21 @@ class RiskScoringEngine:
         if not peel_chains:
             return factors
 
+        seen_chains: set[tuple] = set()
         for chain in peel_chains:
             if chain.get("origin") == wallet.address.lower():
                 hops = chain.get("hops", 0)
                 total_value = chain.get("total_value", 0)
                 addresses = chain.get("addresses", [])
+
+                # Verify distinct addresses - cycles/loops are not peel chains!
+                if len(addresses) != len(set(addresses)) or len(addresses) < 3:
+                    continue
+
+                chain_key = (tuple(addresses), hops)
+                if chain_key in seen_chains:
+                    continue
+                seen_chains.add(chain_key)
 
                 factors.append(
                     RiskFactor(
