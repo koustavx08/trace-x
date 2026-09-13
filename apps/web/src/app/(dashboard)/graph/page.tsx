@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, Suspense } from "react";
+import { useCallback, useEffect, useState, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,7 @@ import {
   GraphEdge,
   SubgraphResponse,
 } from "@/lib/api";
+import { GraphAICoPilot } from "@/components/graph/GraphAICoPilot";
 import {
   Search,
   Target,
@@ -293,15 +294,30 @@ function CustomEdge({
   );
 }
 
-const nodeTypes: NodeTypes = {
-  wallet: WalletNode,
-  entity: EntityNode,
-  transaction: TransactionNode,
-};
+// Stable node and edge types defined outside component with window caching to eliminate ReactFlow Warning #002 during renders & Fast Refresh
+const nodeTypes: NodeTypes =
+  typeof window !== "undefined" && (window as unknown as { __TRACE_X_NODE_TYPES__?: NodeTypes }).__TRACE_X_NODE_TYPES__
+    ? (window as unknown as { __TRACE_X_NODE_TYPES__: NodeTypes }).__TRACE_X_NODE_TYPES__
+    : {
+        wallet: WalletNode,
+        entity: EntityNode,
+        transaction: TransactionNode,
+      };
 
-const edgeTypes: EdgeTypes = {
-  default: CustomEdge,
-};
+if (typeof window !== "undefined") {
+  (window as unknown as { __TRACE_X_NODE_TYPES__: NodeTypes }).__TRACE_X_NODE_TYPES__ = nodeTypes;
+}
+
+const edgeTypes: EdgeTypes =
+  typeof window !== "undefined" && (window as unknown as { __TRACE_X_EDGE_TYPES__?: EdgeTypes }).__TRACE_X_EDGE_TYPES__
+    ? (window as unknown as { __TRACE_X_EDGE_TYPES__: EdgeTypes }).__TRACE_X_EDGE_TYPES__
+    : {
+        default: CustomEdge,
+      };
+
+if (typeof window !== "undefined") {
+  (window as unknown as { __TRACE_X_EDGE_TYPES__: EdgeTypes }).__TRACE_X_EDGE_TYPES__ = edgeTypes;
+}
 
 function layoutGraph(nodes: Node<GraphNode>[], edges: Edge[]): Node<GraphNode>[] {
   const NODE_WIDTH = 220;
@@ -333,6 +349,7 @@ function GraphView() {
   const searchParams = useSearchParams();
   const initialWallet =
     searchParams.get("wallet") || searchParams.get("address") || "";
+  const caseId = searchParams.get("case_id") || searchParams.get("caseId") || "";
 
   const [walletId, setWalletId] = useState(initialWallet);
   const [depth, setDepth] = useState(2);
@@ -347,9 +364,32 @@ function GraphView() {
   const [edges, setEdges] = useState<Edge<GraphEdge>[]>([]);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isAICoPilotOpen, setIsAICoPilotOpen] = useState(false);
   const router = useRouter();
   const [draftingReport, setDraftingReport] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
+
+  const handleFocusNode = useCallback(
+    (identifier: string) => {
+      if (!reactFlowInstance) return;
+      const targetClean = identifier.trim().toLowerCase();
+      const target = nodes.find(
+        (n) =>
+          n.id.toLowerCase() === targetClean ||
+          (n.data.address && n.data.address.toLowerCase() === targetClean) ||
+          (n.data.tx_hash && n.data.tx_hash.toLowerCase() === targetClean)
+      );
+      if (target) {
+        reactFlowInstance.setCenter(
+          target.position.x + 100,
+          target.position.y + 50,
+          { zoom: 1.3, duration: 800 }
+        );
+        setSelectedNode(target.data);
+      }
+    },
+    [nodes, reactFlowInstance]
+  );
 
   const handleDraftReport = async () => {
     if (!selectedNode) return;
@@ -867,12 +907,24 @@ function GraphView() {
                         )}
 
                         {selectedNode.address && (
-                          <Button size="sm" asChild variant={isCustodial ? "outline" : "default"} className="w-full rounded-xl">
-                            <Link href={`/risk?wallet=${selectedNode.address}`}>
-                              <ShieldAlert className="w-3.5 h-3.5 mr-2" />
-                              Assess in Risk Engine
-                            </Link>
-                          </Button>
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setIsAICoPilotOpen(true)}
+                              className="w-full rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 mr-2 text-purple-500" />
+                              Ask AI About This Node
+                            </Button>
+
+                            <Button size="sm" asChild variant={isCustodial ? "outline" : "default"} className="w-full rounded-xl">
+                              <Link href={`/risk?wallet=${selectedNode.address}`}>
+                                <ShieldAlert className="w-3.5 h-3.5 mr-2" />
+                                Assess in Risk Engine
+                              </Link>
+                            </Button>
+                          </>
                         )}
                         <Button
                           variant="outline"
@@ -946,6 +998,19 @@ function GraphView() {
                 ))}
               </div>
             </div>
+          )}
+
+          {subgraph && subgraph.nodes.length > 0 && (
+            <GraphAICoPilot
+              caseId={caseId || undefined}
+              seedWallet={walletId}
+              nodes={nodes}
+              edges={edges}
+              selectedNode={selectedNode}
+              onFocusNode={handleFocusNode}
+              isOpen={isAICoPilotOpen}
+              onToggleOpen={() => setIsAICoPilotOpen((prev) => !prev)}
+            />
           )}
         </CardContent>
       </Card>
