@@ -159,24 +159,62 @@ trace-x/
 - PostgreSQL 15+
 - Neo4j 5+
 
-### Quick Start with Docker Compose
+### 🐳 Quick Start with Docker Compose
+
+Run the entire TRACE-X platform (Frontend, Backend, PostgreSQL, Neo4j, Redis, Celery Worker & Beat) with Docker Compose:
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/koustavx08/trace-x.git
 cd trace-x
 
-# Copy environment template
+# 2. Setup environment variables
 cp .env.example .env
+cp .env.example docker/.env
 
-# Edit .env with your values (at minimum: SECRET_KEY, DB passwords, API keys)
+# 3. Build and start all 7 services in the background
+docker compose -f docker/docker-compose.yml up --build -d
 
-# Start all services
-docker-compose -f docker/docker-compose.yml up -d
+# 4. Seed the demonstration dataset (Cases, Wallets, Graph & Transactions)
+docker exec -it tracex-backend python scripts/seed_demo_data.py
 
-# Verify services are healthy
+# 5. Verify system health
 curl http://localhost:8000/api/v1/health
-curl http://localhost:3000
+```
+
+#### 🌐 Accessing Services
+
+| Service | URL / Port | Notes & Default Credentials |
+| :--- | :--- | :--- |
+| **Frontend Web App** | [http://localhost:3000](http://localhost:3000) | Cases, Wallets, Transaction Graph, AI Co-Pilot |
+| **Backend API & Swagger** | [http://localhost:8000/docs](http://localhost:8000/docs) | Interactive FastAPI OpenAPI documentation |
+| **Neo4j Graph Browser** | [http://localhost:7474](http://localhost:7474) | User: `neo4j` \| Password: `tracexneo4j` |
+| **PostgreSQL Database** | `localhost:5433` (Host) | User: `tracex` \| Database: `tracex` \| Pass: `tracex` |
+
+#### 🔑 Demo Login Credentials
+
+* **Analyst**: `analyst.a@tracex.gov` / `tracex-demo-password`
+* **Supervisor**: `supervisor@tracex.gov` / `tracex-demo-password`
+* **Admin**: `admin@tracex.gov` / `tracex-demo-password`
+
+#### 📊 Querying Database Tables
+
+```bash
+# Open PostgreSQL interactive CLI
+docker exec -it tracex-postgres psql -U tracex -d tracex
+
+# Inside psql:
+\dt                                              # List all tables
+SELECT case_number, title, status FROM cases;    # Query cases
+SELECT address, chain, risk_score FROM wallets;  # Query tracked wallets
+\q                                               # Exit
+```
+
+#### 🛑 Stopping Services
+
+```bash
+# Stop and remove all containers
+docker compose -f docker/docker-compose.yml down
 ```
 
 ### Manual Development Setup
