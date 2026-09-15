@@ -356,6 +356,7 @@ class InvestigationAssistant:
         if not target_wallet_id and not target_address and tx_hash:
             async with get_session_context() as session:
                 from sqlalchemy import select
+
                 from src.models import Transaction, Wallet
 
                 stmt = select(Transaction).where(Transaction.tx_hash.ilike(tx_hash))
@@ -559,8 +560,9 @@ class InvestigationAssistant:
                     target_address = wallet.address
         elif target_wallet_id and not target_address:
             async with get_session_context() as session:
-                from src.models import Wallet
                 import uuid
+
+                from src.models import Wallet
 
                 is_uuid = False
                 try:
@@ -746,8 +748,9 @@ class InvestigationAssistant:
         target_address = address
         if not target_address and wallet_id:
             async with get_session_context() as session:
-                from src.models import Wallet
                 import uuid
+
+                from src.models import Wallet
 
                 is_uuid = False
                 try:
@@ -1169,8 +1172,9 @@ class InvestigationAssistant:
 
     async def _get_wallet_risk(self, wallet_id: str):
         async with get_session_context() as session:
-            from sqlalchemy import select
             import uuid
+
+            from sqlalchemy import select
 
             from src.models import Transaction, Wallet
 
