@@ -5,6 +5,7 @@ from src.ai import ai_router
 from .analysis import router as analysis_router
 from .auth import router as auth_router
 from .cases import router as cases_router
+from .forensics import router as forensics_router
 from .graph import router as graph_router
 from .health import router as health_router
 from .investigations import router as investigations_router
@@ -23,4 +24,5 @@ api_router.include_router(reports_router)
 api_router.include_router(analysis_router)
 api_router.include_router(graph_router)
 api_router.include_router(risk_router)
+api_router.include_router(forensics_router)
 api_router.include_router(ai_router)

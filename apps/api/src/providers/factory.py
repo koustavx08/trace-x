@@ -4,10 +4,12 @@ from src.core.config import get_settings
 from src.core.exceptions import ProviderNotConfiguredError
 
 from .base import EntityIntelProviderRegistry, ProviderRegistry
+from .bitcoin import BITCOIN_PSEUDO_CHAIN_ID, BitcoinProvider
 from .chainalysis import ChainalysisProvider
 from .ciphertrace import CiphertraceProvider
 from .evm.alchemy import AlchemyProvider
 from .evm.infura import InfuraProvider
+from .tron import TRON_MAINNET_CHAIN_ID, TronProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -146,6 +148,20 @@ class ProviderFactory:
             )
             ProviderRegistry.register(bsc_provider)
             logger.info("bsc_provider_registered")
+
+        # --- Non-EVM chains: TRON (TRC-20 USDT) and Bitcoin (UTXO) ---
+        # Neither needs a mandatory API key -- TronGrid serves anonymous traffic
+        # (TRON_API_KEY only raises the rate limit) and Blockstream's Esplora is
+        # fully public -- so both are registered unconditionally rather than
+        # behind a key check. `chain_name` is what `get_provider_by_name` matches
+        # case-insensitively, so "tron"/"bitcoin" resolve to these.
+        if not ProviderRegistry.get_provider(TRON_MAINNET_CHAIN_ID):
+            ProviderRegistry.register(TronProvider())
+            logger.info("tron_provider_registered", chain_id=TRON_MAINNET_CHAIN_ID)
+
+        if not ProviderRegistry.get_provider(BITCOIN_PSEUDO_CHAIN_ID):
+            ProviderRegistry.register(BitcoinProvider())
+            logger.info("bitcoin_provider_registered", chain_id=BITCOIN_PSEUDO_CHAIN_ID)
 
         # --- WS3: entity-intelligence providers (Chainalysis / CipherTrace) ---
         # Each provider raises ProviderNotConfiguredError at construction time
