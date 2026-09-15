@@ -128,6 +128,9 @@ disable_error_code = ["arg-type", "attr-defined", "no-any-return"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# `from src...` imports resolve against apps/api. The root pytest.ini sets this,
+# but this file is the config pytest actually loads when rootdir is apps/api.
+pythonpath = ["."]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
