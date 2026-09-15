@@ -7,6 +7,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+import asyncpg  # noqa: E402 - must be imported before SQLAlchemy create_async_engine
 from .api.v1 import api_router
 from .auth import audit_logger, limiter
 from .core import (
