@@ -107,47 +107,47 @@ function WalletNode({ data }: NodeProps<GraphNode>) {
   const riskScore = data.risk_score || 0;
   const riskBorder =
     riskScore >= 75
-      ? "border-destructive bg-red-50/70 dark:bg-destructive/10"
+      ? "border-red-500 bg-red-50 dark:bg-red-950/40"
       : riskScore >= 50
-      ? "border-amber-400 bg-amber-50/70 dark:bg-amber-400/10"
+      ? "border-amber-500 bg-amber-50 dark:bg-amber-950/40"
       : riskScore >= 25
-      ? "border-yellow-400 bg-yellow-50/70 dark:bg-yellow-400/10"
-      : "border-green-400 bg-green-50/70 dark:bg-green-400/10";
+      ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-950/40"
+      : "border-green-500 bg-green-50 dark:bg-green-950/40";
 
   return (
     <div
-      className={`p-3 rounded-2xl border-2 ${riskBorder} min-w-[200px] text-center cursor-pointer transition-all hover:scale-105 hover:shadow-lg bg-white dark:bg-[#1E2024] shadow-sm`}
+      className={`p-3.5 rounded-2xl border-2 ${riskBorder} min-w-[210px] text-center cursor-pointer transition-all hover:scale-105 hover:shadow-xl bg-white dark:bg-[#1E2024] shadow-md`}
     >
       <Handle
         type="target"
         position={Position.Top}
-        className="!w-2.5 !h-2.5 !bg-primary !border-2 !border-white dark:!border-[#1E2024]"
+        className="!w-3 !h-3 !bg-primary !border-2 !border-white dark:!border-[#1E2024]"
       />
-      <div className="flex items-center justify-between gap-2 mb-1.5">
+      <div className="flex items-center justify-between gap-2 mb-2">
         <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
-          <GitBranch className="w-3.5 h-3.5 text-primary" />
+          <GitBranch className="w-4 h-4 text-primary" />
         </div>
-        <Badge variant="outline" className="text-[10px] font-mono uppercase">
+        <Badge variant="outline" className="text-[10px] font-mono font-bold uppercase border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300">
           {data.chain || "ETH"}
         </Badge>
       </div>
-      <p className="font-mono text-xs font-semibold text-[#151B2B] dark:text-white mb-0.5">
+      <p className="font-mono text-xs font-bold text-slate-900 dark:text-white mb-0.5 tracking-tight">
         {formatAddress(data.address || "")}
       </p>
       {data.label && (
-        <p className="font-medium text-xs text-primary truncate max-w-[180px] mx-auto">
+        <p className="font-semibold text-xs text-primary truncate max-w-[190px] mx-auto">
           {data.label}
         </p>
       )}
-      <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-gray-100 dark:border-gray-800 text-[11px]">
-        <span className="text-muted-foreground">Risk Score</span>
+      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px]">
+        <span className="text-slate-600 dark:text-slate-400 font-medium">Risk Score</span>
         <span
           className={`font-bold ${
             riskScore >= 75
-              ? "text-destructive"
+              ? "text-red-600 dark:text-red-400"
               : riskScore >= 50
-              ? "text-amber-500"
-              : "text-green-600"
+              ? "text-amber-600 dark:text-amber-400"
+              : "text-green-600 dark:text-green-400"
           }`}
         >
           {riskScore}/100
@@ -156,7 +156,7 @@ function WalletNode({ data }: NodeProps<GraphNode>) {
       {data.entity_name && (
         <Badge
           variant="secondary"
-          className="mt-1.5 text-[10px] w-full justify-center truncate"
+          className="mt-2 text-[10px] w-full justify-center truncate font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800"
         >
           {data.entity_name}
         </Badge>
@@ -164,7 +164,7 @@ function WalletNode({ data }: NodeProps<GraphNode>) {
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!w-2.5 !h-2.5 !bg-primary !border-2 !border-white dark:!border-[#1E2024]"
+        className="!w-3 !h-3 !bg-primary !border-2 !border-white dark:!border-[#1E2024]"
       />
     </div>
   );
@@ -172,36 +172,36 @@ function WalletNode({ data }: NodeProps<GraphNode>) {
 
 function EntityNode({ data }: NodeProps<GraphNode>) {
   const confidenceColors: Record<string, string> = {
-    CONFIRMED: "border-green-500 bg-green-50/70 dark:bg-green-500/10",
-    HIGH_CONFIDENCE: "border-blue-500 bg-blue-50/70 dark:bg-blue-500/10",
-    PROBABLE: "border-amber-500 bg-amber-50/70 dark:bg-amber-500/10",
-    UNKNOWN: "border-gray-300 bg-gray-50/70 dark:bg-muted",
+    CONFIRMED: "border-green-500 bg-green-50 dark:bg-green-950/40",
+    HIGH_CONFIDENCE: "border-blue-500 bg-blue-50 dark:bg-blue-950/40",
+    PROBABLE: "border-amber-500 bg-amber-50 dark:bg-amber-950/40",
+    UNKNOWN: "border-slate-300 bg-slate-50 dark:bg-slate-900",
   };
   const color =
     confidenceColors[data.confidence || "UNKNOWN"] ||
-    "border-gray-300 bg-gray-50/70 dark:bg-muted";
+    "border-slate-300 bg-slate-50 dark:bg-slate-900";
 
   return (
     <div
-      className={`p-3 rounded-2xl border-2 ${color} min-w-[200px] text-center cursor-pointer transition-all hover:scale-105 hover:shadow-lg bg-white dark:bg-[#1E2024] shadow-sm`}
+      className={`p-3.5 rounded-2xl border-2 ${color} min-w-[210px] text-center cursor-pointer transition-all hover:scale-105 hover:shadow-xl bg-white dark:bg-[#1E2024] shadow-md`}
     >
       <Handle
         type="target"
         position={Position.Top}
-        className="!w-2.5 !h-2.5 !bg-purple-600 !border-2 !border-white dark:!border-[#1E2024]"
+        className="!w-3 !h-3 !bg-purple-600 !border-2 !border-white dark:!border-[#1E2024]"
       />
-      <div className="flex items-center justify-between gap-2 mb-1.5">
+      <div className="flex items-center justify-between gap-2 mb-2">
         <div className="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center">
-          <Layers className="w-3.5 h-3.5 text-purple-600" />
+          <Layers className="w-4 h-4 text-purple-600" />
         </div>
-        <Badge variant="outline" className="text-[10px] capitalize">
+        <Badge variant="outline" className="text-[10px] font-bold capitalize border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300">
           {data.entity_type || "VASP"}
         </Badge>
       </div>
-      <p className="font-bold text-xs text-[#151B2B] dark:text-white truncate max-w-[180px] mx-auto">
+      <p className="font-bold text-xs text-slate-900 dark:text-white truncate max-w-[190px] mx-auto">
         {data.name}
       </p>
-      <p className="font-mono text-[11px] text-muted-foreground mb-1.5">
+      <p className="font-mono text-[11px] text-slate-600 dark:text-slate-400 mb-2 font-medium">
         {formatAddress(data.address || "")}
       </p>
       <Badge
@@ -214,14 +214,14 @@ function EntityNode({ data }: NodeProps<GraphNode>) {
             ? "warning"
             : "secondary"
         }
-        className="text-[10px] w-full justify-center"
+        className="text-[10px] w-full justify-center font-bold"
       >
         {data.confidence || "ATTRIBUTED"}
       </Badge>
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!w-2.5 !h-2.5 !bg-purple-600 !border-2 !border-white dark:!border-[#1E2024]"
+        className="!w-3 !h-3 !bg-purple-600 !border-2 !border-white dark:!border-[#1E2024]"
       />
     </div>
   );
@@ -229,17 +229,17 @@ function EntityNode({ data }: NodeProps<GraphNode>) {
 
 function TransactionNode({ data }: NodeProps<GraphNode>) {
   return (
-    <div className="p-2.5 rounded-2xl border border-amber-300 dark:border-amber-500/30 bg-amber-50/50 dark:bg-[#1E2024] min-w-[170px] text-center cursor-pointer transition-all hover:scale-105 hover:shadow-lg shadow-sm">
+    <div className="p-3 rounded-2xl border-2 border-amber-400 dark:border-amber-500/50 bg-amber-50 dark:bg-amber-950/30 min-w-[180px] text-center cursor-pointer transition-all hover:scale-105 hover:shadow-xl bg-white dark:bg-[#1E2024] shadow-md">
       <Handle
         type="target"
         position={Position.Top}
-        className="!w-2.5 !h-2.5 !bg-amber-500 !border-2 !border-white dark:!border-[#1E2024]"
+        className="!w-3 !h-3 !bg-amber-500 !border-2 !border-white dark:!border-[#1E2024]"
       />
       <div className="flex items-center justify-center gap-1.5 mb-1">
         <div className="w-5 h-5 rounded bg-amber-500/20 flex items-center justify-center">
-          <GitBranch className="w-3 h-3 text-amber-600" />
+          <GitBranch className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
         </div>
-        <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+        <span className="text-xs font-bold text-amber-800 dark:text-amber-300">
           {data.value_usd
             ? formatCurrency(data.value_usd)
             : data.value
@@ -247,13 +247,13 @@ function TransactionNode({ data }: NodeProps<GraphNode>) {
             : "TX"}
         </span>
       </div>
-      <p className="font-mono text-[10px] text-muted-foreground truncate max-w-[150px] mx-auto">
+      <p className="font-mono text-[11px] text-slate-600 dark:text-slate-400 font-semibold truncate max-w-[160px] mx-auto">
         {formatAddress(data.tx_hash || "")}
       </p>
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!w-2.5 !h-2.5 !bg-amber-500 !border-2 !border-white dark:!border-[#1E2024]"
+        className="!w-3 !h-3 !bg-amber-500 !border-2 !border-white dark:!border-[#1E2024]"
       />
     </div>
   );

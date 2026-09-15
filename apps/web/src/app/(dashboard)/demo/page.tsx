@@ -309,79 +309,89 @@ export default function DemoPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Judge Mode - Demo Scenarios</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Judge Mode - Demo Scenarios
+          </h1>
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
             Pre-seeded synthetic SIH 2026 investigation cases. Click &quot;Run Full Demo&quot; to execute the complete investigation flow.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="gap-1 text-xs">
-            <Sparkles className="w-3 h-3" />
+          <Badge variant="secondary" className="gap-1 text-xs px-3 py-1 font-semibold border border-purple-500/20 bg-purple-500/10 text-purple-700 dark:text-purple-300">
+            <Sparkles className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
             Synthetic Demo Data
           </Badge>
         </div>
       </div>
 
       {!selectedCase ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
           {demoCases.map((demoCase) => (
-            <Card key={demoCase.id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => handleRunDemo(demoCase)}>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <Badge variant="outline" className="capitalize text-sm">
+            <Card
+              key={demoCase.id}
+              className="hover:shadow-xl transition-all duration-200 cursor-pointer border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1E2024] flex flex-col justify-between"
+              onClick={() => handleRunDemo(demoCase)}
+            >
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between mb-2">
+                  <Badge variant="outline" className="capitalize text-xs font-semibold px-2.5 py-0.5 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200">
                     {crimeTypeLabels[demoCase.crime_type]}
                   </Badge>
                   <Badge variant={demoCase.status === "in_progress" ? "warning" : demoCase.status === "open" ? "info" : demoCase.status === "closed" ? "success" : "secondary"}>
                     {statusLabels[demoCase.status]}
                   </Badge>
                 </div>
-                <CardTitle className="text-lg">{demoCase.title}</CardTitle>
+                <CardTitle className="text-lg font-bold text-slate-900 dark:text-white leading-snug">
+                  {demoCase.title}
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground line-clamp-3">{demoCase.description}</p>
+              <CardContent className="space-y-4 flex-1">
+                <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-3">
+                  {demoCase.description}
+                </p>
                 
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="grid grid-cols-2 gap-3 text-sm p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
                   <div>
-                    <p className="text-muted-foreground">Case</p>
-                    <p className="font-mono font-medium">{demoCase.case_number}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Case Number</p>
+                    <p className="font-mono font-semibold text-xs text-slate-900 dark:text-slate-100">{demoCase.case_number}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Chains</p>
-                    <p className="font-medium">{demoCase.chains.join(", ")}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Chains</p>
+                    <p className="font-semibold text-xs text-slate-900 dark:text-slate-100">{demoCase.chains.join(", ")}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Wallets</p>
-                    <p className="font-medium">{demoCase.wallet_count}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Wallets</p>
+                    <p className="font-semibold text-xs text-slate-900 dark:text-slate-100">{demoCase.wallet_count}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Risk Score</p>
-                    <p className={`font-bold ${demoCase.risk_score >= 75 ? "text-destructive" : demoCase.risk_score >= 50 ? "text-amber-400" : "text-green-400"}`}>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Risk Score</p>
+                    <p className={`font-bold text-xs ${demoCase.risk_score >= 75 ? "text-red-600 dark:text-red-400" : demoCase.risk_score >= 50 ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}>
                       {demoCase.risk_score}/100
                     </p>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1.5">
                   {demoCase.tags.map((tag) => (
-                    <Badge key={tag} variant="secondary" className="text-xs">
+                    <Badge key={tag} variant="secondary" className="text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                       {tag}
                     </Badge>
                   ))}
                 </div>
 
-                <div className="pt-2 border-t border-tracex-border">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Probable VASP</span>
-                    <Badge variant={demoCase.vasp_confidence === "CONFIRMED" ? "success" : "warning"} className="gap-1">
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">Probable VASP</span>
+                    <Badge variant={demoCase.vasp_confidence === "CONFIRMED" ? "success" : "warning"} className="gap-1 font-semibold text-[11px]">
                       <CheckCircle className="w-3 h-3" />
-                      {demoCase.vasp} ({demoCase.vasp_confidence})
+                      {demoCase.vasp}
                     </Badge>
                   </div>
                 </div>
               </CardContent>
               <CardContent className="pt-0">
                 <Button 
-                  className="w-full" 
+                  className="w-full font-semibold rounded-xl" 
                   onClick={(e) => { e.stopPropagation(); handleRunDemo(demoCase); }}
                   disabled={loading}
                 >
@@ -525,373 +535,380 @@ export default function DemoPage() {
                     </Badge>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-4 p-3 rounded-lg bg-tracex-surface-hover/50">
-                        <div className={`w-2 h-2 rounded-full ${analysisResult.investigation?.status === "completed" ? "bg-green-400" : analysisResult.investigation?.status === "running" ? "bg-amber-400" : "bg-blue-400"}`} />
-                        <div className="flex-1">
-                          <p className="font-medium">Wallet Analysis</p>
-                          <p className="text-sm text-muted-foreground">
-                            {analysisResult.investigation?.result_summary?.transactions_found} transactions analyzed
-                          </p>
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                          <div className={`w-2.5 h-2.5 rounded-full ${analysisResult.investigation?.status === "completed" ? "bg-green-400" : analysisResult.investigation?.status === "running" ? "bg-amber-400" : "bg-blue-400"}`} />
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 dark:text-slate-100">Wallet Analysis</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              {analysisResult.investigation?.result_summary?.transactions_found} transactions analyzed
+                            </p>
+                          </div>
+                          <Badge variant={analysisResult.investigation?.status === "completed" ? "success" : analysisResult.investigation?.status === "running" ? "warning" : "secondary"}>
+                            {analysisResult.investigation?.status}
+                          </Badge>
                         </div>
-                        <Badge variant={analysisResult.investigation?.status === "completed" ? "success" : analysisResult.investigation?.status === "running" ? "warning" : "secondary"}>
-                          {analysisResult.investigation?.status}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-4 p-3 rounded-lg bg-tracex-surface-hover/50">
-                        <div className="w-2 h-2 rounded-full bg-green-400" />
-                        <div className="flex-1">
-                          <p className="font-medium">Graph Sync</p>
-                          <p className="text-sm text-muted-foreground">Wallet and transactions synced to Neo4j</p>
+                        <div className="flex items-center gap-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                          <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 dark:text-slate-100">Graph Sync</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Wallet and transactions synced to Neo4j</p>
+                          </div>
+                          <Badge variant="success">Synced</Badge>
                         </div>
-                        <Badge variant="success">Synced</Badge>
-                      </div>
-                      <div className="flex items-center gap-4 p-3 rounded-lg bg-tracex-surface-hover/50">
-                        <div className="w-2 h-2 rounded-full bg-purple-400" />
-                        <div className="flex-1">
-                          <p className="font-medium">Entity Enrichment</p>
-                          <p className="text-sm text-muted-foreground">Known entities checked against intelligence database</p>
+                        <div className="flex items-center gap-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                          <div className="w-2.5 h-2.5 rounded-full bg-purple-400" />
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 dark:text-slate-100">Entity Enrichment</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Known entities checked against intelligence database</p>
+                          </div>
+                          <Badge variant="info">Completed</Badge>
                         </div>
-                        <Badge variant="info">Completed</Badge>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="transactions">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <div>
-                      <CardTitle>
-                        Transactions ({analysisResult.transactions?.length || 0})
-                      </CardTitle>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        On-chain activity for suspect wallet{" "}
-                        <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
-                          {formatAddress(selectedCase?.suspect_wallet || analysisResult.wallet?.address || "")}
-                        </code>
-                      </p>
-                    </div>
-                    <Link
-                      href={`/analyze?address=${selectedCase?.suspect_wallet || analysisResult.wallet?.address || ""}`}
-                      className="text-xs text-primary hover:underline flex items-center gap-1"
-                    >
-                      Open in Analyze <ExternalLink className="w-3 h-3" />
-                    </Link>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    {(!analysisResult.transactions || analysisResult.transactions.length === 0) ? (
-                      <div className="text-center py-12 text-muted-foreground">
-                        <FileText className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                        <p className="text-base font-medium">No transactions recorded</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          No transactions found for this wallet in the seeded database.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Tx Hash</TableHead>
-                              <TableHead>Block</TableHead>
-                              <TableHead>Time</TableHead>
-                              <TableHead>From</TableHead>
-                              <TableHead>To</TableHead>
-                              <TableHead>Value (USD)</TableHead>
-                              <TableHead>Token</TableHead>
-                              <TableHead>Method</TableHead>
-                              <TableHead>Flags</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {analysisResult.transactions.map((tx: any) => {
-                              const isFromSuspect =
-                                tx.from_address?.toLowerCase() ===
-                                (selectedCase?.suspect_wallet || analysisResult.wallet?.address || "").toLowerCase();
-                              const isToSuspect =
-                                tx.to_address?.toLowerCase() ===
-                                (selectedCase?.suspect_wallet || analysisResult.wallet?.address || "").toLowerCase();
-
-                              return (
-                                <TableRow key={tx.tx_hash} className="hover:bg-muted/50">
-                                  <TableCell>
-                                    <code className="font-mono text-sm">{formatAddress(tx.tx_hash)}</code>
-                                  </TableCell>
-                                  <TableCell className="font-mono text-sm">
-                                    #{tx.block_number?.toLocaleString()}
-                                  </TableCell>
-                                  <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                                    {formatRelativeTime(tx.timestamp)}
-                                  </TableCell>
-                                  <TableCell>
-                                    <code
-                                      className={`font-mono text-sm ${
-                                        isFromSuspect ? "text-amber-400 font-semibold" : ""
-                                      }`}
-                                      title={tx.from_address}
-                                    >
-                                      {formatAddress(tx.from_address)}
-                                      {isFromSuspect && " (Suspect)"}
-                                    </code>
-                                  </TableCell>
-                                  <TableCell>
-                                    <code
-                                      className={`font-mono text-sm ${
-                                        isToSuspect ? "text-amber-400 font-semibold" : ""
-                                      }`}
-                                      title={tx.to_address}
-                                    >
-                                      {formatAddress(tx.to_address)}
-                                      {isToSuspect && " (Suspect)"}
-                                    </code>
-                                  </TableCell>
-                                  <TableCell className="font-mono tabular-nums text-sm font-medium">
-                                    {formatCurrency(tx.value_usd ?? tx.value ?? 0)}
-                                  </TableCell>
-                                  <TableCell>
-                                    <Badge variant="outline">{tx.token_symbol || "ETH"}</Badge>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Badge variant="outline">{tx.method || "transfer"}</Badge>
-                                  </TableCell>
-                                  <TableCell>
-                                    {tx.is_suspicious && (
-                                      <Badge variant="destructive" className="gap-1">
-                                        <AlertTriangle className="w-3 h-3" /> Suspicious
-                                      </Badge>
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="attribution">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>VASP Attribution</CardTitle>
-                  </CardHeader>
-                   <CardContent>
-                     {analysisResult.attribution?.attributed ? (
-                       <div className="space-y-4">
-                         <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
-                           <div className="flex items-center justify-between">
-                             <div>
-                               <p className="font-semibold text-green-400">VASP Identified</p>
-                               <p className="text-sm text-muted-foreground">
-                                 Funds traced to <strong>{analysisResult.attribution?.nearest_vasp?.entity_name || "Unknown"}</strong>
-                                 with <Badge variant="success" className="ml-2">{analysisResult.attribution?.nearest_vasp?.confidence}</Badge> confidence
-                               </p>
-                             </div>
-                             <div className="text-right">
-                               <p className="font-mono text-lg text-green-400">
-                                 {(analysisResult.attribution?.nearest_vasp?.confidence_score * 100).toFixed(1)}%
-                               </p>
-                               <p className="text-xs text-muted-foreground">Confidence Score</p>
-                             </div>
-                           </div>
-                           <div className="grid grid-cols-3 gap-4 text-sm mt-4">
-                             <div className="p-3 rounded-lg bg-tracex-surface-hover/50">
-                               <p className="text-muted-foreground">Distance</p>
-                               <p className="font-bold">{analysisResult.attribution?.nearest_vasp?.distance_hops} hops</p>
-                             </div>
-                             <div className="p-3 rounded-lg bg-tracex-surface-hover/50">
-                               <p className="text-muted-foreground">Value Traced</p>
-                               <p className="font-bold">{analysisResult.attribution?.nearest_vasp?.total_value_eth?.toFixed(4) || 0} ETH</p>
-                             </div>
-                             <div className="p-3 rounded-lg bg-tracex-surface-hover/50">
-                               <p className="text-muted-foreground">Evidence Items</p>
-                               <p className="font-bold">{analysisResult.attribution?.nearest_vasp?.evidence?.length || 0}</p>
-                             </div>
-                           </div>
-                         </div>
-                       </div>
-                     ) : (
-                       <div className="text-center py-8 text-muted-foreground">
-                         <AlertTriangle className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                         <p className="text-lg font-medium">No VASP Attribution Found</p>
-                         <p className="text-sm mt-1">Fund flow did not reach a known exchange within trace depth</p>
-                       </div>
-                     )}
-                   </CardContent>
-                </Card>
-
-                {analysisResult.attribution?.all_attributions?.length && (
-                  <Card className="mt-4">
-                    <CardHeader>
-                      <CardTitle>All Attributions ({analysisResult.attribution.all_attributions.length})</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Entity</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Confidence</TableHead>
-                              <TableHead>Hops</TableHead>
-                              <TableHead>Value (ETH)</TableHead>
-                              <TableHead>Type</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {analysisResult.attribution.all_attributions.map((attr: any, i: number) => (
-                              <TableRow key={i}>
-                                <TableCell className="font-medium">{attr.entity_name}</TableCell>
-                                <TableCell>
-                                  <Badge variant="outline" className="capitalize">{attr.entity_type}</Badge>
-                                </TableCell>
-                                <TableCell>
-                                  <Badge 
-                                    variant={
-                                      attr.confidence === "CONFIRMED" ? "success" :
-                                      attr.confidence === "HIGH_CONFIDENCE" ? "info" :
-                                      attr.confidence === "PROBABLE" ? "warning" : "secondary"
-                                    }
-                                  >
-                                    {attr.confidence}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>{attr.distance_hops}</TableCell>
-                                <TableCell className="font-mono tabular-nums">{attr.total_value_eth?.toFixed(4) || 0}</TableCell>
-                                <TableCell>
-                                  <Badge variant="outline">{attr.attribution_type}</Badge>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
                       </div>
                     </CardContent>
                   </Card>
-                )}
-              </TabsContent>
+                </TabsContent>
 
-              <TabsContent value="risk">
-                {analysisResult.risk && (
-                  <div className="space-y-6">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Risk Assessment</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-6">
-                        <div className="flex items-center justify-between p-6 rounded-lg bg-tracex-surface-hover/50">
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground">Overall Risk Score</p>
-                            <p className="text-4xl font-bold tracking-tight text-destructive">
-                              {analysisResult.risk.overall_score?.toFixed(1) || 0}
-                            </p>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              <Badge 
-                                variant={
-                                  analysisResult.risk.risk_level === "critical" ? "destructive" :
-                                  analysisResult.risk.risk_level === "high" ? "destructive" :
-                                  analysisResult.risk.risk_level === "medium" ? "warning" :
-                                  analysisResult.risk.risk_level === "low" ? "success" : "info"
-                                }
-                              >
-                                {analysisResult.risk.risk_level?.toUpperCase()}
-                              </Badge>
-                            </p>
-                          </div>
-                          <div className="w-24 h-24 rounded-full border-4 border-tracex-border flex items-center justify-center">
-                            <span className="text-2xl font-bold text-destructive">
-                              {(analysisResult.risk.overall_score || 0).toFixed(0)}
-                            </span>
-                          </div>
+                <TabsContent value="transactions">
+                  <Card className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1E2024]">
+                    <CardHeader className="flex flex-row items-center justify-between">
+                      <div>
+                        <CardTitle className="text-slate-900 dark:text-white">
+                          Transactions ({analysisResult.transactions?.length || 0})
+                        </CardTitle>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          On-chain activity for suspect wallet{" "}
+                          <code className="font-mono text-xs bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-900 dark:text-slate-200">
+                            {formatAddress(selectedCase?.suspect_wallet || analysisResult.wallet?.address || "")}
+                          </code>
+                        </p>
+                      </div>
+                      <Link
+                        href={`/analyze?address=${selectedCase?.suspect_wallet || analysisResult.wallet?.address || ""}`}
+                        className="text-xs text-primary hover:underline flex items-center gap-1 font-semibold"
+                      >
+                        Open in Analyze <ExternalLink className="w-3 h-3" />
+                      </Link>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      {(!analysisResult.transactions || analysisResult.transactions.length === 0) ? (
+                        <div className="text-center py-12 text-slate-500 dark:text-slate-400">
+                          <FileText className="w-12 h-12 mx-auto mb-3 opacity-40 text-primary" />
+                          <p className="text-base font-bold">No transactions recorded</p>
+                          <p className="text-xs mt-1">
+                            No transactions found for this wallet in the seeded database.
+                          </p>
                         </div>
+                      ) : (
+                        <div className="overflow-x-auto border-t border-slate-200 dark:border-slate-800">
+                          <Table>
+                            <TableHeader className="bg-slate-50 dark:bg-slate-900/60">
+                              <TableRow className="border-b border-slate-200 dark:border-slate-800">
+                                <TableHead className="font-bold">Tx Hash</TableHead>
+                                <TableHead className="font-bold">Block</TableHead>
+                                <TableHead className="font-bold">Time</TableHead>
+                                <TableHead className="font-bold">From</TableHead>
+                                <TableHead className="font-bold">To</TableHead>
+                                <TableHead className="font-bold">Value (USD)</TableHead>
+                                <TableHead className="font-bold">Token</TableHead>
+                                <TableHead className="font-bold">Method</TableHead>
+                                <TableHead className="font-bold">Flags</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {analysisResult.transactions.map((tx: any) => {
+                                const isFromSuspect =
+                                  tx.from_address?.toLowerCase() ===
+                                  (selectedCase?.suspect_wallet || analysisResult.wallet?.address || "").toLowerCase();
+                                const isToSuspect =
+                                  tx.to_address?.toLowerCase() ===
+                                  (selectedCase?.suspect_wallet || analysisResult.wallet?.address || "").toLowerCase();
 
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>Risk Summary</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <p className="text-muted-foreground whitespace-pre-wrap">{analysisResult.risk.summary}</p>
-                          </CardContent>
-                        </Card>
+                                return (
+                                  <TableRow key={tx.tx_hash} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                    <TableCell>
+                                      <code className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">{formatAddress(tx.tx_hash)}</code>
+                                    </TableCell>
+                                    <TableCell className="font-mono text-xs">
+                                      #{tx.block_number?.toLocaleString()}
+                                    </TableCell>
+                                    <TableCell className="text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">
+                                      {formatRelativeTime(tx.timestamp)}
+                                    </TableCell>
+                                    <TableCell>
+                                      <code
+                                        className={`font-mono text-xs ${
+                                          isFromSuspect ? "text-amber-600 dark:text-amber-400 font-bold" : "text-slate-800 dark:text-slate-200"
+                                        }`}
+                                        title={tx.from_address}
+                                      >
+                                        {formatAddress(tx.from_address)}
+                                        {isFromSuspect && " (Suspect)"}
+                                      </code>
+                                    </TableCell>
+                                    <TableCell>
+                                      <code
+                                        className={`font-mono text-xs ${
+                                          isToSuspect ? "text-amber-600 dark:text-amber-400 font-bold" : "text-slate-800 dark:text-slate-200"
+                                        }`}
+                                        title={tx.to_address}
+                                      >
+                                        {formatAddress(tx.to_address)}
+                                        {isToSuspect && " (Suspect)"}
+                                      </code>
+                                    </TableCell>
+                                    <TableCell className="font-mono tabular-nums text-xs font-semibold text-slate-900 dark:text-slate-100">
+                                      {formatCurrency(tx.value_usd ?? tx.value ?? 0)}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge variant="outline" className="border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300">{tx.token_symbol || "ETH"}</Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge variant="outline" className="border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300">{tx.method || "transfer"}</Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                      {tx.is_suspicious && (
+                                        <Badge variant="destructive" className="gap-1 font-semibold">
+                                          <AlertTriangle className="w-3 h-3" /> Suspicious
+                                        </Badge>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
 
-                         <Card>
-                           <CardHeader>
-                             <CardTitle>Risk Factors ({analysisResult.risk.factors?.length || 0})</CardTitle>
-                           </CardHeader>
-                           <CardContent>
-                             {analysisResult.risk.factors?.map((factor: any, i: number) => (
-                               <div key={i} className="p-4 rounded-lg border border-tracex-border bg-tracex-surface-hover/50">
-                                 <div className="flex items-start justify-between gap-4">
-                                   <div className="flex-1">
-                                     <div className="flex items-center gap-2 mb-1">
-                                       <span className="font-semibold">{factor.type.replace("_", " ")}</span>
-                                       <Badge 
-                                         variant={
-                                           factor.severity === "critical" ? "destructive" :
-                                           factor.severity === "high" ? "destructive" :
-                                           factor.severity === "medium" ? "warning" :
-                                           factor.severity === "low" ? "success" : "info"
-                                         }
-                                       >
-                                         {factor.severity.toUpperCase()}
-                                       </Badge>
-                                     </div>
-                                     <p className="text-sm text-muted-foreground">{factor.description}</p>
-                                     <p className="text-xs text-muted-foreground mt-1">
-                                       Weight: {factor.weight} | Score: {factor.score} | Weighted: {factor.weighted_score.toFixed(1)}
-                                     </p>
-                                   </div>
-                                   <Badge 
-                                     variant={
-                                       factor.confidence === "CONFIRMED" ? "success" :
-                                       factor.confidence === "HIGH_CONFIDENCE" ? "info" :
-                                       factor.confidence === "PROBABLE" ? "warning" : "secondary"
-                                     }
-                                     className={getConfidenceColor(factor.confidence)}
-                                   >
-                                     {factor.confidence}
-                                   </Badge>
-                                 </div>
+                <TabsContent value="attribution">
+                  <Card className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1E2024]">
+                    <CardHeader>
+                      <CardTitle className="text-slate-900 dark:text-white">VASP Attribution</CardTitle>
+                    </CardHeader>
+                     <CardContent>
+                       {analysisResult.attribution?.attributed ? (
+                         <div className="space-y-4">
+                           <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20">
+                             <div className="flex items-center justify-between">
+                               <div>
+                                 <p className="font-bold text-green-600 dark:text-green-400">VASP Identified</p>
+                                 <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                                   Funds traced to <strong className="text-slate-900 dark:text-white">{analysisResult.attribution?.nearest_vasp?.entity_name || "Unknown"}</strong>
+                                   with <Badge variant="success" className="ml-2">{analysisResult.attribution?.nearest_vasp?.confidence}</Badge> confidence
+                                 </p>
                                </div>
-                             ))}
-                           </CardContent>
-                         </Card>
+                               <div className="text-right">
+                                 <p className="font-mono text-lg font-bold text-green-600 dark:text-green-400">
+                                   {(analysisResult.attribution?.nearest_vasp?.confidence_score * 100).toFixed(1)}%
+                                 </p>
+                                 <p className="text-[11px] text-slate-500 dark:text-slate-400">Confidence Score</p>
+                               </div>
+                             </div>
+                             <div className="grid grid-cols-3 gap-3 text-xs mt-4">
+                               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
+                                 <p className="text-slate-500 dark:text-slate-400 font-medium">Distance</p>
+                                 <p className="font-bold text-slate-900 dark:text-slate-100">{analysisResult.attribution?.nearest_vasp?.distance_hops} hops</p>
+                               </div>
+                               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
+                                 <p className="text-slate-500 dark:text-slate-400 font-medium">Value Traced</p>
+                                 <p className="font-bold text-slate-900 dark:text-slate-100">{analysisResult.attribution?.nearest_vasp?.total_value_eth?.toFixed(4) || 0} ETH</p>
+                               </div>
+                               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
+                                 <p className="text-slate-500 dark:text-slate-400 font-medium">Evidence Items</p>
+                                 <p className="font-bold text-slate-900 dark:text-slate-100">{analysisResult.attribution?.nearest_vasp?.evidence?.length || 0}</p>
+                               </div>
+                             </div>
+                           </div>
+                         </div>
+                       ) : (
+                         <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                           <AlertTriangle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                           <p className="text-base font-bold text-slate-800 dark:text-slate-200">No VASP Attribution Found</p>
+                           <p className="text-xs mt-1">Fund flow did not reach a known exchange within trace depth</p>
+                         </div>
+                       )}
+                     </CardContent>
+                  </Card>
 
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>Methodology</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{analysisResult.risk.methodology}</p>
-                          </CardContent>
-                        </Card>
+                  {analysisResult.attribution?.all_attributions?.length && (
+                    <Card className="mt-4 border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1E2024]">
+                      <CardHeader>
+                        <CardTitle className="text-slate-900 dark:text-white">All Attributions ({analysisResult.attribution.all_attributions.length})</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                          <Table>
+                            <TableHeader className="bg-slate-50 dark:bg-slate-900/60">
+                              <TableRow className="border-b border-slate-200 dark:border-slate-800">
+                                <TableHead className="font-bold">Entity</TableHead>
+                                <TableHead className="font-bold">Type</TableHead>
+                                <TableHead className="font-bold">Confidence</TableHead>
+                                <TableHead className="font-bold">Hops</TableHead>
+                                <TableHead className="font-bold">Value (ETH)</TableHead>
+                                <TableHead className="font-bold">Type</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {analysisResult.attribution.all_attributions.map((attr: any, i: number) => (
+                                <TableRow key={i} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                  <TableCell className="font-semibold text-slate-900 dark:text-slate-100">{attr.entity_name}</TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline" className="capitalize text-xs border-slate-300 dark:border-slate-700">{attr.entity_type}</Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge 
+                                      variant={
+                                        attr.confidence === "CONFIRMED" ? "success" :
+                                        attr.confidence === "HIGH_CONFIDENCE" ? "info" :
+                                        attr.confidence === "PROBABLE" ? "warning" : "secondary"
+                                      }
+                                    >
+                                      {attr.confidence}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="text-xs font-semibold">{attr.distance_hops}</TableCell>
+                                  <TableCell className="font-mono tabular-nums text-xs font-semibold">{attr.total_value_eth?.toFixed(4) || 0}</TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline" className="text-xs border-slate-300 dark:border-slate-700">{attr.attribution_type}</Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
                       </CardContent>
                     </Card>
-                  </div>
-                )}
-              </TabsContent>
+                  )}
+                </TabsContent>
 
-              <TabsContent value="graph">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Investigation Graph</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-[500px] flex items-center justify-center bg-tracex-darker rounded-lg border border-tracex-border">
-                      <div className="text-center text-muted-foreground">
-                        <GitBranch className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                        <p className="text-lg font-medium">Graph Visualization</p>
-                        <p className="text-sm mt-1">Interactive fund flow graph (React Flow)</p>
-                        <p className="text-xs mt-2">View full graph in <Button variant="ghost" size="sm" asChild><Link href={`/graph?address=${encodeURIComponent(analysisResult.wallet?.address || selectedCase?.suspect_wallet || "")}`}><ExternalLink className="w-4 h-4 mr-1" />Open Graph</Link></Button></p>
-                      </div>
+                <TabsContent value="risk">
+                  {analysisResult.risk && (
+                    <div className="space-y-6">
+                      <Card className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1E2024]">
+                        <CardHeader>
+                          <CardTitle className="text-slate-900 dark:text-white">Risk Assessment</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="flex items-center justify-between p-6 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Overall Risk Score</p>
+                              <p className="text-4xl font-bold tracking-tight text-red-600 dark:text-red-400">
+                                {analysisResult.risk.overall_score?.toFixed(1) || 0}
+                              </p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                <Badge 
+                                  variant={
+                                    analysisResult.risk.risk_level === "critical" ? "destructive" :
+                                    analysisResult.risk.risk_level === "high" ? "destructive" :
+                                    analysisResult.risk.risk_level === "medium" ? "warning" :
+                                    analysisResult.risk.risk_level === "low" ? "success" : "info"
+                                  }
+                                >
+                                  {analysisResult.risk.risk_level?.toUpperCase()}
+                                </Badge>
+                              </p>
+                            </div>
+                            <div className="w-20 h-20 rounded-full border-4 border-slate-200 dark:border-slate-800 flex items-center justify-center">
+                              <span className="text-2xl font-bold text-red-600 dark:text-red-400">
+                                {(analysisResult.risk.overall_score || 0).toFixed(0)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <Card className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1E2024]">
+                            <CardHeader>
+                              <CardTitle className="text-slate-900 dark:text-white">Risk Summary</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">{analysisResult.risk.summary}</p>
+                            </CardContent>
+                          </Card>
+
+                           <Card className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1E2024]">
+                             <CardHeader>
+                               <CardTitle className="text-slate-900 dark:text-white">Risk Factors ({analysisResult.risk.factors?.length || 0})</CardTitle>
+                             </CardHeader>
+                             <CardContent className="space-y-3">
+                               {analysisResult.risk.factors?.map((factor: any, i: number) => (
+                                 <div key={i} className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50">
+                                   <div className="flex items-start justify-between gap-4">
+                                     <div className="flex-1">
+                                       <div className="flex items-center gap-2 mb-1">
+                                         <span className="font-bold text-slate-900 dark:text-white text-xs">{factor.type.replace("_", " ")}</span>
+                                         <Badge 
+                                           variant={
+                                             factor.severity === "critical" ? "destructive" :
+                                             factor.severity === "high" ? "destructive" :
+                                             factor.severity === "medium" ? "warning" :
+                                             factor.severity === "low" ? "success" : "info"
+                                           }
+                                         >
+                                           {factor.severity.toUpperCase()}
+                                         </Badge>
+                                       </div>
+                                       <p className="text-xs text-slate-600 dark:text-slate-300">{factor.description}</p>
+                                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-mono">
+                                         Weight: {factor.weight} | Score: {factor.score} | Weighted: {factor.weighted_score.toFixed(1)}
+                                       </p>
+                                     </div>
+                                     <Badge 
+                                       variant={
+                                         factor.confidence === "CONFIRMED" ? "success" :
+                                         factor.confidence === "HIGH_CONFIDENCE" ? "info" :
+                                         factor.confidence === "PROBABLE" ? "warning" : "secondary"
+                                       }
+                                       className={getConfidenceColor(factor.confidence)}
+                                     >
+                                       {factor.confidence}
+                                     </Badge>
+                                   </div>
+                                 </div>
+                               ))}
+                             </CardContent>
+                           </Card>
+
+                          <Card className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1E2024]">
+                            <CardHeader>
+                              <CardTitle className="text-slate-900 dark:text-white">Methodology</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">{analysisResult.risk.methodology}</p>
+                            </CardContent>
+                          </Card>
+                        </CardContent>
+                      </Card>
                     </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="graph">
+                  <Card className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1E2024]">
+                    <CardHeader>
+                      <CardTitle className="text-slate-900 dark:text-white">Investigation Graph</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-[500px] flex items-center justify-center bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800">
+                        <div className="text-center text-slate-500 dark:text-slate-400">
+                          <GitBranch className="w-12 h-12 mx-auto mb-4 opacity-50 text-primary" />
+                          <p className="text-base font-bold text-slate-800 dark:text-slate-200">Graph Visualization</p>
+                          <p className="text-xs mt-1">Interactive fund flow graph (React Flow)</p>
+                          <p className="text-xs mt-3">
+                            <Button variant="outline" size="sm" asChild className="rounded-xl border-slate-300 dark:border-slate-700">
+                              <Link href={`/graph?address=${encodeURIComponent(analysisResult.wallet?.address || selectedCase?.suspect_wallet || "")}`}>
+                                <ExternalLink className="w-4 h-4 mr-1.5" />
+                                Open Graph Page
+                              </Link>
+                            </Button>
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
             </Tabs>
           )}
         </div>
