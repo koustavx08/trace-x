@@ -83,13 +83,13 @@ class ReportGenerateResponse(BaseModel):
     "/wallets/{wallet_id}/assess",
     response_model=RiskAssessmentResponse,
     summary="Assess wallet risk",
-    description="Assess the risk level of a wallet address based on transaction history and graph analysis.",
+    description="Assess the risk level of a wallet address based on transaction history and graph analysis. Returns a risk_score (prediction score 0-100) with risk level classification.",
 )
 @router.get(
     "/wallets/{wallet_id}/assess",
     response_model=RiskAssessmentResponse,
     summary="Assess wallet risk (GET)",
-    description="Assess the risk level of a wallet address based on transaction history and graph analysis.",
+    description="Assess the risk level of a wallet address based on transaction history and graph analysis. Returns a risk_score (prediction score 0-100) with risk level classification.",
 )
 async def assess_wallet_risk(
     wallet_id: str,
@@ -301,7 +301,7 @@ async def download_report(
 @router.get(
     "/cases/{case_id}/risk-summary",
     summary="Get case risk summary",
-    description="Get a risk summary for a case, including wallet risk distribution and attribution data.",
+    description="Get a risk summary for a case, including wallet risk prediction scores (0-100) and distribution analysis.",
 )
 async def get_case_risk_summary(
     case_id: UUID,

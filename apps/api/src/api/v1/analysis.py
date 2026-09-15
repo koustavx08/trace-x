@@ -120,7 +120,7 @@ async def validate_wallet_address(
     "/cases/{case_id}/wallets/analyze",
     response_model=WalletAnalyzeResponse,
     summary="Analyze wallet in case",
-    description="Validate/register a wallet and dispatch background analysis task to Celery. Returns a task ID for status polling.",
+    description="Validate/register a wallet and dispatch background analysis task to Celery. Returns a task ID for status polling. The analysis generates a risk_score (prediction score 0-100) for the wallet.",
 )
 async def analyze_wallet_in_case(
     case_id: UUID,
@@ -184,7 +184,7 @@ async def get_analysis_task_status(task_id: str) -> TaskStatusResponse:
     "/wallets/{wallet_id}/trace",
     response_model=dict,
     summary="Trace fund flow",
-    description="Trace the fund flow from a wallet address up to a specified number of hops.",
+    description="Trace the fund flow from a wallet address up to a specified number of hops. Returns risk assessment with risk_score (prediction score 0-100) for each transaction path.",
 )
 async def trace_fund_flow(
     wallet_id: str,
@@ -205,7 +205,7 @@ async def trace_fund_flow(
 @router.get(
     "/wallets/{wallet_id}/transactions",
     summary="Get wallet transactions",
-    description="Retrieve transactions for a wallet address with pagination.",
+    description="Retrieve transactions for a wallet address with pagination. Each transaction record includes is_suspicious flag and associated risk metrics.",
 )
 async def get_wallet_transactions(
     wallet_id: str,
@@ -265,7 +265,7 @@ async def get_wallet_transactions(
 @router.get(
     "/chains",
     summary="List supported chains",
-    description="List all supported blockchain chains with their information.",
+    description="List all supported blockchain chains with their information. Includes chain IDs and supported networks for risk scoring.",
 )
 async def list_supported_chains():
     from src.core.validation import get_supported_chains
