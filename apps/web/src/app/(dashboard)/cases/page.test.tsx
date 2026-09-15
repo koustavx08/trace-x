@@ -19,16 +19,16 @@ function renderWithClient(ui: React.ReactElement) {
 describe("CasesPage", () => {
   it("renders without crashing and shows the page heading", () => {
     renderWithClient(<CasesPage />);
-    expect(screen.getByRole("heading", { name: "Cases" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "INVESTIGATIONS REGISTRY & CASES" })).toBeInTheDocument();
   });
 
   it("shows the New Case action", () => {
     renderWithClient(<CasesPage />);
-    expect(screen.getByRole("button", { name: /New Case/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /REGISTER NEW CASE/i })).toBeInTheDocument();
   });
 
   it("shows a search input for filtering cases", () => {
     renderWithClient(<CasesPage />);
-    expect(screen.getByPlaceholderText("Search cases...")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search case title or ID...")).toBeInTheDocument();
   });
 });

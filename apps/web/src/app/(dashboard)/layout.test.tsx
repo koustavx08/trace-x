@@ -16,6 +16,7 @@ import DashboardLayout from "./layout";
 
 jest.mock("next/navigation", () => ({
   usePathname: () => "/dashboard",
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn(), prefetch: jest.fn() }),
 }));
 
 describe("DashboardLayout (named export)", () => {

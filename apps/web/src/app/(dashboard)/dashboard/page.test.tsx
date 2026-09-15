@@ -28,7 +28,7 @@ function renderWithClient(ui: React.ReactElement) {
 describe("DashboardPage", () => {
   it("renders without crashing and shows the page heading", () => {
     renderWithClient(<DashboardPage />);
-    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "FORENSIC ANALYST WORKSPACE" })).toBeInTheDocument();
   });
 
   it("renders the stat cards", () => {
@@ -41,6 +41,6 @@ describe("DashboardPage", () => {
 
   it("shows the platform health section", () => {
     renderWithClient(<DashboardPage />);
-    expect(screen.getByText("Platform Health")).toBeInTheDocument();
+    expect(screen.getByText("SYSTEM TELEMETRY & INFRASTRUCTURE HEALTH")).toBeInTheDocument();
   });
 });
