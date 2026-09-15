@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
@@ -131,10 +131,15 @@ class InvestigationAssistant:
         return {
             QueryType.RISK_SUMMARY: [
                 re.compile(r"(risk|score|danger|threat).*(wallet|address|node|factors|0x)", re.I),
-                re.compile(r"how risky|risk level|risk assessment|risk factor|risk breakdown|risk table", re.I),
+                re.compile(
+                    r"how risky|risk level|risk assessment|risk factor|risk breakdown|risk table",
+                    re.I,
+                ),
             ],
             QueryType.ATTRIBUTION: [
-                re.compile(r"(attribut|vasp|exchange|where.*go|endpoint|hop).*(wallet|address|node)?", re.I),
+                re.compile(
+                    r"(attribut|vasp|exchange|where.*go|endpoint|hop).*(wallet|address|node)?", re.I
+                ),
                 re.compile(r"(cash out|off.ramp|deposit to)", re.I),
             ],
             QueryType.PATTERN_DETECTION: [
@@ -148,7 +153,9 @@ class InvestigationAssistant:
                 re.compile(r"(where did|where.*from|where.*to|follow the money)", re.I),
             ],
             QueryType.ENTITY_LOOKUP: [
-                re.compile(r"(who is|who owns|what is|entity|owner|label).*(address|wallet|node)", re.I),
+                re.compile(
+                    r"(who is|who owns|what is|entity|owner|label).*(address|wallet|node)", re.I
+                ),
                 re.compile(r"(known|identified|label).*(address|wallet|node)", re.I),
             ],
             QueryType.CASE_OVERVIEW: [
@@ -292,6 +299,7 @@ class InvestigationAssistant:
             is_uuid = False
             try:
                 import uuid
+
                 uuid.UUID(raw_wid)
                 is_uuid = True
             except (ValueError, TypeError, AttributeError):
@@ -309,7 +317,7 @@ class InvestigationAssistant:
         if case_number and not case_id:
             case_id = await self._resolve_case_id(case_number)
 
-        handlers = {
+        handlers: dict[QueryType, Any] = {
             QueryType.RISK_SUMMARY: self._handle_risk_summary,
             QueryType.ATTRIBUTION: self._handle_attribution,
             QueryType.PATTERN_DETECTION: self._handle_pattern_detection,
@@ -320,10 +328,11 @@ class InvestigationAssistant:
             QueryType.COMPARISON: self._handle_comparison,
         }
 
-        handler = (
+        handler: Any = (
             handlers.get(query_type, self._handle_general) if matched_type else self._handle_general
         )
         import inspect
+
         sig = inspect.signature(handler)
         if "tx_hash" in sig.parameters:
             response = await handler(query, case_id, wallet_id, address, chain, tx_hash=tx_hash)
@@ -333,7 +342,7 @@ class InvestigationAssistant:
         ai_queries_total.labels(
             query_type=response.query_type.value, confidence=response.confidence.value
         ).inc()
-        return response
+        return cast(AIResponse, response)
 
     # The rest of the methods (_handle_*, _get_wallet_risk, etc.) remain unchanged.
     # We only need to update the _handle_* methods that call _compose_answer to use the new method.
@@ -359,16 +368,16 @@ class InvestigationAssistant:
 
                 from src.models import Transaction, Wallet
 
-                stmt = select(Transaction).where(Transaction.tx_hash.ilike(tx_hash))
-                result = await session.execute(stmt)
-                tx = result.scalars().first()
+                tx_stmt = select(Transaction).where(Transaction.tx_hash.ilike(tx_hash))
+                tx_res = await session.execute(tx_stmt)
+                tx = tx_res.scalars().first()
                 if tx:
                     target_wallet_id = str(tx.wallet_id)
                     target_address = tx.from_address
                 else:
-                    stmt = select(Wallet).where(Wallet.first_seen_tx_hash.ilike(tx_hash))
-                    result = await session.execute(stmt)
-                    w = result.scalars().first()
+                    wallet_stmt = select(Wallet).where(Wallet.first_seen_tx_hash.ilike(tx_hash))
+                    wallet_res = await session.execute(wallet_stmt)
+                    w = wallet_res.scalars().first()
                     if w:
                         target_wallet_id = str(w.id)
                         target_address = w.address
@@ -379,13 +388,13 @@ class InvestigationAssistant:
 
                 from src.models import Wallet
 
-                stmt = select(Wallet).where(Wallet.address.ilike(target_address))
+                w_stmt = select(Wallet).where(Wallet.address.ilike(target_address))
                 if case_id:
-                    stmt = stmt.where(Wallet.case_id == case_id)
+                    w_stmt = w_stmt.where(Wallet.case_id == case_id)
                 elif chain:
-                    stmt = stmt.where(Wallet.chain == chain)
-                result = await session.execute(stmt)
-                wallet = result.scalars().first()
+                    w_stmt = w_stmt.where(Wallet.chain == chain)
+                w_res = await session.execute(w_stmt)
+                wallet = w_res.scalars().first()
                 if wallet:
                     target_wallet_id = str(wallet.id)
                     target_address = wallet.address
@@ -528,7 +537,9 @@ class InvestigationAssistant:
             query_type=QueryType.RISK_SUMMARY,
             confidence=ConfidenceLevel.UNKNOWN,
             evidence=[],
-            follow_up_questions=["Provide a wallet address, node identifier, or case number to analyze."],
+            follow_up_questions=[
+                "Provide a wallet address, node identifier, or case number to analyze."
+            ],
         )
 
     async def _handle_attribution(
@@ -1198,10 +1209,10 @@ class InvestigationAssistant:
 
             actual_wallet_id = wallet.id
 
-            result = await session.execute(
+            tx_res = await session.execute(
                 select(Transaction).where(Transaction.wallet_id == actual_wallet_id)
             )
-            transactions = result.scalars().all()
+            transactions = tx_res.scalars().all()
 
             graph_wallet = type(
                 "GraphWallet",

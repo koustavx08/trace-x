@@ -48,10 +48,15 @@ class DeterministicDemoProvider(AIProvider):
         return {
             QueryType.RISK_SUMMARY: [
                 re.compile(r"(risk|score|danger|threat).*(wallet|address|node|factors|0x)", re.I),
-                re.compile(r"how risky|risk level|risk assessment|risk factor|risk breakdown|risk table", re.I),
+                re.compile(
+                    r"how risky|risk level|risk assessment|risk factor|risk breakdown|risk table",
+                    re.I,
+                ),
             ],
             QueryType.ATTRIBUTION: [
-                re.compile(r"(attribut|vasp|exchange|where.*go|endpoint|hop).*(wallet|address|node)?", re.I),
+                re.compile(
+                    r"(attribut|vasp|exchange|where.*go|endpoint|hop).*(wallet|address|node)?", re.I
+                ),
                 re.compile(r"(cash out|off.ramp|deposit to)", re.I),
             ],
             QueryType.PATTERN_DETECTION: [
@@ -65,7 +70,9 @@ class DeterministicDemoProvider(AIProvider):
                 re.compile(r"(where did|where.*from|where.*to|follow the money)", re.I),
             ],
             QueryType.ENTITY_LOOKUP: [
-                re.compile(r"(who is|who owns|what is|entity|owner|label).*(address|wallet|node)", re.I),
+                re.compile(
+                    r"(who is|who owns|what is|entity|owner|label).*(address|wallet|node)", re.I
+                ),
                 re.compile(r"(known|identified|label).*(address|wallet|node)", re.I),
             ],
             QueryType.CASE_OVERVIEW: [

@@ -159,9 +159,13 @@ async def chat_with_assistant(
         "evidence_count": len(ai_response.evidence),
         **(ai_response.metadata or {}),
         "evidence": [
-            e.model_dump() if hasattr(e, "model_dump") else (e.dict() if hasattr(e, "dict") else dict(e))
+            e.model_dump()
+            if hasattr(e, "model_dump")
+            else (e.dict() if hasattr(e, "dict") else dict(e))
             for e in ai_response.evidence
-        ] if ai_response.evidence else [],
+        ]
+        if ai_response.evidence
+        else [],
     }
 
     assistant_message = ChatMessage(
