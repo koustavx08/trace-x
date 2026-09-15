@@ -425,9 +425,7 @@ class BitcoinProvider(BlockchainProvider):
                 return None
             block = await self._request(f"/block/{block_hash}", allow_404=True)
         except ExternalServiceError as exc:
-            logger.warning(
-                "bitcoin_get_block_failed", block_number=block_number, error=exc.message
-            )
+            logger.warning("bitcoin_get_block_failed", block_number=block_number, error=exc.message)
             return None
         return block if block else None
 
@@ -495,13 +493,9 @@ class BitcoinProvider(BlockchainProvider):
     async def get_wallet_balance(self, address: str) -> WalletBalance:
         stats = await self._request(f"/address/{address}")
         chain_stats = (stats or {}).get("chain_stats") or {}
-        mempool_stats = (stats or {}).get("mempool_stats") or {}
 
         confirmed = int(chain_stats.get("funded_txo_sum") or 0) - int(
             chain_stats.get("spent_txo_sum") or 0
-        )
-        unconfirmed = int(mempool_stats.get("funded_txo_sum") or 0) - int(
-            mempool_stats.get("spent_txo_sum") or 0
         )
 
         return WalletBalance(
