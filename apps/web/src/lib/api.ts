@@ -124,6 +124,14 @@ export interface Report {
   updated_at: string;
 }
 
+export interface DraftStatutoryNoticeRequest {
+  wallet_address: string;
+  entity_name?: string;
+  case_id?: string;
+  notice_type?: "section_91_crpc" | "subpoena" | "freeze_notice";
+  format?: "pdf" | "html" | "json";
+}
+
 export interface HealthResponse {
   status: string;
   version: string;
@@ -336,6 +344,10 @@ export const reportsApi = {
   get: (id: string) => api.get<Report>(`/reports/${id}`),
   create: (data: Partial<Report> & { case_id: string; generated_by: string }) =>
     api.post<Report>("/reports", data),
+  draftStatutoryNotice: (data: DraftStatutoryNoticeRequest) =>
+    api.post<Report>("/reports/draft-statutory-notice", data),
+  getDownloadUrl: (reportId: string) =>
+    `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1"}/reports/${reportId}/download`,
 };
 
 export const healthApi = {

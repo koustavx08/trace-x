@@ -6,6 +6,10 @@ from .generator import (
     ReportTemplate,
     report_generator,
 )
+from .notice_templates import (
+    generate_statutory_notice_html,
+    generate_statutory_notice_pdf,
+)
 
 __all__ = [
     "ReportFormat",
@@ -14,4 +18,6 @@ __all__ = [
     "GeneratedReport",
     "ReportGenerator",
     "report_generator",
+    "generate_statutory_notice_html",
+    "generate_statutory_notice_pdf",
 ]

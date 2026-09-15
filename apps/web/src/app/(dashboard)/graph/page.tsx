@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { formatAddress, formatCurrency } from "@/lib/utils";
 import {
   graphApi,
   walletsApi,
+  reportsApi,
   GraphNode,
   GraphEdge,
   SubgraphResponse,
@@ -32,6 +33,9 @@ import {
   ShieldAlert,
   Sparkles,
   ArrowRight,
+  FileText,
+  Scale,
+  Loader2,
 } from "lucide-react";
 import ReactFlow, {
   Background,
@@ -343,6 +347,40 @@ function GraphView() {
   const [edges, setEdges] = useState<Edge<GraphEdge>[]>([]);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [copied, setCopied] = useState(false);
+  const router = useRouter();
+  const [draftingReport, setDraftingReport] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+
+  const handleDraftReport = async () => {
+    if (!selectedNode) return;
+    const targetAddress = selectedNode.address || selectedNode.tx_hash;
+    if (!targetAddress) return;
+
+    setDraftingReport(true);
+    setDraftError(null);
+
+    try {
+      const entityName =
+        selectedNode.name ||
+        selectedNode.label ||
+        selectedNode.entity_name ||
+        (selectedNode.entity_type === "exchange" ? "Centralized Exchange (VASP)" : "Custodial VASP");
+
+      await reportsApi.draftStatutoryNotice({
+        wallet_address: targetAddress,
+        entity_name: entityName,
+        notice_type: "section_91_crpc",
+        format: "pdf",
+      });
+
+      router.push("/reports");
+    } catch (err) {
+      console.error("Failed to draft statutory notice:", err);
+      setDraftError(err instanceof Error ? err.message : "Failed to draft statutory notice");
+    } finally {
+      setDraftingReport(false);
+    }
+  };
 
   const fetchGraphWithAddress = useCallback(
     async (rawInput: string) => {
@@ -770,38 +808,98 @@ function GraphView() {
                     </div>
                   )}
 
-                  <div className="pt-2 flex flex-col gap-2">
-                    {selectedNode.address && (
-                      <Button size="sm" asChild className="w-full rounded-xl">
-                        <Link href={`/risk?wallet=${selectedNode.address}`}>
-                          <ShieldAlert className="w-3.5 h-3.5 mr-2" />
-                          Assess in Risk Engine
-                        </Link>
-                      </Button>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        copyToClipboard(
-                          selectedNode.address || selectedNode.tx_hash || ""
-                        )
-                      }
-                      className="w-full rounded-xl"
-                    >
-                      {copied ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 mr-2 text-green-500" />
-                          Copied!
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5 mr-2" />
-                          Copy Identifier
-                        </>
-                      )}
-                    </Button>
-                  </div>
+                  {/* Compute custodial status */}
+                  {(() => {
+                    const isCustodial =
+                      selectedNode.type === "entity" ||
+                      selectedNode.entity_type === "exchange" ||
+                      Boolean(selectedNode.entity_name) ||
+                      Boolean(selectedNode.name && /binance|kraken|coinbase|bybit|okx|exchange|vasp/i.test(selectedNode.name)) ||
+                      Boolean(selectedNode.label && /binance|kraken|coinbase|bybit|okx|exchange|vasp/i.test(selectedNode.label));
+
+                    return (
+                      <div className="pt-2 flex flex-col gap-2">
+                        {isCustodial ? (
+                          <Button
+                            size="sm"
+                            onClick={handleDraftReport}
+                            disabled={draftingReport}
+                            className="w-full rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold shadow-sm transition-all"
+                          >
+                            {draftingReport ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                                Drafting Section 91 Notice...
+                              </>
+                            ) : (
+                              <>
+                                <Scale className="w-3.5 h-3.5 mr-2" />
+                                Draft Section 91 / Freeze Notice
+                              </>
+                            )}
+                          </Button>
+                        ) : (
+                          selectedNode.address && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleDraftReport}
+                              disabled={draftingReport}
+                              className="w-full rounded-xl"
+                            >
+                              {draftingReport ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                                  Drafting Notice...
+                                </>
+                              ) : (
+                                <>
+                                  <FileText className="w-3.5 h-3.5 mr-2" />
+                                  Draft Statutory Notice
+                                </>
+                              )}
+                            </Button>
+                          )
+                        )}
+
+                        {draftError && (
+                          <p className="text-xs text-destructive text-center">{draftError}</p>
+                        )}
+
+                        {selectedNode.address && (
+                          <Button size="sm" asChild variant={isCustodial ? "outline" : "default"} className="w-full rounded-xl">
+                            <Link href={`/risk?wallet=${selectedNode.address}`}>
+                              <ShieldAlert className="w-3.5 h-3.5 mr-2" />
+                              Assess in Risk Engine
+                            </Link>
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            copyToClipboard(
+                              selectedNode.address || selectedNode.tx_hash || ""
+                            )
+                          }
+                          className="w-full rounded-xl"
+                        >
+                          {copied ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 mr-2 text-green-500" />
+                              Copied!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5 mr-2" />
+                              Copy Identifier
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    );
+                  })()}
+
                 </div>
               )}
             </>
