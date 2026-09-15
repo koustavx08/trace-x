@@ -41,9 +41,7 @@ def generate_statutory_notice_html(
 
     tx_list = transactions or []
     if total_value_usd is None:
-        total_value_usd = sum(
-            float(t.get("value_usd") or 0.0) for t in tx_list
-        )
+        total_value_usd = sum(float(t.get("value_usd") or 0.0) for t in tx_list)
 
     # Render table rows
     tx_rows = []
@@ -71,9 +69,13 @@ def generate_statutory_notice_html(
         </tr>
         """)
 
-    tx_table_body = "".join(tx_rows) if tx_rows else """
+    tx_table_body = (
+        "".join(tx_rows)
+        if tx_rows
+        else """
     <tr><td colspan="7" style="padding: 12px; text-align: center; color: #666; border: 1px solid #ccc;">No direct transaction entries recorded.</td></tr>
     """
+    )
 
     html_content = f"""<!DOCTYPE html>
 <html>

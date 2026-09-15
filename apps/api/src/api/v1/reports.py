@@ -33,9 +33,13 @@ class ReportGenerateRequest(BaseModel):
 
 class DraftStatutoryNoticeRequest(BaseModel):
     wallet_address: str = Field(..., description="Target custodial or suspect wallet address")
-    entity_name: str | None = Field(None, description="Name of VASP/Exchange (e.g. Binance, Kraken)")
+    entity_name: str | None = Field(
+        None, description="Name of VASP/Exchange (e.g. Binance, Kraken)"
+    )
     case_id: UUID | None = Field(None, description="Optional case ID to link notice to")
-    notice_type: str = Field("section_91_crpc", description="section_91_crpc | subpoena | freeze_notice")
+    notice_type: str = Field(
+        "section_91_crpc", description="section_91_crpc | subpoena | freeze_notice"
+    )
     format: str = Field("pdf", pattern="^(pdf|json|html)$")
 
 
@@ -240,9 +244,7 @@ async def draft_statutory_notice(
     target_addr = payload.wallet_address.strip()
 
     # 1. Look up wallet in DB if exists
-    wallet_res = await session.execute(
-        select(Wallet).where(Wallet.address.ilike(target_addr))
-    )
+    wallet_res = await session.execute(select(Wallet).where(Wallet.address.ilike(target_addr)))
     wallet = wallet_res.scalars().first()
 
     # 2. Look up case
@@ -253,9 +255,7 @@ async def draft_statutory_notice(
         case = await session.get(Case, wallet.case_id)
 
     if not case:
-        case_res = await session.execute(
-            select(Case).order_by(Case.created_at.desc()).limit(1)
-        )
+        case_res = await session.execute(select(Case).order_by(Case.created_at.desc()).limit(1))
         case = case_res.scalars().first()
 
     if not case:
@@ -307,8 +307,8 @@ async def draft_statutory_notice(
         for t in tx_results
     ]
 
-    total_value_usd = sum(float(t.get("value_usd") or 0.0) for t in transactions_data)
-    if total_value_usd == 0:
+    total_value_usd: float = sum(float(str(t.get("value_usd") or 0.0)) for t in transactions_data)
+    if total_value_usd == 0.0:
         total_value_usd = 750000.0  # Demonstrative default
 
     report_id = uuid4()
@@ -346,7 +346,9 @@ async def draft_statutory_notice(
     report_file.write_bytes(file_bytes)
 
     # 7. Persist Report row in DB
-    report_title = f"Section 91 CrPC Notice - {entity_name} ({target_addr[:8]}...{target_addr[-6:]})"
+    report_title = (
+        f"Section 91 CrPC Notice - {entity_name} ({target_addr[:8]}...{target_addr[-6:]})"
+    )
     report_summary = (
         f"Statutory Legal Order under Section 91 Cr.P.C. / Section 94 BNSS served on {entity_name} "
         f"demanding immediate asset freezing and KYC dossier production for account/deposit address {target_addr}."
@@ -358,7 +360,9 @@ async def draft_statutory_notice(
         if wallet.risk_score is not None:
             risk_score_val = float(wallet.risk_score)
         if wallet.entity_confidence is not None:
-            confidence_val = getattr(wallet.entity_confidence, "value", str(wallet.entity_confidence))
+            confidence_val = getattr(
+                wallet.entity_confidence, "value", str(wallet.entity_confidence)
+            )
 
     report = Report(
         id=report_id,
@@ -446,7 +450,11 @@ async def download_report_file(
         "json": "application/json",
     }
     media_type = media_types.get(report.format, "application/octet-stream")
-    clean_title = "".join(c for c in report.title if c.isalnum() or c in ("-", "_", " ")).strip().replace(" ", "_")
+    clean_title = (
+        "".join(c for c in report.title if c.isalnum() or c in ("-", "_", " "))
+        .strip()
+        .replace(" ", "_")
+    )
     filename = f"{clean_title[:45]}.{report.format}"
 
     return Response(
@@ -457,4 +465,3 @@ async def download_report_file(
             "Access-Control-Expose-Headers": "Content-Disposition",
         },
     )
-
