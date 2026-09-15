@@ -588,3 +588,288 @@ export const aiApi = {
   generateNarrative: (caseId: string, walletIds?: string[]) =>
     api.post<{ case_id: string; narrative: string; generated_at: string }>(`/ai/generate-narrative`, { case_id: caseId, wallet_ids: walletIds }),
 };
+// ---------------------------------------------------------------------------
+// Forensics workbench (/forensics/*)
+//
+// These drive the backend forensic engines: taint propagation, entity
+// clustering, laundering-motif detection, flow/min-cut, cross-chain bridge
+// matching, fiat<->crypto P2P correlation and the Section 63 BSA evidence
+// certificate. Every route is scoped to a case id.
+// ---------------------------------------------------------------------------
+
+export type TaintModel = "haircut" | "fifo";
+
+export type MotifKind = "fan_out_fan_in" | "peel_chain" | "cycle";
+
+export interface TaintResult {
+  address: string;
+  taint_ratio: number;
+  taint_percent: number;
+  tainted_value_usd: number;
+  received_value_usd: number;
+  hops: number;
+  model: string;
+}
+
+export interface ForensicMotifSummary {
+  motif: string;
+  value_usd: number;
+  addresses: string[];
+  confidence: number;
+}
+
+export interface ForensicSummary {
+  case_id: string;
+  transfer_count: number;
+  address_count: number;
+  total_value_usd: number;
+  chains: string[];
+  cluster_count: number;
+  largest_cluster: number;
+  motif_counts: Record<string, number>;
+  top_motifs: ForensicMotifSummary[];
+  taint: {
+    sources: Record<string, number>;
+    tainted_address_count: number;
+    total_tainted_usd: number;
+    top_destinations: TaintResult[];
+  };
+}
+
+export interface TaintRequest {
+  model: TaintModel;
+  max_hops: number;
+  /** Omit (or null) to let the backend derive sources from the case's suspect wallets. */
+  sources?: Record<string, number> | null;
+  top_n: number;
+  min_taint_usd: number;
+}
+
+export interface TaintResponse {
+  case_id: string;
+  model: string;
+  sources: Record<string, number>;
+  transfer_count: number;
+  tainted_address_count: number;
+  total_tainted_usd: number;
+  results: TaintResult[];
+}
+
+export interface ClusterRequest {
+  cospend: boolean;
+  gas_funding: boolean;
+  window_seconds: number;
+  min_cluster_size: number;
+}
+
+export interface EntityCluster {
+  cluster_id: string;
+  root: string;
+  members: string[];
+  member_count: number;
+  heuristics: string[];
+  total_value_usd: number;
+}
+
+export interface ClusterResponse {
+  case_id: string;
+  transfer_count: number;
+  address_count: number;
+  cluster_count: number;
+  clustered_address_count: number;
+  clusters: EntityCluster[];
+}
+
+export interface MotifRequest {
+  window_seconds: number;
+  min_mules: number;
+  max_cycle_length: number;
+}
+
+export interface MotifMatch {
+  motif: MotifKind;
+  addresses: string[];
+  tx_hashes: string[];
+  value_usd: number;
+  confidence: number;
+  window_seconds: number;
+  detail: Record<string, unknown>;
+}
+
+export interface MotifResponse {
+  case_id: string;
+  transfer_count: number;
+  match_count: number;
+  counts_by_motif: Record<string, number>;
+  matches: MotifMatch[];
+}
+
+export interface FlowRequest {
+  source: string;
+  target: string;
+  max_hops: number;
+}
+
+export interface FlowPath {
+  nodes: string[];
+  total_value_usd: number;
+  hops: number;
+}
+
+export interface WeightedFlowPath extends FlowPath {
+  edges: Record<string, unknown>[];
+  weight: number;
+}
+
+export interface FlowResponse {
+  case_id: string;
+  source: string;
+  target: string;
+  transfer_count: number;
+  path: WeightedFlowPath | null;
+  max_flow_usd: number;
+  bottleneck_usd: number;
+  /** Each entry is a [from, to] pair — the edges to freeze. */
+  min_cut_edges: string[][];
+  flow_paths: FlowPath[];
+}
+
+export interface BridgeMatchRequest {
+  window_seconds: number;
+  value_tolerance_pct: number;
+  bridge_addresses?: string[] | null;
+}
+
+export interface BridgeMatch {
+  source_chain: string;
+  source_tx: string;
+  source_address: string;
+  destination_chain: string;
+  destination_tx: string;
+  destination_address: string;
+  value_usd: number;
+  value_delta_pct: number;
+  elapsed_seconds: number;
+  confidence: number;
+  bridge_address: string | null;
+}
+
+export interface BridgeMatchResponse {
+  case_id: string;
+  transfer_count: number;
+  chains: string[];
+  match_count: number;
+  matches: BridgeMatch[];
+}
+
+export interface FiatPayment {
+  reference_id: string;
+  payer_account: string;
+  payee_account: string;
+  amount_inr: number;
+  /** ISO-8601 timestamp. */
+  timestamp: string;
+  rail: string;
+}
+
+export interface P2PCorrelationRequest {
+  payments: FiatPayment[];
+  window_seconds: number;
+  usd_inr_rate: number;
+  amount_tolerance_pct: number;
+}
+
+export interface P2PMatch {
+  payment_reference: string;
+  payer_account: string;
+  payee_account: string;
+  chain_tx: string;
+  crypto_address: string;
+  amount_inr: number;
+  value_usd: number;
+  implied_rate: number;
+  elapsed_seconds: number;
+  confidence: number;
+}
+
+export interface P2PCorrelationResponse {
+  case_id: string;
+  payment_count: number;
+  release_count: number;
+  match_count: number;
+  matches: P2PMatch[];
+}
+
+export interface WalletRoleResponse {
+  case_id: string;
+  address: string;
+  role: string;
+  confidence: number;
+  signals: string[];
+}
+
+export interface EvidenceCertificateRequest {
+  investigating_officer: string;
+  designation?: string;
+  place?: string;
+}
+
+export interface EvidenceCertificate {
+  case_id: string;
+  case_number: string;
+  certificate_id: string;
+  generated_at: string;
+  record_count: number;
+  merkle_root: string;
+  chain_tip: string;
+  record_hashes: string[];
+  hash_chain: string[];
+  system_metadata: Record<string, unknown>;
+  declaration: string;
+  self_verified: boolean;
+  verification_errors: string[];
+}
+
+export const forensicsApi = {
+  getSummary: (caseId: string) =>
+    api.get<ForensicSummary>(`/forensics/cases/${caseId}/summary`),
+  runTaint: (caseId: string, data: TaintRequest) =>
+    api.post<TaintResponse>(`/forensics/cases/${caseId}/taint`, data),
+  runClusters: (caseId: string, data: ClusterRequest) =>
+    api.post<ClusterResponse>(`/forensics/cases/${caseId}/clusters`, data),
+  runMotifs: (caseId: string, data: MotifRequest) =>
+    api.post<MotifResponse>(`/forensics/cases/${caseId}/motifs`, data),
+  runFlow: (caseId: string, data: FlowRequest) =>
+    api.post<FlowResponse>(`/forensics/cases/${caseId}/flow`, data),
+  matchBridges: (caseId: string, data: BridgeMatchRequest) =>
+    api.post<BridgeMatchResponse>(`/forensics/cases/${caseId}/bridge-matches`, data),
+  correlateP2P: (caseId: string, data: P2PCorrelationRequest) =>
+    api.post<P2PCorrelationResponse>(`/forensics/cases/${caseId}/p2p-correlation`, data),
+  getWalletRole: (caseId: string, address: string) =>
+    api.get<WalletRoleResponse>(`/forensics/cases/${caseId}/wallet-role`, { address }),
+  generateEvidenceCertificate: (caseId: string, data: EvidenceCertificateRequest) =>
+    api.post<EvidenceCertificate>(`/forensics/cases/${caseId}/evidence-certificate`, data),
+  /**
+   * Mirrors reportsApi.getDownloadUrl, but the PDF route is a POST (it takes
+   * the officer/designation/place body), so a bare href can't fetch it --
+   * use downloadEvidenceCertificatePdf below for the actual download.
+   */
+  getEvidenceCertificatePdfUrl: (caseId: string) =>
+    `${API_URL}/forensics/cases/${caseId}/evidence-certificate.pdf`,
+  downloadEvidenceCertificatePdf: async (
+    caseId: string,
+    data: EvidenceCertificateRequest
+  ): Promise<Blob> => {
+    const response = await fetch(forensicsApi.getEvidenceCertificatePdfUrl(caseId), {
+      method: "POST",
+      // Same httpOnly-cookie auth the axios client uses.
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      throw new Error(`Certificate PDF download failed (HTTP ${response.status})`);
+    }
+    return response.blob();
+  },
+};
