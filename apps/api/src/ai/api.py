@@ -153,14 +153,21 @@ async def chat_with_assistant(
         wallet_id=request.wallet_id,
     )
 
+    message_metadata = {
+        "query_type": ai_response.query_type.value,
+        "confidence": ai_response.confidence.value,
+        "evidence_count": len(ai_response.evidence),
+        **(ai_response.metadata or {}),
+        "evidence": [
+            e.model_dump() if hasattr(e, "model_dump") else (e.dict() if hasattr(e, "dict") else dict(e))
+            for e in ai_response.evidence
+        ] if ai_response.evidence else [],
+    }
+
     assistant_message = ChatMessage(
         role="assistant",
         content=ai_response.answer,
-        metadata={
-            "query_type": ai_response.query_type.value,
-            "confidence": ai_response.confidence.value,
-            "evidence_count": len(ai_response.evidence),
-        },
+        metadata=message_metadata,
     )
     chat_session = await ChatSessionStore.add_message(chat_session.session_id, assistant_message)
 

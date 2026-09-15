@@ -47,11 +47,11 @@ class DeterministicDemoProvider(AIProvider):
     def _compile_patterns(self) -> dict[QueryType, list[re.Pattern]]:
         return {
             QueryType.RISK_SUMMARY: [
-                re.compile(r"(risk|score|danger|threat).*(wallet|address)", re.I),
-                re.compile(r"how risky|risk level|risk assessment", re.I),
+                re.compile(r"(risk|score|danger|threat).*(wallet|address|node|factors|0x)", re.I),
+                re.compile(r"how risky|risk level|risk assessment|risk factor|risk breakdown|risk table", re.I),
             ],
             QueryType.ATTRIBUTION: [
-                re.compile(r"(attribut|vasp|exchange|where.*go|endpoint)", re.I),
+                re.compile(r"(attribut|vasp|exchange|where.*go|endpoint|hop).*(wallet|address|node)?", re.I),
                 re.compile(r"(cash out|off.ramp|deposit to)", re.I),
             ],
             QueryType.PATTERN_DETECTION: [
@@ -60,13 +60,13 @@ class DeterministicDemoProvider(AIProvider):
             ],
             QueryType.FUND_FLOW: [
                 re.compile(
-                    r"(flow|trace|path|hop|movement|transfer).*(fund|money|eth|value)", re.I
+                    r"(flow|trace|path|hop|movement|transfer).*(fund|money|eth|value|node)", re.I
                 ),
                 re.compile(r"(where did|where.*from|where.*to|follow the money)", re.I),
             ],
             QueryType.ENTITY_LOOKUP: [
-                re.compile(r"(who is|who owns|what is|entity|owner|label).*(address|wallet)", re.I),
-                re.compile(r"(known|identified|label).*(address|wallet)", re.I),
+                re.compile(r"(who is|who owns|what is|entity|owner|label).*(address|wallet|node)", re.I),
+                re.compile(r"(known|identified|label).*(address|wallet|node)", re.I),
             ],
             QueryType.CASE_OVERVIEW: [
                 re.compile(r"(case|investigation).*(summary|overview|status|progress)", re.I),
@@ -96,7 +96,13 @@ class DeterministicDemoProvider(AIProvider):
     def extract_entities(self, query: str) -> dict[str, Any]:
         entities = {}
 
-        address_match = re.search(r"(0x[a-fA-F0-9]{40})", query)
+        # 1. 66-character transaction hash (0x + 64 hex characters)
+        tx_match = re.search(r"(0x[a-fA-F0-9]{64})", query, re.I)
+        if tx_match:
+            entities["tx_hash"] = tx_match.group(1)
+
+        # 2. 42-character address (0x + 40 hex characters)
+        address_match = re.search(r"(0x[a-fA-F0-9]{40})(?![a-fA-F0-9])", query, re.I)
         if address_match:
             entities["address"] = address_match.group(1)
 
@@ -123,12 +129,6 @@ class DeterministicDemoProvider(AIProvider):
         """
         matched_type = self._match_query_type(query)
         if matched_type is None:
-            # Return None rather than collapsing "no match" into CASE_OVERVIEW.
-            # InvestigationAssistant.answer_query() treats any dict here as a
-            # successful classification, so folding the two cases together made
-            # every unclassifiable query answer "Please specify a case ID"
-            # instead of reaching the capabilities-listing general handler --
-            # which, in demo mode, made that handler unreachable entirely.
             return None
 
         result = {"query_type": matched_type.value}
@@ -143,9 +143,34 @@ class DeterministicDemoProvider(AIProvider):
         fallback_answer: str,
     ) -> str:
         """
-        In deterministic demo mode, we do not attempt to compose an answer.
-        We return the fallback answer that the caller has already built.
+        In deterministic demo mode, return the fallback answer, enhanced with
+        a structured markdown risk factor table if factor details are available.
         """
+        if query_type == QueryType.RISK_SUMMARY and "factors" in context and context["factors"]:
+            table_lines = [
+                fallback_answer,
+                "",
+                "### Forensic Risk Factor Breakdown",
+                "| Risk Factor | Severity | Base Score | Weight | Weighted Score | On-Chain Evidence & Detail |",
+                "| :--- | :---: | :---: | :---: | :---: | :--- |",
+            ]
+            for f in context["factors"]:
+                factor_name = f.get("factor", "").replace("_", " ").title()
+                severity = str(f.get("severity", "")).upper()
+                score = f.get("score", 0)
+                weight = f.get("weight", 0)
+                weighted = f.get("weighted_score", 0)
+                desc = f.get("description", "")
+                table_lines.append(
+                    f"| **{factor_name}** | `{severity}` | {score} | {weight} | **+{weighted:.2f}** | {desc} |"
+                )
+            overall = context.get("overall_score", 0)
+            level = str(context.get("risk_level", "")).upper()
+            table_lines.append(
+                f"| **OVERALL** | `{level}` | — | — | **{overall:.1f}/100** | *Weighted sum with 10% co-occurrence compounding* |"
+            )
+            return "\n".join(table_lines)
+
         return fallback_answer
 
     async def generate_narrative(

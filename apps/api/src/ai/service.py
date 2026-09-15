@@ -130,11 +130,11 @@ class InvestigationAssistant:
     def _compile_patterns(self) -> dict[QueryType, list[re.Pattern]]:
         return {
             QueryType.RISK_SUMMARY: [
-                re.compile(r"(risk|score|danger|threat).*(wallet|address)", re.I),
-                re.compile(r"how risky|risk level|risk assessment", re.I),
+                re.compile(r"(risk|score|danger|threat).*(wallet|address|node|factors|0x)", re.I),
+                re.compile(r"how risky|risk level|risk assessment|risk factor|risk breakdown|risk table", re.I),
             ],
             QueryType.ATTRIBUTION: [
-                re.compile(r"(attribut|vasp|exchange|where.*go|endpoint)", re.I),
+                re.compile(r"(attribut|vasp|exchange|where.*go|endpoint|hop).*(wallet|address|node)?", re.I),
                 re.compile(r"(cash out|off.ramp|deposit to)", re.I),
             ],
             QueryType.PATTERN_DETECTION: [
@@ -143,13 +143,13 @@ class InvestigationAssistant:
             ],
             QueryType.FUND_FLOW: [
                 re.compile(
-                    r"(flow|trace|path|hop|movement|transfer).*(fund|money|eth|value)", re.I
+                    r"(flow|trace|path|hop|movement|transfer).*(fund|money|eth|value|node)", re.I
                 ),
                 re.compile(r"(where did|where.*from|where.*to|follow the money)", re.I),
             ],
             QueryType.ENTITY_LOOKUP: [
-                re.compile(r"(who is|who owns|what is|entity|owner|label).*(address|wallet)", re.I),
-                re.compile(r"(known|identified|label).*(address|wallet)", re.I),
+                re.compile(r"(who is|who owns|what is|entity|owner|label).*(address|wallet|node)", re.I),
+                re.compile(r"(known|identified|label).*(address|wallet|node)", re.I),
             ],
             QueryType.CASE_OVERVIEW: [
                 re.compile(r"(case|investigation).*(summary|overview|status|progress)", re.I),
@@ -189,7 +189,14 @@ class InvestigationAssistant:
     def extract_entities(self, query: str) -> dict[str, Any]:
         entities = {}
 
-        address_match = re.search(r"(0x[a-fA-F0-9]{40})", query)
+        # 1. 66-character transaction hash (0x + 64 hex characters)
+        tx_match = re.search(r"(0x[a-fA-F0-9]{64})", query, re.I)
+        if tx_match:
+            entities["tx_hash"] = tx_match.group(1)
+
+        # 2. 42-character address (0x + 40 hex characters)
+        # Use negative lookahead to avoid matching the first 40 chars of a 64-char tx hash
+        address_match = re.search(r"(0x[a-fA-F0-9]{40})(?![a-fA-F0-9])", query, re.I)
         if address_match:
             entities["address"] = address_match.group(1)
 
@@ -276,6 +283,28 @@ class InvestigationAssistant:
         address = entities.get("address")
         chain = entities.get("chain", "Ethereum")
         case_number = entities.get("case_number")
+        tx_hash = entities.get("tx_hash")
+
+        # Sanitize wallet_id: If wallet_id is an address or tx hash (not a UUID),
+        # re-route to address / tx_hash so Postgres does not throw invalid UUID DataError.
+        if wallet_id:
+            raw_wid = str(wallet_id).strip()
+            is_uuid = False
+            try:
+                import uuid
+                uuid.UUID(raw_wid)
+                is_uuid = True
+            except (ValueError, TypeError, AttributeError):
+                is_uuid = False
+
+            if not is_uuid:
+                addr_m = re.search(r"(0x[a-fA-F0-9]{40})(?![a-fA-F0-9])", raw_wid, re.I)
+                if addr_m and not address:
+                    address = addr_m.group(1)
+                tx_m = re.search(r"(0x[a-fA-F0-9]{64})", raw_wid, re.I)
+                if tx_m and not tx_hash:
+                    tx_hash = tx_m.group(1)
+                wallet_id = None
 
         if case_number and not case_id:
             case_id = await self._resolve_case_id(case_number)
@@ -294,7 +323,12 @@ class InvestigationAssistant:
         handler = (
             handlers.get(query_type, self._handle_general) if matched_type else self._handle_general
         )
-        response = await handler(query, case_id, wallet_id, address, chain)
+        import inspect
+        sig = inspect.signature(handler)
+        if "tx_hash" in sig.parameters:
+            response = await handler(query, case_id, wallet_id, address, chain, tx_hash=tx_hash)
+        else:
+            response = await handler(query, case_id, wallet_id, address, chain)
         response.metadata["mode"] = self.mode
         ai_queries_total.labels(
             query_type=response.query_type.value, confidence=response.confidence.value
@@ -313,12 +347,53 @@ class InvestigationAssistant:
         wallet_id: str | None,
         address: str | None,
         chain: str,
+        tx_hash: str | None = None,
     ) -> AIResponse:
-        if wallet_id:
-            assessment = await self._get_wallet_risk(wallet_id)
+        target_wallet_id = wallet_id
+        target_address = address
+
+        # If only tx_hash was provided, resolve to the associated transaction and wallet
+        if not target_wallet_id and not target_address and tx_hash:
+            async with get_session_context() as session:
+                from sqlalchemy import select
+                from src.models import Transaction, Wallet
+
+                stmt = select(Transaction).where(Transaction.tx_hash.ilike(tx_hash))
+                result = await session.execute(stmt)
+                tx = result.scalars().first()
+                if tx:
+                    target_wallet_id = str(tx.wallet_id)
+                    target_address = tx.from_address
+                else:
+                    stmt = select(Wallet).where(Wallet.first_seen_tx_hash.ilike(tx_hash))
+                    result = await session.execute(stmt)
+                    w = result.scalars().first()
+                    if w:
+                        target_wallet_id = str(w.id)
+                        target_address = w.address
+
+        if not target_wallet_id and target_address:
+            async with get_session_context() as session:
+                from sqlalchemy import select
+
+                from src.models import Wallet
+
+                stmt = select(Wallet).where(Wallet.address.ilike(target_address))
+                if case_id:
+                    stmt = stmt.where(Wallet.case_id == case_id)
+                elif chain:
+                    stmt = stmt.where(Wallet.chain == chain)
+                result = await session.execute(stmt)
+                wallet = result.scalars().first()
+                if wallet:
+                    target_wallet_id = str(wallet.id)
+                    target_address = wallet.address
+
+        if target_wallet_id:
+            assessment = await self._get_wallet_risk(target_wallet_id)
             if not assessment:
                 return AIResponse(
-                    answer=f"Could not find risk assessment for wallet {wallet_id}.",
+                    answer=f"Could not find risk assessment for wallet {target_address or target_wallet_id}.",
                     query_type=QueryType.RISK_SUMMARY,
                     confidence=ConfidenceLevel.UNKNOWN,
                     evidence=[],
@@ -329,8 +404,22 @@ class InvestigationAssistant:
             critical = [f for f in factors if f.severity.value == "critical"]
             high = [f for f in factors if f.severity.value == "high"]
 
+            factors_data = [
+                {
+                    "factor": f.factor_type.value,
+                    "severity": f.severity.value,
+                    "score": f.score,
+                    "weight": f.weight,
+                    "weighted_score": round(f.weighted_score, 2),
+                    "description": f.description,
+                    "evidence": f.evidence,
+                    "confidence": f.confidence.value,
+                }
+                for f in factors
+            ]
+
             answer = (
-                f"Wallet {address or wallet_id} has an overall risk score of "
+                f"Wallet {target_address or target_wallet_id} has an overall risk score of "
                 f"{assessment.overall_score:.1f}/100 ({assessment.risk_level.value.upper()}). "
                 f"Key factors: {len(critical)} critical, {len(high)} high-risk. "
                 f"{assessment.summary}"
@@ -340,9 +429,10 @@ class InvestigationAssistant:
                 "overall_score": assessment.overall_score,
                 "risk_level": assessment.risk_level.value,
                 "summary": assessment.summary,
+                "factors": factors_data,
                 "critical_factors": [
                     {
-                        "name": f.name,
+                        "name": f.factor_type.value,
                         "severity": f.severity.value,
                         "description": getattr(f, "description", ""),
                     }
@@ -350,7 +440,7 @@ class InvestigationAssistant:
                 ],
                 "high_factors": [
                     {
-                        "name": f.name,
+                        "name": f.factor_type.value,
                         "severity": f.severity.value,
                         "description": getattr(f, "description", ""),
                     }
@@ -360,7 +450,7 @@ class InvestigationAssistant:
             answer = await self._compose_answer(
                 query,
                 QueryType.RISK_SUMMARY,
-                {"wallet": address or wallet_id, **evidence_data},
+                {"wallet": target_address or target_wallet_id, **evidence_data},
                 answer,
             )
 
@@ -373,6 +463,10 @@ class InvestigationAssistant:
                     data={
                         "overall_score": assessment.overall_score,
                         "risk_level": assessment.risk_level.value,
+                        "wallet_address": target_address,
+                        "wallet_id": target_wallet_id,
+                        "factors": factors_data,
+                        "methodology": assessment.methodology,
                     },
                 )
             ]
@@ -389,6 +483,13 @@ class InvestigationAssistant:
                 confidence=ConfidenceLevel.HIGH_CONFIDENCE,
                 evidence=evidence,
                 follow_up_questions=follow_up,
+                metadata={
+                    "wallet_address": target_address,
+                    "wallet_id": target_wallet_id,
+                    "factors": factors_data,
+                    "overall_score": assessment.overall_score,
+                    "risk_level": assessment.risk_level.value,
+                },
             )
 
         if case_id:
@@ -422,11 +523,11 @@ class InvestigationAssistant:
             )
 
         return AIResponse(
-            answer="Please specify a wallet ID or case ID for risk analysis.",
+            answer="Please specify a wallet address, node identifier, or case ID for risk analysis.",
             query_type=QueryType.RISK_SUMMARY,
             confidence=ConfidenceLevel.UNKNOWN,
             evidence=[],
-            follow_up_questions=["Provide a wallet ID or case number to analyze."],
+            follow_up_questions=["Provide a wallet address, node identifier, or case number to analyze."],
         )
 
     async def _handle_attribution(
@@ -446,17 +547,38 @@ class InvestigationAssistant:
 
                 from src.models import Wallet
 
-                result = await session.execute(
-                    select(Wallet).where(Wallet.address == target_address, Wallet.chain == chain)
-                )
-                wallet = result.scalar_one_or_none()
+                stmt = select(Wallet).where(Wallet.address.ilike(target_address))
+                if case_id:
+                    stmt = stmt.where(Wallet.case_id == case_id)
+                elif chain:
+                    stmt = stmt.where(Wallet.chain == chain)
+                result = await session.execute(stmt)
+                wallet = result.scalars().first()
                 if wallet:
                     target_wallet_id = str(wallet.id)
                     target_address = wallet.address
+        elif target_wallet_id and not target_address:
+            async with get_session_context() as session:
+                from src.models import Wallet
+                import uuid
 
-        if not target_wallet_id:
+                is_uuid = False
+                try:
+                    uuid.UUID(str(target_wallet_id))
+                    is_uuid = True
+                except (ValueError, TypeError, AttributeError):
+                    is_uuid = False
+
+                if is_uuid:
+                    wallet = await session.get(Wallet, target_wallet_id)
+                    if wallet:
+                        target_address = wallet.address
+                else:
+                    target_address = target_wallet_id
+
+        if not target_address and not target_wallet_id:
             return AIResponse(
-                answer="Please specify a wallet address or ID for attribution analysis.",
+                answer="Please specify a wallet address, node identifier, or ID for attribution analysis.",
                 query_type=QueryType.ATTRIBUTION,
                 confidence=ConfidenceLevel.UNKNOWN,
                 evidence=[],
@@ -625,10 +747,21 @@ class InvestigationAssistant:
         if not target_address and wallet_id:
             async with get_session_context() as session:
                 from src.models import Wallet
+                import uuid
 
-                wallet = await session.get(Wallet, wallet_id)
-                if wallet:
-                    target_address = wallet.address
+                is_uuid = False
+                try:
+                    uuid.UUID(str(wallet_id))
+                    is_uuid = True
+                except (ValueError, TypeError, AttributeError):
+                    is_uuid = False
+
+                if is_uuid:
+                    wallet = await session.get(Wallet, wallet_id)
+                    if wallet:
+                        target_address = wallet.address
+                else:
+                    target_address = wallet_id
 
         if not target_address:
             return AIResponse(
@@ -1037,15 +1170,32 @@ class InvestigationAssistant:
     async def _get_wallet_risk(self, wallet_id: str):
         async with get_session_context() as session:
             from sqlalchemy import select
+            import uuid
 
             from src.models import Transaction, Wallet
 
-            wallet = await session.get(Wallet, wallet_id)
+            wallet = None
+            is_uuid = False
+            try:
+                uuid.UUID(str(wallet_id))
+                is_uuid = True
+            except (ValueError, TypeError, AttributeError):
+                is_uuid = False
+
+            if is_uuid:
+                wallet = await session.get(Wallet, wallet_id)
+            else:
+                stmt = select(Wallet).where(Wallet.address.ilike(str(wallet_id)))
+                result = await session.execute(stmt)
+                wallet = result.scalars().first()
+
             if not wallet:
                 return None
 
+            actual_wallet_id = wallet.id
+
             result = await session.execute(
-                select(Transaction).where(Transaction.wallet_id == wallet_id)
+                select(Transaction).where(Transaction.wallet_id == actual_wallet_id)
             )
             transactions = result.scalars().all()
 
@@ -1088,7 +1238,7 @@ class InvestigationAssistant:
             graph_context = {}
             try:
                 graph_context["mixer_interactions"] = await graph_queries.find_mixer_interactions(
-                    address=wallet.address, chain=wallet.chain, max_hops=4
+                    address=wallet.address, chain=wallet.chain, max_hops=2
                 )
                 graph_context["peel_chains"] = await graph_queries.detect_peel_chains(
                     chain=wallet.chain
