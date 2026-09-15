@@ -9,7 +9,6 @@ from sqlalchemy.orm import DeclarativeBase
 
 from .config import get_settings
 
-
 settings = get_settings()
 
 engine = None
@@ -20,6 +19,7 @@ def init_db_engine():
     """Initialize the database engine. Must be called before running the app."""
     import asyncpg  # noqa: F401 - must be imported before SQLAlchemy create_async_engine
     from sqlalchemy.ext.asyncio import create_async_engine
+
     global engine, async_session_factory
     engine = create_async_engine(
         settings.DATABASE_URL,

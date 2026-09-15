@@ -226,9 +226,7 @@ class TronProvider(BlockchainProvider):
         if self._api_key:
             headers["TRON-PRO-API-KEY"] = self._api_key
 
-        self._http_client = httpx.AsyncClient(
-            timeout=timeout, headers=headers, transport=transport
-        )
+        self._http_client = httpx.AsyncClient(timeout=timeout, headers=headers, transport=transport)
 
     @property
     def chain_id(self) -> int:

@@ -301,7 +301,9 @@ class TestTronNativeTransactions:
             {f"/v1/accounts/{TRON_ADDRESS}/transactions": _json_route(_native_trx_payload())}
         )
 
-        assert await provider.get_transactions_by_address(TRON_ADDRESS, start_block=60_000_000) == []
+        assert (
+            await provider.get_transactions_by_address(TRON_ADDRESS, start_block=60_000_000) == []
+        )
         assert (
             await provider.get_transactions_by_address(TRON_ADDRESS, end_block=54_000_000)
         ) == []
@@ -367,9 +369,7 @@ class TestTronErrorHandling:
             calls.append(1)
             return httpx.Response(503, json={"error": "upstream unavailable"})
 
-        provider = _tron(
-            {f"/v1/accounts/{TRON_ADDRESS}/transactions/trc20": flaky}, max_retries=3
-        )
+        provider = _tron({f"/v1/accounts/{TRON_ADDRESS}/transactions/trc20": flaky}, max_retries=3)
 
         with pytest.raises(ExternalServiceError):
             await provider.get_token_transfers(TRON_ADDRESS)
@@ -495,7 +495,10 @@ class TestBitcoinUtxoMapping:
                 _vin(BTC_ADDRESS, 60_000),  # same address twice -> summed to 100_000
                 _vin(BTC_BECH32, 60_000),
             ],
-            [_vout(BTC_ADDRESS_2, 120_000), _vout("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", 40_000)],
+            [
+                _vout(BTC_ADDRESS_2, 120_000),
+                _vout("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", 40_000),
+            ],
         )
         provider = _bitcoin({f"/address/{BTC_ADDRESS}/txs": _json_route([tx])})
 
