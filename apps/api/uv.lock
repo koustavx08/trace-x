@@ -1625,8 +1625,8 @@ name = "httpcore2"
 version = "2.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "h11" },
-    { name = "truststore" },
+    { name = "h11", marker = "python_full_version < '3.12' or python_full_version >= '3.15' or sys_platform != 'emscripten'" },
+    { name = "truststore", marker = "python_full_version < '3.12' or python_full_version >= '3.15' or sys_platform != 'emscripten'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/be/ad/f4f0e57345f1870f3e8cb624e058d7eca6e5a27d33bcc3311d9b618734cd/httpcore2-2.12.0.tar.gz", hash = "sha256:9293522bba0aa7c4c8e9e3f040c16575bd8868e155a77fa30c7a9085a5eae648", size = 67548, upload-time = "2026-08-18T13:22:08.211Z" }
 wheels = [
@@ -2380,6 +2380,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/9d/57/f939c3b9b28e5851095eafb823b5a996eea3f21a14be513bcf9b355f97da/neo4j-6.3.0.tar.gz", hash = "sha256:d0d3986c37ad174a549a39dfec6d22a00a061ebcb0267f1a5caf856589838e73", size = 242487, upload-time = "2026-08-28T10:25:04.743Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/47/47/d29d93455fe2959e5b8383e52f68b3633d729f39e87fef94743f9f2240ae/neo4j-6.3.0-py3-none-any.whl", hash = "sha256:d243f9c8adf882ae7205a76eb2419b0a632d5f3c89383d4a0044d737a2223991", size = 331471, upload-time = "2026-08-28T10:25:03.263Z" },
+]
+
+[[package]]
+name = "networkx"
+version = "3.6.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/51/63fe664f3908c97be9d2e4f1158eb633317598cfa6e1fc14af5383f17512/networkx-3.6.1.tar.gz", hash = "sha256:26b7c357accc0c8cde558ad486283728b65b6a95d85ee1cd66bafab4c8168509", size = 2517025, upload-time = "2025-12-08T17:02:39.908Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl", hash = "sha256:d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762", size = 2068504, upload-time = "2025-12-08T17:02:38.159Z" },
 ]
 
 [[package]]
@@ -3571,6 +3580,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "neo4j" },
+    { name = "networkx" },
     { name = "prometheus-fastapi-instrumentator" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -3596,6 +3606,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "types-networkx" },
     { name = "types-redis" },
 ]
 
@@ -3613,6 +3624,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.26.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
     { name = "neo4j", specifier = ">=5.14.0" },
+    { name = "networkx", specifier = ">=3.2" },
     { name = "prometheus-fastapi-instrumentator", specifier = ">=7.0.0" },
     { name = "pydantic", specifier = ">=2.6.0" },
     { name = "pydantic-settings", specifier = ">=2.1.0" },
@@ -3629,6 +3641,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "structlog", specifier = ">=24.1.0" },
     { name = "tenacity", specifier = ">=8.2.0" },
+    { name = "types-networkx", marker = "extra == 'dev'", specifier = ">=3.2" },
     { name = "types-redis", marker = "extra == 'dev'", specifier = ">=4.6.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
     { name = "web3", specifier = ">=6.11.0" },
@@ -3655,6 +3668,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/04/bb/dbb844365103e4dc6ea52cdae0946c3ca55a7b8587e6f351710d7ee5bb78/types_cffi-2.1.0.20260827.tar.gz", hash = "sha256:53d1604771ad4ff09a1a90d6f6980ab36bebb6c39476dcc5bbf4896fa510d736", size = 18150, upload-time = "2026-08-27T12:07:21.754Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0c/fc/690c243ddac627901f1448f5cb29ca3b5463774a00ac932862c60d7ce5cf/types_cffi-2.1.0.20260827-py3-none-any.whl", hash = "sha256:851b6ffa5b962c577a2330b98ac0b60c56c904d086726276946388f58a0cffaf", size = 20525, upload-time = "2026-08-27T12:07:20.836Z" },
+]
+
+[[package]]
+name = "types-networkx"
+version = "3.6.1.20260911"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e9/8c/a788d233be06b9f20fbaaf4b090bbd6423ea8d67d27e47115fa22a930c6b/types_networkx-3.6.1.20260911.tar.gz", hash = "sha256:d592c4520b05f87e7b94087ce7f244194209ad213633a605131f6ab89cd6f8ea", size = 76365, upload-time = "2026-09-11T06:45:10.322Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d3/65/24c71d89a4f4ce053912ed46fe036e2e86019199c08b4d0e49568e4ee18c/types_networkx-3.6.1.20260911-py3-none-any.whl", hash = "sha256:e0ea7f786451bd2e16d7b657a1208edcb80c5e01b86e15b1c78bdeca9db620cf", size = 167431, upload-time = "2026-09-11T06:45:08.865Z" },
 ]
 
 [[package]]
