@@ -74,7 +74,8 @@ def _make_transport(routes: dict) -> httpx.MockTransport:
     """Serve canned responses keyed by URL path; anything unrouted 404s."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        route = routes.get(request.url.path)
+        path = request.url.path
+        route = routes.get(path) or routes.get(path.removeprefix("/api"))
         if route is None:
             return httpx.Response(404, json={"error": "unrouted", "path": request.url.path})
         return route(request)
