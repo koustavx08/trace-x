@@ -38,6 +38,12 @@ API_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(API_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from uuid import UUID, uuid4
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from src.core.config import get_settings
+from src.core.database import Base
 from src.graph.client import Neo4jClient
 from src.graph.models import (
     ConfidenceLevel,
@@ -47,6 +53,20 @@ from src.graph.models import (
     GraphWallet,
 )
 from src.graph.repository import graph_repository
+from src.models import (
+    AttributionStatus,
+    Case,
+    CaseStatus,
+    CrimeType,
+    InvestigationRun,
+    InvestigationStatus,
+    Report,
+    Transaction,
+    User,
+    Wallet,
+)
+
+settings = get_settings()
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -99,44 +119,44 @@ WALLETS: list[dict] = [
     {"key": "smurf_10",          "chain": "Ethereum", "label": "Smurf Mule 10",                 "risk": 64, "addr_fn": _eth_addr},
 
     # ── LAYER 2: Peel Chain (sequential) ────────────────────────────────
-    {"key": "peel_hop_01",       "chain": "Ethereum", "label": "Peel Chain Hop 1",              "risk": 75, "addr_fn": _eth_addr},
-    {"key": "peel_hop_02",       "chain": "Ethereum", "label": "Peel Chain Hop 2",              "risk": 72, "addr_fn": _eth_addr},
-    {"key": "peel_hop_03",       "chain": "Ethereum", "label": "Peel Chain Hop 3",              "risk": 68, "addr_fn": _eth_addr},
-    {"key": "peel_hop_04",       "chain": "Ethereum", "label": "Peel Chain Hop 4",              "risk": 64, "addr_fn": _eth_addr},
-    {"key": "peel_vasp_01",      "chain": "Ethereum", "label": "Binance Deposit (peel 1)",      "risk": 55, "addr_fn": _eth_addr, "entity_name": "Binance",               "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
-    {"key": "peel_vasp_02",      "chain": "Ethereum", "label": "CoinDCX Deposit (peel 2)",      "risk": 50, "addr_fn": _eth_addr, "entity_name": "CoinDCX",               "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
-    {"key": "peel_vasp_03",      "chain": "Ethereum", "label": "WazirX Deposit (peel 3)",       "risk": 48, "addr_fn": _eth_addr, "entity_name": "WazirX",                "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
+    {"key": "peel_hop_01",       "chain": "Ethereum", "label": "Peel Chain Hop 1",              "risk": 82, "addr_fn": _eth_addr},
+    {"key": "peel_hop_02",       "chain": "Ethereum", "label": "Peel Chain Hop 2",              "risk": 78, "addr_fn": _eth_addr},
+    {"key": "peel_hop_03",       "chain": "Ethereum", "label": "Peel Chain Hop 3",              "risk": 74, "addr_fn": _eth_addr},
+    {"key": "peel_hop_04",       "chain": "Ethereum", "label": "Peel Chain Hop 4",              "risk": 70, "addr_fn": _eth_addr},
+    {"key": "peel_vasp_01",      "chain": "Ethereum", "label": "Binance Deposit (peel 1)",      "risk": 76, "addr_fn": _eth_addr, "entity_name": "Binance",               "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
+    {"key": "peel_vasp_02",      "chain": "Ethereum", "label": "CoinDCX Deposit (peel 2)",      "risk": 72, "addr_fn": _eth_addr, "entity_name": "CoinDCX",               "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
+    {"key": "peel_vasp_03",      "chain": "Ethereum", "label": "WazirX Deposit (peel 3)",       "risk": 70, "addr_fn": _eth_addr, "entity_name": "WazirX",                "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
 
     # ── LAYER 3: Cross-Chain Bridge ─────────────────────────────────────
-    {"key": "bridge_eth",        "chain": "Ethereum", "label": "Bridge Lock Contract (ETH)",     "risk": 45, "addr_fn": _eth_addr, "entity_name": "Multichain Bridge",     "entity_type": EntityType.BRIDGE,       "confidence": ConfidenceLevel.HIGH_CONFIDENCE},
-    {"key": "bridge_tron_recv",  "chain": "Tron",     "label": "Bridge Mint (TRON)",             "risk": 60, "addr_fn": _tron_addr},
-    {"key": "tron_layering_01",  "chain": "Tron",     "label": "TRON Layering Wallet 1",         "risk": 65, "addr_fn": _tron_addr},
-    {"key": "tron_layering_02",  "chain": "Tron",     "label": "TRON Layering Wallet 2",         "risk": 62, "addr_fn": _tron_addr},
-    {"key": "tron_exit_vasp",    "chain": "Tron",     "label": "Huobi Deposit (TRON exit)",      "risk": 52, "addr_fn": _tron_addr, "entity_name": "Huobi",                "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
+    {"key": "bridge_eth",        "chain": "Ethereum", "label": "Bridge Lock Contract (ETH)",     "risk": 75, "addr_fn": _eth_addr, "entity_name": "Multichain Bridge",     "entity_type": EntityType.BRIDGE,       "confidence": ConfidenceLevel.HIGH_CONFIDENCE},
+    {"key": "bridge_tron_recv",  "chain": "Tron",     "label": "Bridge Mint (TRON)",             "risk": 72, "addr_fn": _tron_addr},
+    {"key": "tron_layering_01",  "chain": "Tron",     "label": "TRON Layering Wallet 1",         "risk": 70, "addr_fn": _tron_addr},
+    {"key": "tron_layering_02",  "chain": "Tron",     "label": "TRON Layering Wallet 2",         "risk": 68, "addr_fn": _tron_addr},
+    {"key": "tron_exit_vasp",    "chain": "Tron",     "label": "Huobi Deposit (TRON exit)",      "risk": 65, "addr_fn": _tron_addr, "entity_name": "Huobi",                "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
 
     # ── LAYER 4: Mixer / Tumbler ────────────────────────────────────────
-    {"key": "mixer_deposit",     "chain": "Ethereum", "label": "Tornado Cash Router",            "risk": 35, "addr_fn": _eth_addr, "entity_name": "Tornado Cash",          "entity_type": EntityType.MIXER,        "confidence": ConfidenceLevel.CONFIRMED},
-    {"key": "mixer_out_01",      "chain": "Ethereum", "label": "Mixer Output 1 (clean)",         "risk": 25, "addr_fn": _eth_addr},
-    {"key": "mixer_out_02",      "chain": "Ethereum", "label": "Mixer Output 2 (clean)",         "risk": 22, "addr_fn": _eth_addr},
-    {"key": "mixer_out_03",      "chain": "Ethereum", "label": "Mixer Output 3 (clean)",         "risk": 20, "addr_fn": _eth_addr},
-    {"key": "mixer_out_04",      "chain": "Ethereum", "label": "Mixer Output 4 (clean)",         "risk": 18, "addr_fn": _eth_addr},
+    {"key": "mixer_deposit",     "chain": "Ethereum", "label": "Tornado Cash Router",            "risk": 95, "addr_fn": _eth_addr, "entity_name": "Tornado Cash",          "entity_type": EntityType.MIXER,        "confidence": ConfidenceLevel.CONFIRMED},
+    {"key": "mixer_out_01",      "chain": "Ethereum", "label": "Mixer Output 1 (clean)",         "risk": 88, "addr_fn": _eth_addr},
+    {"key": "mixer_out_02",      "chain": "Ethereum", "label": "Mixer Output 2 (clean)",         "risk": 86, "addr_fn": _eth_addr},
+    {"key": "mixer_out_03",      "chain": "Ethereum", "label": "Mixer Output 3 (clean)",         "risk": 84, "addr_fn": _eth_addr},
+    {"key": "mixer_out_04",      "chain": "Ethereum", "label": "Mixer Output 4 (clean)",         "risk": 82, "addr_fn": _eth_addr},
 
     # ── LAYER 5: Cyclic Wash-Trade ──────────────────────────────────────
-    {"key": "cycle_a",           "chain": "Ethereum", "label": "Wash-Trade Node A",              "risk": 55, "addr_fn": _eth_addr},
-    {"key": "cycle_b",           "chain": "Ethereum", "label": "Wash-Trade Node B",              "risk": 53, "addr_fn": _eth_addr},
-    {"key": "cycle_c",           "chain": "Ethereum", "label": "Wash-Trade Node C",              "risk": 51, "addr_fn": _eth_addr},
-    {"key": "cycle_d",           "chain": "Ethereum", "label": "Wash-Trade Node D",              "risk": 49, "addr_fn": _eth_addr},
-    {"key": "cycle_e",           "chain": "Ethereum", "label": "Wash-Trade Node E",              "risk": 47, "addr_fn": _eth_addr},
+    {"key": "cycle_a",           "chain": "Ethereum", "label": "Wash-Trade Node A",              "risk": 78, "addr_fn": _eth_addr},
+    {"key": "cycle_b",           "chain": "Ethereum", "label": "Wash-Trade Node B",              "risk": 76, "addr_fn": _eth_addr},
+    {"key": "cycle_c",           "chain": "Ethereum", "label": "Wash-Trade Node C",              "risk": 74, "addr_fn": _eth_addr},
+    {"key": "cycle_d",           "chain": "Ethereum", "label": "Wash-Trade Node D",              "risk": 72, "addr_fn": _eth_addr},
+    {"key": "cycle_e",           "chain": "Ethereum", "label": "Wash-Trade Node E",              "risk": 70, "addr_fn": _eth_addr},
 
     # ── LAYER 6: Exchange Exit Ramp ─────────────────────────────────────
-    {"key": "exit_kraken",       "chain": "Ethereum", "label": "Kraken Hot Wallet",              "risk": 40, "addr_fn": _eth_addr, "entity_name": "Kraken",                "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
-    {"key": "exit_kucoin",       "chain": "Ethereum", "label": "KuCoin Hot Wallet",              "risk": 38, "addr_fn": _eth_addr, "entity_name": "KuCoin",                "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
+    {"key": "exit_kraken",       "chain": "Ethereum", "label": "Kraken Hot Wallet",              "risk": 80, "addr_fn": _eth_addr, "entity_name": "Kraken",                "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
+    {"key": "exit_kucoin",       "chain": "Ethereum", "label": "KuCoin Hot Wallet",              "risk": 78, "addr_fn": _eth_addr, "entity_name": "KuCoin",                "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
 
     # ── LAYER 3b: Bitcoin Bridge ────────────────────────────────────────
-    {"key": "bridge_btc_lock",   "chain": "Ethereum", "label": "RenBridge Lock (ETH→BTC)",       "risk": 42, "addr_fn": _eth_addr, "entity_name": "Ren Bridge",            "entity_type": EntityType.BRIDGE,       "confidence": ConfidenceLevel.HIGH_CONFIDENCE},
-    {"key": "btc_recv",          "chain": "Bitcoin",  "label": "BTC Receiver",                   "risk": 58, "addr_fn": _btc_addr},
-    {"key": "btc_hop",           "chain": "Bitcoin",  "label": "BTC Intermediate",               "risk": 55, "addr_fn": _btc_addr},
-    {"key": "btc_exit_binance",  "chain": "Bitcoin",  "label": "Binance BTC Deposit",            "risk": 45, "addr_fn": _btc_addr, "entity_name": "Binance",               "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
+    {"key": "bridge_btc_lock",   "chain": "Ethereum", "label": "RenBridge Lock (ETH→BTC)",       "risk": 72, "addr_fn": _eth_addr, "entity_name": "Ren Bridge",            "entity_type": EntityType.BRIDGE,       "confidence": ConfidenceLevel.HIGH_CONFIDENCE},
+    {"key": "btc_recv",          "chain": "Bitcoin",  "label": "BTC Receiver",                   "risk": 68, "addr_fn": _btc_addr},
+    {"key": "btc_hop",           "chain": "Bitcoin",  "label": "BTC Intermediate",               "risk": 65, "addr_fn": _btc_addr},
+    {"key": "btc_exit_binance",  "chain": "Bitcoin",  "label": "Binance BTC Deposit",            "risk": 72, "addr_fn": _btc_addr, "entity_name": "Binance",               "entity_type": EntityType.EXCHANGE,     "confidence": ConfidenceLevel.CONFIRMED},
 ]
 # fmt: on
 
@@ -337,6 +357,219 @@ async def _seed_entities(lookup: dict[str, dict]) -> int:
     return count
 
 
+async def _seed_postgres(lookup: dict[str, dict]) -> None:
+    """Seed PostgreSQL with the same case, wallets, transactions, run, and report."""
+    engine = create_async_engine(settings.DATABASE_URL, echo=False)
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
+
+    case_number = "TRX-20240116-0050"
+
+    async with async_session() as session:
+        # Delete existing case if present (cascades to wallets, txs, runs, reports)
+        await session.execute(delete(Case).where(Case.case_number == case_number))
+        await session.flush()
+
+        # Find demo analyst user to assign
+        res = await session.execute(select(User).where(User.email == "analyst.a@tracex.gov"))
+        owner = res.scalar_one_or_none()
+        if not owner:
+            res_any = await session.execute(select(User).limit(1))
+            owner = res_any.scalar_one_or_none()
+        owner_id = owner.id if owner else None
+
+        total_flow = sum(t["usd"] for t in TRANSACTIONS)
+        case_id = UUID("1433b779-a4ef-43ad-b6b9-b5213c7e91a8")
+        case = Case(
+            id=case_id,
+            case_number=case_number,
+            title="Multi-Layered Fraud Syndicate - 6-Pattern Laundering",
+            crime_type=CrimeType.MONEY_LAUNDERING,
+            description=(
+                "A multi-layered task-scam syndicate moving $1.99M across Ethereum, TRON, and Bitcoin "
+                "demonstrating all six laundering motifs: smurfing fan-out across 10 mules, a 4-hop peel chain, "
+                "cross-chain bridge hops to TRON and Bitcoin, Tornado Cash mixer cycle, 5-node cyclic wash-trade, "
+                "and exchange off-ramps."
+            ),
+            status=CaseStatus.IN_PROGRESS,
+            assigned_to=owner_id,
+            case_metadata={
+                "source": SYNTHETIC_MARKER,
+                "opened_at": T0.isoformat(),
+                "chains": ["Ethereum", "Tron", "Bitcoin"],
+                "tags": [
+                    "Smurfing",
+                    "Peel Chain",
+                    "Cross-chain Bridge",
+                    "Tornado Cash",
+                    "Cyclic Wash-Trade",
+                    "Exchange Off-ramp",
+                ],
+                "aggregate_flow_usd": total_flow,
+                "primary_wallet": lookup["victim_pool"]["address"],
+            },
+            created_at=T0,
+            updated_at=T0 + timedelta(hours=72),
+        )
+        session.add(case)
+        await session.flush()
+
+        # Wallets
+        wallet_rows: dict[str, Wallet] = {}
+        first_tx_hashes: dict[str, str] = {}
+        for tx_def in TRANSACTIONS:
+            h = _tx_hash(f"{tx_def['from']}->{tx_def['to']}-{tx_def['dt']}")
+            first_tx_hashes.setdefault(tx_def["from"], h)
+            first_tx_hashes.setdefault(tx_def["to"], h)
+
+        for w in WALLETS:
+            info = lookup[w["key"]]
+            addr = info["address"]
+            chain = w["chain"]
+            has_entity = bool(w.get("entity_name"))
+            w_row = Wallet(
+                id=uuid4(),
+                case_id=case_id,
+                address=addr,
+                chain=chain,
+                label=w["label"][:100],
+                attribution_status=AttributionStatus.CONFIRMED if has_entity else AttributionStatus.UNVERIFIED,
+                risk_score=float(w["risk"]),
+                entity_name=w.get("entity_name"),
+                entity_type=w["entity_type"].value if w.get("entity_type") else None,
+                entity_confidence=w["confidence"].value if w.get("confidence") else None,
+                first_seen_tx_hash=first_tx_hashes.get(w["key"]),
+                wallet_metadata={
+                    "source": SYNTHETIC_MARKER,
+                    "key": w["key"],
+                    "chain": chain,
+                },
+                created_at=T0,
+                updated_at=T0 + timedelta(hours=72),
+            )
+            session.add(w_row)
+            wallet_rows[w["key"]] = w_row
+        await session.flush()
+
+        # Transactions
+        for tx_def in TRANSACTIONS:
+            h = _tx_hash(f"{tx_def['from']}->{tx_def['to']}-{tx_def['dt']}")
+            from_info = lookup[tx_def["from"]]
+            to_info = lookup[tx_def["to"]]
+            tx_time = T0 + timedelta(minutes=tx_def["dt"])
+            session.add(
+                Transaction(
+                    id=uuid4(),
+                    wallet_id=wallet_rows[tx_def["from"]].id,
+                    tx_hash=h,
+                    block_number=tx_def["block"],
+                    timestamp=tx_time,
+                    from_address=from_info["address"],
+                    to_address=to_info["address"],
+                    value=str(tx_def["usd"]),
+                    value_usd=float(tx_def["usd"]),
+                    token_address=None,
+                    token_symbol=tx_def["token"],
+                    method=tx_def["method"],
+                    is_suspicious=True,
+                    transaction_metadata={
+                        "source": SYNTHETIC_MARKER,
+                        "note": tx_def["note"],
+                    },
+                    created_at=tx_time,
+                    updated_at=tx_time,
+                )
+            )
+        await session.flush()
+
+        # Investigation Run
+        victim_wallet_row = wallet_rows["victim_pool"]
+        session.add(
+            InvestigationRun(
+                id=uuid4(),
+                case_id=case_id,
+                wallet_id=victim_wallet_row.id,
+                status=InvestigationStatus.COMPLETED,
+                started_at=T0 + timedelta(minutes=30),
+                completed_at=T0 + timedelta(hours=1),
+                config={
+                    "trace_depth": 6,
+                    "max_transactions": 100,
+                    "chains": ["Ethereum", "Tron", "Bitcoin"],
+                    "include_exchange_sweeps": True,
+                    "demo": True,
+                },
+                result_summary={
+                    "transactions_found": len(TRANSACTIONS),
+                    "suspicious_transactions": len(TRANSACTIONS),
+                    "unique_addresses": len(WALLETS),
+                    "aggregate_flow_usd": total_flow,
+                    "largest_transaction_usd": max(t["usd"] for t in TRANSACTIONS),
+                    "mixer_transactions": 7,
+                    "chains_analyzed": ["Bitcoin", "Ethereum", "Tron"],
+                    "vasp_endpoints": ["Binance", "CoinDCX", "Huobi", "Kraken", "KuCoin", "WazirX"],
+                    "laundering_motifs_detected": [
+                        "Smurfing (Fan-Out into 10 Mules)",
+                        "Peel Chain (4-hop corridor with VASP cash-outs)",
+                        "Cross-Chain Bridge Hops (ETH->TRON, ETH->BTC)",
+                        "Mixer Cycle (Tornado Cash 24h delay)",
+                        "Cyclic Wash-Trade (5-Node Loop)",
+                        "Exchange Exit Ramps (6 VASPs)",
+                    ],
+                    "demo": True,
+                },
+                created_at=T0 + timedelta(minutes=30),
+                updated_at=T0 + timedelta(hours=1),
+            )
+        )
+
+        # Report
+        if owner_id:
+            session.add(
+                Report(
+                    id=uuid4(),
+                    case_id=case_id,
+                    title="Multi-Layered Fraud Syndicate - Forensic Investigation Report",
+                    summary=(
+                        f"{len(TRANSACTIONS)} transactions across 3 chains (Ethereum, Tron, Bitcoin) "
+                        f"and {len(WALLETS)} wallets, USD {total_flow:,.0f} aggregate flow. "
+                        "All 6 laundering motifs detected: Smurfing, Peel Chain, Cross-Chain Bridges, "
+                        "Mixer, Cyclic Wash-Trading, and Exchange Off-Ramping."
+                    ),
+                    findings={
+                        "executive_summary": (
+                            "Synthetic 72-hour demonstration of a task-scam syndicate laundering funds through "
+                            "six distinct obfuscation patterns across Ethereum, Tron, and Bitcoin."
+                        ),
+                        "key_findings": [
+                            "10-mule fan-out smurfing sub-threshold transfers ($50,000 each)",
+                            "Peel chain peeling off funds to Binance, CoinDCX, and WazirX",
+                            "Cross-chain bridging to TRON (USDT-TRC20) and Bitcoin (RenBridge)",
+                            "Mixer laundering cycle through Tornado Cash with 24-hour delayed withdrawals",
+                            "5-node wash-trading cyclic loop returning funds to origin",
+                            "Final off-ramping into Kraken, KuCoin, and Huobi exchange hot wallets",
+                        ],
+                        "vasp_endpoints": ["Binance", "Kraken", "KuCoin", "Huobi", "CoinDCX", "WazirX"],
+                    },
+                    risk_assessment={
+                        "overall_risk": "CRITICAL",
+                        "highest_score": 98.0,
+                        "average_score": 57.5,
+                        "critical_wallets": 3,
+                        "mixer_exposure": True,
+                        "motifs_detected": 6,
+                    },
+                    generated_by=owner_id,
+                    format="pdf",
+                    created_at=T0 + timedelta(hours=72),
+                    updated_at=T0 + timedelta(hours=72),
+                )
+            )
+
+        await session.commit()
+    await engine.dispose()
+    print(f"  ↳ Seeded PostgreSQL case {case_number} with {len(WALLETS)} wallets, {len(TRANSACTIONS)} txs")
+
+
 async def main() -> None:
     print("=" * 60)
     print("TRACE-X Complex Fraud Demo Seeder")
@@ -346,6 +579,7 @@ async def main() -> None:
     lookup = await _seed_wallets()
     tx_count = await _seed_transactions(lookup)
     entity_count = await _seed_entities(lookup)
+    await _seed_postgres(lookup)
 
     total_usd = sum(t["usd"] for t in TRANSACTIONS)
     chains = sorted({t["chain"] for t in TRANSACTIONS})
