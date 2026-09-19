@@ -184,7 +184,10 @@ class RiskScoringEngine:
         # Map highest severity/score factor for each elevated factor type
         elevated_map: dict[RiskFactorType, RiskFactor] = {}
         for factor in elevated_factors:
-            if factor.factor_type not in elevated_map or factor.score > elevated_map[factor.factor_type].score:
+            if (
+                factor.factor_type not in elevated_map
+                or factor.score > elevated_map[factor.factor_type].score
+            ):
                 elevated_map[factor.factor_type] = factor
 
         # Assemble full 12 factors (elevated first in priority order, then clean)
@@ -238,12 +241,15 @@ class RiskScoringEngine:
             return factors
 
         # Detect if this wallet is recognized infrastructure (DEX router, exchange, bridge)
+        if wallet and wallet.entity_type is not None:
+            wallet_ent_val = getattr(wallet.entity_type, "value", wallet.entity_type)
+        else:
+            wallet_ent_val = None
         raw_entity_type = (
-            (entity_data.get("entity_type") if entity_data else None)
-            or (wallet.entity_type.value if hasattr(wallet.entity_type, "value") else wallet.entity_type)
-        )
-        if hasattr(raw_entity_type, "value"):
-            raw_entity_type = raw_entity_type.value
+            entity_data.get("entity_type") if entity_data else None
+        ) or wallet_ent_val
+        if raw_entity_type is not None:
+            raw_entity_type = getattr(raw_entity_type, "value", raw_entity_type)
         raw_type_str = str(raw_entity_type).lower() if raw_entity_type else ""
 
         label_str = (wallet.label or "").lower()
@@ -251,7 +257,18 @@ class RiskScoringEngine:
 
         is_infra = raw_type_str in ("defi", "exchange", "bridge", "merchant") or any(
             t in label_str or t in name_str
-            for t in ["uniswap", "sushiswap", "curve", "aave", "binance", "kraken", "coinbase", "router", "exchange", "dex"]
+            for t in [
+                "uniswap",
+                "sushiswap",
+                "curve",
+                "aave",
+                "binance",
+                "kraken",
+                "coinbase",
+                "router",
+                "exchange",
+                "dex",
+            ]
         )
 
         seen_mixers: set[tuple] = set()
@@ -265,8 +282,7 @@ class RiskScoringEngine:
                 path = interaction.get("path")
                 if path and hasattr(path, "nodes"):
                     wallet_nodes = [
-                        n for n in path.nodes
-                        if hasattr(n, "labels") and "Wallet" in n.labels
+                        n for n in path.nodes if hasattr(n, "labels") and "Wallet" in n.labels
                     ]
                     hops = max(1, len(wallet_nodes) - 1)
                 else:
@@ -564,19 +580,35 @@ class RiskScoringEngine:
 
         # Known infrastructure (DEX routers, CEXs) routinely process large volume as standard liquidity
         if wallet:
+            if wallet.entity_type is not None:
+                wallet_ent_val = getattr(wallet.entity_type, "value", wallet.entity_type)
+            else:
+                wallet_ent_val = None
             raw_entity_type = (
-                (entity_data.get("entity_type") if entity_data else None)
-                or (wallet.entity_type.value if hasattr(wallet.entity_type, "value") else wallet.entity_type)
-            )
-            if hasattr(raw_entity_type, "value"):
-                raw_entity_type = raw_entity_type.value
+                entity_data.get("entity_type") if entity_data else None
+            ) or wallet_ent_val
+            if raw_entity_type is not None:
+                raw_entity_type = getattr(raw_entity_type, "value", raw_entity_type)
             raw_type_str = str(raw_entity_type).lower() if raw_entity_type else ""
             label_str = (wallet.label or "").lower()
-            name_str = (wallet.entity_name or ((entity_data or {}).get("entity_name") or "")).lower()
+            name_str = (
+                wallet.entity_name or ((entity_data or {}).get("entity_name") or "")
+            ).lower()
 
             if raw_type_str in ("defi", "exchange", "bridge", "merchant") or any(
                 t in label_str or t in name_str
-                for t in ["uniswap", "sushiswap", "curve", "aave", "binance", "kraken", "coinbase", "router", "exchange", "dex"]
+                for t in [
+                    "uniswap",
+                    "sushiswap",
+                    "curve",
+                    "aave",
+                    "binance",
+                    "kraken",
+                    "coinbase",
+                    "router",
+                    "exchange",
+                    "dex",
+                ]
             ):
                 return factors
 

@@ -115,7 +115,7 @@ strict_equality = true
 
 # Third-party libraries with no (or incomplete) type stubs.
 [[tool.mypy.overrides]]
-module = ["celery.*", "kombu.*", "xhtml2pdf.*", "networkx.*"]
+module = ["celery.*", "kombu.*", "xhtml2pdf.*", "networkx.*", "asyncpg.*"]
 ignore_missing_imports = true
 
 # web3.py's runtime objects (AttributeDict) support the attribute access this

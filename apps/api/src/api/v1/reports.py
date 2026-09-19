@@ -339,7 +339,9 @@ async def draft_statutory_notice(
     elif "91" in notice_type:
         type_code = "SEC91"
 
-    notice_ref = f"TRX-{type_code}-{datetime.utcnow().strftime('%Y%m%d')}-{str(report_id)[:6].upper()}"
+    notice_ref = (
+        f"TRX-{type_code}-{datetime.utcnow().strftime('%Y%m%d')}-{str(report_id)[:6].upper()}"
+    )
 
     # 5. Generate content
     if payload.format == "pdf":

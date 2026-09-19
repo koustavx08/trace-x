@@ -44,6 +44,7 @@ class Base(DeclarativeBase):
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     if async_session_factory is None:
         init_db_engine()
+    assert async_session_factory is not None
     async with async_session_factory() as session:
         try:
             yield session
@@ -65,6 +66,7 @@ get_session_context = asynccontextmanager(get_session)
 async def init_db() -> None:
     if engine is None:
         init_db_engine()
+    assert engine is not None
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

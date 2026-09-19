@@ -109,9 +109,7 @@ class GraphRepository:
         await self._client.execute_write(query, params)
         return wallet
 
-    async def update_wallet_risk_score(
-        self, address: str, chain: str, risk_score: float
-    ) -> None:
+    async def update_wallet_risk_score(self, address: str, chain: str, risk_score: float) -> None:
         query = """
         MATCH (w:Wallet)
         WHERE toLower(w.address) = toLower($address) AND toLower(w.chain) = toLower($chain)
@@ -128,9 +126,7 @@ class GraphRepository:
             },
         )
 
-    async def batch_update_wallet_risk_scores(
-        self, updates: list[dict[str, Any]]
-    ) -> None:
+    async def batch_update_wallet_risk_scores(self, updates: list[dict[str, Any]]) -> None:
         query = """
         UNWIND $updates AS item
         MATCH (w:Wallet)

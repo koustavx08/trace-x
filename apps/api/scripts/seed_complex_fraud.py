@@ -28,7 +28,7 @@ re-running the script is idempotent (prior data is deleted first).
 import asyncio
 import hashlib
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -39,11 +39,11 @@ sys.path.insert(0, str(API_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from uuid import UUID, uuid4
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from src.core.config import get_settings
-from src.core.database import Base
 from src.graph.client import Neo4jClient
 from src.graph.models import (
     ConfidenceLevel,
@@ -73,30 +73,35 @@ settings = get_settings()
 # ---------------------------------------------------------------------------
 SYNTHETIC_MARKER = "SYNTHETIC_DEMO_COMPLEX_FRAUD"
 
+
 # Realistic-looking addresses (deterministic from label so re-runs are stable)
 def _eth_addr(label: str) -> str:
     """Generate a deterministic Ethereum-style address from a human label."""
     h = hashlib.sha256(label.encode()).hexdigest()[:40]
     return f"0x{h}"
 
+
 def _tron_addr(label: str) -> str:
     """Generate a deterministic TRON-style address from a human label."""
     h = hashlib.sha256(label.encode()).hexdigest()[:33]
     return f"T{h}"
+
 
 def _btc_addr(label: str) -> str:
     """Generate a deterministic Bitcoin-style address from a human label."""
     h = hashlib.sha256(label.encode()).hexdigest()[:32]
     return f"bc1q{h}"
 
+
 def _tx_hash(label: str) -> str:
     """Deterministic tx hash."""
     return hashlib.sha256(f"tx-{label}".encode()).hexdigest()
 
+
 # ---------------------------------------------------------------------------
 # Scenario timeline
 # ---------------------------------------------------------------------------
-T0 = datetime(2026, 9, 10, 6, 0, 0, tzinfo=timezone.utc)  # scenario start
+T0 = datetime(2026, 9, 10, 6, 0, 0, tzinfo=UTC)  # scenario start
 
 # ---------------------------------------------------------------------------
 # Wallet catalogue
@@ -242,6 +247,7 @@ TRANSACTIONS: list[dict] = [
 # Seed logic
 # ============================================================
 
+
 async def _clear_existing() -> None:
     """Delete any previously seeded complex-fraud data."""
     await Neo4jClient.initialize()
@@ -318,12 +324,8 @@ async def _seed_transactions(lookup: dict[str, dict]) -> int:
             },
         )
         await graph_repository.upsert_transaction(tx)
-        await graph_repository.link_wallet_transaction(
-            from_info["address"], chain, h, "sent"
-        )
-        await graph_repository.link_wallet_transaction(
-            to_info["address"], chain, h, "received"
-        )
+        await graph_repository.link_wallet_transaction(from_info["address"], chain, h, "sent")
+        await graph_repository.link_wallet_transaction(to_info["address"], chain, h, "received")
         count += 1
     print(f"  ↳ Created {count} transaction nodes with SENT/RECEIVED links")
     return count
@@ -349,9 +351,7 @@ async def _seed_entities(lookup: dict[str, dict]) -> int:
             last_verified=T0 + timedelta(hours=72),
         )
         await graph_repository.upsert_entity(entity)
-        await graph_repository.link_wallet_entity(
-            info["address"], info["chain"], info["address"]
-        )
+        await graph_repository.link_wallet_entity(info["address"], info["chain"], info["address"])
         count += 1
     print(f"  ↳ Created {count} entity nodes with BELONGS_TO links")
     return count
@@ -432,7 +432,9 @@ async def _seed_postgres(lookup: dict[str, dict]) -> None:
                 address=addr,
                 chain=chain,
                 label=w["label"][:100],
-                attribution_status=AttributionStatus.CONFIRMED if has_entity else AttributionStatus.UNVERIFIED,
+                attribution_status=AttributionStatus.CONFIRMED
+                if has_entity
+                else AttributionStatus.UNVERIFIED,
                 risk_score=float(w["risk"]),
                 entity_name=w.get("entity_name"),
                 entity_type=w["entity_type"].value if w.get("entity_type") else None,
@@ -548,7 +550,14 @@ async def _seed_postgres(lookup: dict[str, dict]) -> None:
                             "5-node wash-trading cyclic loop returning funds to origin",
                             "Final off-ramping into Kraken, KuCoin, and Huobi exchange hot wallets",
                         ],
-                        "vasp_endpoints": ["Binance", "Kraken", "KuCoin", "Huobi", "CoinDCX", "WazirX"],
+                        "vasp_endpoints": [
+                            "Binance",
+                            "Kraken",
+                            "KuCoin",
+                            "Huobi",
+                            "CoinDCX",
+                            "WazirX",
+                        ],
                     },
                     risk_assessment={
                         "overall_risk": "CRITICAL",
@@ -567,7 +576,9 @@ async def _seed_postgres(lookup: dict[str, dict]) -> None:
 
         await session.commit()
     await engine.dispose()
-    print(f"  ↳ Seeded PostgreSQL case {case_number} with {len(WALLETS)} wallets, {len(TRANSACTIONS)} txs")
+    print(
+        f"  ↳ Seeded PostgreSQL case {case_number} with {len(WALLETS)} wallets, {len(TRANSACTIONS)} txs"
+    )
 
 
 async def main() -> None:
@@ -585,14 +596,14 @@ async def main() -> None:
     chains = sorted({t["chain"] for t in TRANSACTIONS})
 
     print("=" * 60)
-    print(f"✅ Seeding complete!")
+    print("✅ Seeding complete!")
     print(f"   Wallets:      {len(lookup)}")
     print(f"   Transactions: {tx_count}")
     print(f"   Entities:     {entity_count}")
     print(f"   Total Flow:   ${total_usd:,.0f}")
     print(f"   Chains:       {', '.join(chains)}")
-    print(f"   Patterns:     Smurfing, Peel Chain, Bridge Hop (ETH→TRON, ETH→BTC),")
-    print(f"                 Mixer (Tornado Cash), Cyclic Wash-Trade, Exchange Exit")
+    print("   Patterns:     Smurfing, Peel Chain, Bridge Hop (ETH→TRON, ETH→BTC),")
+    print("                 Mixer (Tornado Cash), Cyclic Wash-Trade, Exchange Exit")
     print("=" * 60)
 
     await Neo4jClient.close()

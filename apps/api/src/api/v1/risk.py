@@ -513,4 +513,3 @@ async def sync_all_wallets(
         "distinct_wallets_synced": synced,
         "total_wallet_rows": len(wallets),
     }
-

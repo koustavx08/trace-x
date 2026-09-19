@@ -25,7 +25,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core import async_session_factory
+from src.core import get_session_context
 from src.models import Case, InvestigationRun, Wallet
 
 logger = structlog.get_logger(__name__)
@@ -112,7 +112,7 @@ class ReportGenerator:
         if session is not None:
             sections = await self._load_sections(session, case_id, investigation_run_id)
         else:
-            async with async_session_factory() as own_session:
+            async with get_session_context() as own_session:
                 sections = await self._load_sections(own_session, case_id, investigation_run_id)
 
         report = GeneratedReport(

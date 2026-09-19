@@ -185,7 +185,9 @@ def generate_statutory_notice_html(
         # LOW-RISK: TARGETED DEBIT LIEN & BONAFIDE MERCHANT REQUISITION
         badge_text = "TARGETED DEBIT LIEN & REQUISITION (INFLOW ONLY)"
         badge_bg = "#059669"
-        agency_sub_law = "Statutory Jurisdiction: Section 94 & Section 106(3) BNSS, 2023 / Section 91 Cr.P.C."
+        agency_sub_law = (
+            "Statutory Jurisdiction: Section 94 & Section 106(3) BNSS, 2023 / Section 91 Cr.P.C."
+        )
         order_title = """
         TARGETED DEBIT LIEN &amp; EVIDENTIARY REQUISITION UNDER SECTION 94 &amp; SECTION 106(3) BNSS, 2023<br/>
         <span style="font-size: 8.5pt; font-weight: normal; color: #475569;">
@@ -547,4 +549,3 @@ def generate_statutory_notice_pdf(
         raise RuntimeError("PDF generation failed to produce valid PDF header")
 
     return pdf_bytes
-

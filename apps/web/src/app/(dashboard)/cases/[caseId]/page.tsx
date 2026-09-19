@@ -65,7 +65,7 @@ export default function CaseDetailPage() {
       ]);
       setSyncStatus({
         type: "success",
-        message: `Successfully calibrated and synced ${res.data?.synced_count ?? 0} wallets across PostgreSQL and Neo4j!`,
+        message: `Successfully calibrated and synced ${res.synced_count ?? 0} wallets across PostgreSQL and Neo4j!`,
       });
       setTimeout(() => setSyncStatus(null), 6000);
     } catch (err: any) {

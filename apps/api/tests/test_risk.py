@@ -100,7 +100,9 @@ class TestRiskScoringEngine:
         )
         assert assessment.overall_score == 8.0
         assert assessment.risk_level.value == "low"
-        mixer_factors = [f for f in assessment.factors if f.factor_type.value == "mixer_interaction"]
+        mixer_factors = [
+            f for f in assessment.factors if f.factor_type.value == "mixer_interaction"
+        ]
         assert len(mixer_factors) == 1
         assert mixer_factors[0].score == 8.0
         assert "2 hops" in mixer_factors[0].description
