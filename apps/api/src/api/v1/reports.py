@@ -38,7 +38,8 @@ class DraftStatutoryNoticeRequest(BaseModel):
     )
     case_id: UUID | None = Field(None, description="Optional case ID to link notice to")
     notice_type: str = Field(
-        "section_91_crpc", description="section_91_crpc | subpoena | freeze_notice"
+        "auto",
+        description="auto | section_106_bnss_seizure | section_106_bnss_debit_lien | section_94_bnss_targeted_lien | section_91_crpc",
     )
     format: str = Field("pdf", pattern="^(pdf|json|html)$")
 
@@ -311,8 +312,36 @@ async def draft_statutory_notice(
     if total_value_usd == 0.0:
         total_value_usd = 750000.0  # Demonstrative default
 
+    risk_score_val = 95.0
+    confidence_val = "CONFIRMED"
+    if wallet:
+        if wallet.risk_score is not None:
+            risk_score_val = float(wallet.risk_score)
+        if wallet.entity_confidence is not None:
+            confidence_val = getattr(
+                wallet.entity_confidence, "value", str(wallet.entity_confidence)
+            )
+
+    # Resolve notice_type
+    notice_type = payload.notice_type
+    if not notice_type or notice_type == "auto":
+        if risk_score_val >= 50.0:
+            notice_type = "section_106_bnss_seizure"
+        else:
+            notice_type = "section_94_bnss_targeted_lien"
+
     report_id = uuid4()
-    notice_ref = f"TRX-SEC91-{datetime.utcnow().strftime('%Y%m%d')}-{str(report_id)[:6].upper()}"
+    type_code = "SEC106-SZ"
+    if "debit_lien" in notice_type or "106_3" in notice_type:
+        type_code = "SEC106-DL"
+    elif "targeted_lien" in notice_type or "94" in notice_type:
+        type_code = "SEC94-TL"
+    elif "91" in notice_type:
+        type_code = "SEC91"
+
+    notice_ref = (
+        f"TRX-{type_code}-{datetime.utcnow().strftime('%Y%m%d')}-{str(report_id)[:6].upper()}"
+    )
 
     # 5. Generate content
     if payload.format == "pdf":
@@ -325,6 +354,7 @@ async def draft_statutory_notice(
             transactions=transactions_data,
             notice_id=notice_ref,
             total_value_usd=total_value_usd,
+            notice_type=notice_type,
         )
     else:
         file_str = generate_statutory_notice_html(
@@ -336,6 +366,7 @@ async def draft_statutory_notice(
             transactions=transactions_data,
             notice_id=notice_ref,
             total_value_usd=total_value_usd,
+            notice_type=notice_type,
         )
         file_bytes = file_str.encode("utf-8")
 
@@ -346,23 +377,31 @@ async def draft_statutory_notice(
     report_file.write_bytes(file_bytes)
 
     # 7. Persist Report row in DB
-    report_title = (
-        f"Section 91 CrPC Notice - {entity_name} ({target_addr[:8]}...{target_addr[-6:]})"
-    )
-    report_summary = (
-        f"Statutory Legal Order under Section 91 Cr.P.C. / Section 94 BNSS served on {entity_name} "
-        f"demanding immediate asset freezing and KYC dossier production for account/deposit address {target_addr}."
-    )
-
-    risk_score_val = 95.0
-    confidence_val = "CONFIRMED"
-    if wallet:
-        if wallet.risk_score is not None:
-            risk_score_val = float(wallet.risk_score)
-        if wallet.entity_confidence is not None:
-            confidence_val = getattr(
-                wallet.entity_confidence, "value", str(wallet.entity_confidence)
-            )
+    short_addr = f"{target_addr[:8]}...{target_addr[-6:]}" if len(target_addr) > 14 else target_addr
+    if notice_type in ("section_106_bnss_seizure", "section_106_bnss_freeze"):
+        report_title = f"Section 106 BNSS Asset Seizure Order - {entity_name} ({short_addr})"
+        report_summary = (
+            f"Emergency Asset Seizure Order under Section 106 BNSS, 2023 / Section 102 Cr.P.C. served on {entity_name} "
+            f"demanding immediate 100% seizure of all crypto assets, cold escrow segregation, and 6-hour emergency KYC."
+        )
+    elif notice_type == "section_106_bnss_debit_lien":
+        report_title = f"Section 106(3)/94 BNSS Total Debit Lien - {entity_name} ({short_addr})"
+        report_summary = (
+            f"Total Account Debit Lien Order under Section 106(3) & Section 94 BNSS, 2023 served on {entity_name} "
+            f"attaching all fiat balances (INR/USD), suspending payment rails, and freezing all outflows for UID {target_addr}."
+        )
+    elif notice_type == "section_94_bnss_targeted_lien":
+        report_title = f"Section 94 BNSS Targeted Debit Lien - {entity_name} ({short_addr})"
+        report_summary = (
+            f"Targeted Debit Lien & Requisition Summons under Section 94 & Section 106(3) BNSS, 2023 served on {entity_name} "
+            f"placing a proportional hold on ${total_value_usd:,.2f} USD while preserving broader merchant account operations."
+        )
+    else:
+        report_title = f"Section 91 CrPC Notice - {entity_name} ({short_addr})"
+        report_summary = (
+            f"Statutory Legal Order under Section 91 Cr.P.C. / Section 94 BNSS served on {entity_name} "
+            f"demanding KYC dossier production for account/deposit address {target_addr}."
+        )
 
     report = Report(
         id=report_id,
@@ -375,7 +414,7 @@ async def draft_statutory_notice(
             "wallet_address": target_addr,
             "transactions_count": len(transactions_data),
             "total_value_usd": total_value_usd,
-            "notice_type": payload.notice_type,
+            "notice_type": notice_type,
             "generated_at": datetime.utcnow().isoformat(),
         },
         risk_assessment={
@@ -420,6 +459,7 @@ async def download_report_file(
         entity_name = findings.get("entity_name") or "Virtual Asset Service Provider"
         total_val = float(findings.get("total_value_usd") or 750000.0)
         notice_id = findings.get("notice_id")
+        saved_notice_type = findings.get("notice_type") or "section_106_bnss_seizure"
 
         if report.format == "pdf":
             content = generate_statutory_notice_pdf(
@@ -429,6 +469,7 @@ async def download_report_file(
                 case_title=report.title,
                 notice_id=notice_id,
                 total_value_usd=total_val,
+                notice_type=saved_notice_type,
             )
         else:
             content = generate_statutory_notice_html(
@@ -438,6 +479,7 @@ async def download_report_file(
                 case_title=report.title,
                 notice_id=notice_id,
                 total_value_usd=total_val,
+                notice_type=saved_notice_type,
             ).encode("utf-8")
 
         # Cache back to disk

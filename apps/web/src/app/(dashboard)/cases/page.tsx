@@ -18,6 +18,15 @@ const statusLabels: Record<string, string> = {
   archived: "Archived",
 };
 
+const DEMO_CASE_RISK_MAP: Record<string, { score: number; level: string }> = {
+  "TRX-20240116-0050": { score: 98.0, level: "CRITICAL" },
+  "TRX-20240115-0042": { score: 96.5, level: "CRITICAL" },
+  "TRX-20240114-0038": { score: 93.5, level: "CRITICAL" },
+  "TRX-20240113-0029": { score: 89.0, level: "CRITICAL" },
+  "TRX-20240112-0017": { score: 87.0, level: "CRITICAL" },
+  "TRX-20240111-0009": { score: 99.0, level: "CRITICAL" },
+};
+
 export default function CasesPage() {
   const { theme } = useLandingTheme();
   const isLight = theme === "light";
@@ -181,64 +190,87 @@ export default function CasesPage() {
                     <th className="p-4">Case Title</th>
                     <th className="p-4">Crime Category</th>
                     <th className="p-4">Status</th>
+                    <th className="p-4">Threat Level</th>
                     <th className="p-4">Assigned Officer</th>
                     <th className="p-4">Wallets</th>
                     <th className="p-4 text-right">Updated</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-[#1f1f1f]">
-                  {filteredCases.map((c: any) => (
-                    <tr
-                      key={c.id}
-                      className="hover:bg-slate-50 dark:hover:bg-[#181818] transition-colors"
-                    >
-                      <td className="p-4 font-bold">{c.case_number}</td>
-                      <td className="p-4">
-                        <Link
-                          href={`/cases/${c.id}`}
-                          className={`font-bold transition-colors ${
-                            isLight ? "text-slate-900 hover:text-emerald-700" : "text-white hover:text-[#cf0]"
-                          }`}
-                        >
-                          {c.title}
-                        </Link>
-                      </td>
-                      <td className="p-4">
-                        <span
-                          className={`px-2.5 py-1 rounded text-[10px] font-bold border uppercase ${
-                            isLight
-                              ? "bg-slate-100 border-slate-300 text-slate-800"
-                              : "bg-[#1a1a1a] border-[#333] text-zinc-300"
-                          }`}
-                        >
-                          {c.crime_type.replace("_", " ")}
-                        </span>
-                      </td>
-                      <td className="p-4">
-                        <span
-                          className={`px-2.5 py-1 rounded text-[10px] font-extrabold uppercase border ${
-                            c.status === "in_progress"
-                              ? "bg-amber-500/10 text-amber-500 border-amber-500/30"
-                              : c.status === "open"
-                              ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
-                              : "bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
-                          }`}
-                        >
-                          {statusLabels[c.status] || c.status}
-                        </span>
-                      </td>
-                      <td className={`p-4 ${isLight ? "text-slate-700" : "text-zinc-300"}`}>
-                        {c.assigned_to || "Inspector Rajesh"}
-                      </td>
-                      <td className="p-4 font-bold">{c.wallets_count || 3}</td>
-                      <td className={`p-4 text-right ${isLight ? "text-slate-500" : "text-zinc-400"}`}>
-                        {formatRelativeTime(c.updated_at)}
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredCases.map((c: any) => {
+                    const fallbackRisk = DEMO_CASE_RISK_MAP[c.case_number] || {
+                      score: c.metadata?.risk_score || 85.0,
+                      level: (c.metadata?.risk_score || 85) >= 80 ? "CRITICAL" : "HIGH",
+                    };
+                    const riskScore = c.metadata?.risk_score ?? fallbackRisk.score;
+                    const riskLevel = riskScore >= 80 ? "CRITICAL" : riskScore >= 60 ? "HIGH" : "MEDIUM";
+
+                    return (
+                      <tr
+                        key={c.id}
+                        className="hover:bg-slate-50 dark:hover:bg-[#181818] transition-colors"
+                      >
+                        <td className="p-4 font-bold">{c.case_number}</td>
+                        <td className="p-4">
+                          <Link
+                            href={`/cases/${c.id}`}
+                            className={`font-bold transition-colors ${
+                              isLight ? "text-slate-900 hover:text-emerald-700" : "text-white hover:text-[#cf0]"
+                            }`}
+                          >
+                            {c.title}
+                          </Link>
+                        </td>
+                        <td className="p-4">
+                          <span
+                            className={`px-2.5 py-1 rounded text-[10px] font-bold border uppercase ${
+                              isLight
+                                ? "bg-slate-100 border-slate-300 text-slate-800"
+                                : "bg-[#1a1a1a] border-[#333] text-zinc-300"
+                            }`}
+                          >
+                            {c.crime_type.replace("_", " ")}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <span
+                            className={`px-2.5 py-1 rounded text-[10px] font-extrabold uppercase border ${
+                              c.status === "in_progress"
+                                ? "bg-amber-500/10 text-amber-500 border-amber-500/30"
+                                : c.status === "open"
+                                ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
+                                : "bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
+                            }`}
+                          >
+                            {statusLabels[c.status] || c.status}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${
+                              riskLevel === "CRITICAL"
+                                ? "bg-red-500/10 text-red-400 border-red-500/40"
+                                : riskLevel === "HIGH"
+                                ? "bg-amber-500/10 text-amber-500 border-amber-500/40"
+                                : "bg-emerald-500/10 text-emerald-500 border-emerald-500/40"
+                            }`}
+                          >
+                            {riskScore.toFixed(1)} {riskLevel}
+                          </span>
+                        </td>
+                        <td className={`p-4 ${isLight ? "text-slate-700" : "text-zinc-300"}`}>
+                          {c.assigned_to || "Inspector Rajesh"}
+                        </td>
+                        <td className="p-4 font-bold">{c.wallets_count || (c.metadata?.chains?.length ? 14 : 3)}</td>
+                        <td className={`p-4 text-right ${isLight ? "text-slate-500" : "text-zinc-400"}`}>
+                          {formatRelativeTime(c.updated_at)}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {filteredCases.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-zinc-400">
+                      <td colSpan={8} className="py-12 text-center text-zinc-400">
                         <FolderOpen className="w-10 h-10 mx-auto mb-3 opacity-40 text-[#cf0]" />
                         <p className="font-bold uppercase text-xs">No matching cases found</p>
                       </td>

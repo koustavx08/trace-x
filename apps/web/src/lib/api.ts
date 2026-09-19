@@ -22,8 +22,24 @@ class ApiClient {
 
     this.client.interceptors.response.use(
       (response) => response,
-      (error: AxiosError) => {
-        if (error.response?.status === 401) {
+      async (error: AxiosError) => {
+        const originalRequest = error.config as any;
+        const isAuthEndpoint =
+          originalRequest?.url?.includes("/auth/login") ||
+          originalRequest?.url?.includes("/auth/refresh");
+
+        if (error.response?.status === 401 && !originalRequest?._retry && !isAuthEndpoint) {
+          originalRequest._retry = true;
+          try {
+            await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true });
+            return this.client(originalRequest);
+          } catch {
+            void useAuthStore.getState().logout();
+            if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+              window.location.href = "/login";
+            }
+          }
+        } else if (error.response?.status === 401 && isAuthEndpoint) {
           void useAuthStore.getState().logout();
           if (typeof window !== "undefined" && window.location.pathname !== "/login") {
             window.location.href = "/login";
@@ -128,7 +144,12 @@ export interface DraftStatutoryNoticeRequest {
   wallet_address: string;
   entity_name?: string;
   case_id?: string;
-  notice_type?: "section_91_crpc" | "subpoena" | "freeze_notice";
+  notice_type?:
+    | "auto"
+    | "section_106_bnss_seizure"
+    | "section_106_bnss_debit_lien"
+    | "section_94_bnss_targeted_lien"
+    | "section_91_crpc";
   format?: "pdf" | "html" | "json";
 }
 
@@ -503,6 +524,20 @@ export const riskApi = {
     api.get(`/risk/reports/${reportId}/download`, { responseType: "blob" }),
   getCaseRiskSummary: (caseId: string) =>
     api.get<CaseRiskSummary>(`/risk/cases/${caseId}/risk-summary`),
+  syncCaseRisk: (caseId: string) =>
+    api.post<{
+      status: string;
+      case_id: string;
+      synced_count: number;
+      wallets: Array<{ address: string; label: string; risk_score: number; risk_level: string }>;
+      risk_summary: CaseRiskSummary;
+    }>(`/risk/cases/${caseId}/sync-risk`, {}),
+  syncAllRisk: () =>
+    api.post<{
+      status: string;
+      distinct_wallets_synced: number;
+      total_wallet_rows: number;
+    }>("/risk/sync-all", {}),
 };
 
 export interface Capability {

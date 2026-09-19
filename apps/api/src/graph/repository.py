@@ -109,6 +109,40 @@ class GraphRepository:
         await self._client.execute_write(query, params)
         return wallet
 
+    async def update_wallet_risk_score(self, address: str, chain: str, risk_score: float) -> None:
+        query = """
+        MATCH (w:Wallet)
+        WHERE toLower(w.address) = toLower($address) AND toLower(w.chain) = toLower($chain)
+        SET w.risk_score = $risk_score,
+            w.updated_at = datetime()
+        RETURN count(w) AS updated
+        """
+        await self._client.execute_write(
+            query,
+            {
+                "address": address.lower(),
+                "chain": chain,
+                "risk_score": _as_float(risk_score),
+            },
+        )
+
+    async def batch_update_wallet_risk_scores(self, updates: list[dict[str, Any]]) -> None:
+        query = """
+        UNWIND $updates AS item
+        MATCH (w:Wallet)
+        WHERE toLower(w.address) = toLower(item.address)
+        SET w.risk_score = item.risk_score,
+            w.updated_at = datetime()
+        """
+        cleaned = [
+            {
+                "address": u["address"].lower(),
+                "risk_score": _as_float(u["risk_score"]),
+            }
+            for u in updates
+        ]
+        await self._client.execute_write(query, {"updates": cleaned})
+
     async def upsert_transaction(self, tx: GraphTransaction) -> GraphTransaction:
         query = """
         MERGE (t:Transaction {tx_hash: $tx_hash, chain: $chain})

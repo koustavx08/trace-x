@@ -37,6 +37,7 @@ import {
   FileText,
   Scale,
   Loader2,
+  Lock,
 } from "lucide-react";
 import ReactFlow, {
   Background,
@@ -65,6 +66,15 @@ import dagre from "dagre";
 
 // Pre-seeded Demo Scenarios for Instant 1-Click Evaluation
 const DEMO_PRESETS = [
+  {
+    id: "complex",
+    title: "6-Pattern Fraud Syndicate",
+    subtitle: "Smurfing · Peel Chain · Bridges · Mixer · Wash-Trade",
+    address: "0x1d17c9956b2743692d631f9131d924048caf1f4e",
+    badge: "98 Risk",
+    badgeColor: "bg-red-500/10 text-red-600 border-red-200 dark:border-red-900/50",
+    chain: "Ethereum",
+  },
   {
     id: "defi",
     title: "DeFi Flash Loan Exploit",
@@ -391,12 +401,26 @@ function GraphView() {
     [nodes, reactFlowInstance]
   );
 
-  const handleDraftReport = async () => {
+  const [draftingType, setDraftingType] = useState<string | null>(null);
+
+  const handleDraftReport = async (
+    customNoticeType?:
+      | "section_106_bnss_seizure"
+      | "section_106_bnss_debit_lien"
+      | "section_94_bnss_targeted_lien"
+      | "section_91_crpc"
+  ) => {
     if (!selectedNode) return;
     const targetAddress = selectedNode.address || selectedNode.tx_hash;
     if (!targetAddress) return;
 
+    const riskScore = selectedNode.risk_score ?? 90;
+    const resolvedNoticeType =
+      customNoticeType ||
+      (riskScore >= 50 ? "section_106_bnss_seizure" : "section_94_bnss_targeted_lien");
+
     setDraftingReport(true);
+    setDraftingType(resolvedNoticeType);
     setDraftError(null);
 
     try {
@@ -409,7 +433,7 @@ function GraphView() {
       await reportsApi.draftStatutoryNotice({
         wallet_address: targetAddress,
         entity_name: entityName,
-        notice_type: "section_91_crpc",
+        notice_type: resolvedNoticeType,
         format: "pdf",
       });
 
@@ -419,6 +443,7 @@ function GraphView() {
       setDraftError(err instanceof Error ? err.message : "Failed to draft statutory notice");
     } finally {
       setDraftingReport(false);
+      setDraftingType(null);
     }
   };
 
@@ -848,7 +873,7 @@ function GraphView() {
                     </div>
                   )}
 
-                  {/* Compute custodial status */}
+                  {/* Compute custodial status & statutory remedies */}
                   {(() => {
                     const isCustodial =
                       selectedNode.type === "entity" ||
@@ -857,33 +882,100 @@ function GraphView() {
                       Boolean(selectedNode.name && /binance|kraken|coinbase|bybit|okx|exchange|vasp/i.test(selectedNode.name)) ||
                       Boolean(selectedNode.label && /binance|kraken|coinbase|bybit|okx|exchange|vasp/i.test(selectedNode.label));
 
+                    const riskScore = selectedNode.risk_score ?? 0;
+                    const isHighRisk = riskScore >= 50;
+
                     return (
-                      <div className="pt-2 flex flex-col gap-2">
+                      <div className="pt-2 flex flex-col gap-2.5">
                         {isCustodial ? (
-                          <Button
-                            size="sm"
-                            onClick={handleDraftReport}
-                            disabled={draftingReport}
-                            className="w-full rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold shadow-sm transition-all"
-                          >
-                            {draftingReport ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
-                                Drafting Section 91 Notice...
-                              </>
-                            ) : (
-                              <>
-                                <Scale className="w-3.5 h-3.5 mr-2" />
-                                Draft Section 91 / Freeze Notice
-                              </>
-                            )}
-                          </Button>
+                          isHighRisk ? (
+                            /* HIGH RISK: TWO DISTINCT ACTION BUTTONS (SEIZURE & TOTAL DEBIT LIEN) */
+                            <div className="p-2.5 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-500/5 dark:bg-red-950/20 flex flex-col gap-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-red-700 dark:text-red-400 flex items-center gap-1.5">
+                                  <ShieldAlert className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
+                                  High-Risk Mule Syndicate ({riskScore}/100)
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-tight">
+                                High probability of illicit diversion. Issue statutory orders under BNSS, 2023:
+                              </p>
+
+                              <div className="flex flex-col gap-1.5 pt-0.5">
+                                {/* Button 1: 100% Crypto Asset Seizure */}
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleDraftReport("section_106_bnss_seizure")}
+                                  disabled={draftingReport}
+                                  className="w-full justify-start rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-sm transition-all h-9 px-3"
+                                >
+                                  {draftingReport && draftingType === "section_106_bnss_seizure" ? (
+                                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin shrink-0" />
+                                  ) : (
+                                    <ShieldAlert className="w-3.5 h-3.5 mr-2 shrink-0 text-white" />
+                                  )}
+                                  <span className="truncate">🚨 Issue Sec 106 BNSS Asset Seizure</span>
+                                </Button>
+
+                                {/* Button 2: Total Account Debit Lien */}
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleDraftReport("section_106_bnss_debit_lien")}
+                                  disabled={draftingReport}
+                                  className="w-full justify-start rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-sm transition-all h-9 px-3"
+                                >
+                                  {draftingReport && draftingType === "section_106_bnss_debit_lien" ? (
+                                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin shrink-0" />
+                                  ) : (
+                                    <Lock className="w-3.5 h-3.5 mr-2 shrink-0 text-white" />
+                                  )}
+                                  <span className="truncate">🛑 Issue Sec 106(3)/94 Total Debit Lien</span>
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            /* LOW RISK: TARGETED DEBIT LIEN ONLY (INFLOW AMOUNT) */
+                            <div className="p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-500/5 dark:bg-emerald-950/20 flex flex-col gap-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                                  <Scale className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                  Probable Bonafide Merchant ({riskScore}/100)
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-tight">
+                                Protect merchant business operations while placing a targeted lien on the inflow sum:
+                              </p>
+
+                              <Button
+                                size="sm"
+                                onClick={() => handleDraftReport("section_94_bnss_targeted_lien")}
+                                disabled={draftingReport}
+                                className="w-full justify-start rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition-all h-9 px-3"
+                              >
+                                {draftingReport && draftingType === "section_94_bnss_targeted_lien" ? (
+                                  <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin shrink-0" />
+                                ) : (
+                                  <Scale className="w-3.5 h-3.5 mr-2 shrink-0 text-white" />
+                                )}
+                                <span className="truncate">⚖️ Issue Sec 94 Targeted Debit Lien</span>
+                              </Button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDraftReport("section_106_bnss_seizure")}
+                                disabled={draftingReport}
+                                className="text-[10px] text-muted-foreground hover:text-red-500 underline text-center transition-colors"
+                              >
+                                Escalate to Sec 106 Seizure if complicit
+                              </button>
+                            </div>
+                          )
                         ) : (
                           selectedNode.address && (
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={handleDraftReport}
+                              onClick={() => handleDraftReport(isHighRisk ? "section_106_bnss_seizure" : "section_94_bnss_targeted_lien")}
                               disabled={draftingReport}
                               className="w-full rounded-xl"
                             >

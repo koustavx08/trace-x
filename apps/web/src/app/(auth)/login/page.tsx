@@ -44,9 +44,18 @@ export default function LoginPage() {
 
   const onSubmit = async (values: LoginFormValues) => {
     setServerError(null);
+    const targetUrl =
+      (typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("from")
+        : null) || "/dashboard";
+
+    if (typeof document !== "undefined") {
+      document.cookie = "tracex_auth=1; Path=/; Max-Age=604800; SameSite=Lax";
+    }
+
     try {
       await login(values);
-      router.push("/dashboard");
+      router.push(targetUrl);
     } catch (err) {
       // Offline fallback: set role & profile dynamically based on input email
       const emailLower = values.email.toLowerCase();
@@ -76,7 +85,7 @@ export default function LoginPage() {
         },
       });
 
-      router.push("/dashboard");
+      router.push(targetUrl);
     }
   };
 

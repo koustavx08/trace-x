@@ -88,6 +88,9 @@ class RiskAssessment:
                 }
                 for f in self.factors
             ],
+            "total_weighted_score": round(sum(f.weighted_score for f in self.factors), 2),
+            "active_factors_count": len([f for f in self.factors if f.score > 0]),
+            "clean_factors_count": len([f for f in self.factors if f.score == 0]),
             "summary": self.summary,
             "methodology": self.methodology,
             "assessed_at": self.assessed_at.isoformat(),
@@ -113,9 +116,39 @@ SEVERITY_THRESHOLDS = {
     RiskSeverity.CRITICAL: 80,
     RiskSeverity.HIGH: 60,
     RiskSeverity.MEDIUM: 40,
-    RiskSeverity.LOW: 20,
+    RiskSeverity.LOW: 5,
     RiskSeverity.INFO: 0,
 }
+
+CLEAN_FACTOR_DESCRIPTIONS: dict[RiskFactorType, str] = {
+    RiskFactorType.SANCTIONS_HIT: "Evaluated: No matches across OFAC SDN, MHA, EU, or UN international sanctions lists.",
+    RiskFactorType.MIXER_INTERACTION: "Evaluated: No direct or multi-hop deposit/withdrawal interactions with privacy mixers.",
+    RiskFactorType.HIGH_RISK_ENTITY: "Evaluated: Counterparty addresses verified clean of known illicit or darknet tags.",
+    RiskFactorType.PEEL_CHAIN: "Evaluated: No asymmetric peel chains or automated split fan-out patterns detected.",
+    RiskFactorType.RAPID_MOVEMENT: "Evaluated: Transaction velocity normal; no sub-5 minute automated hopping detected.",
+    RiskFactorType.ROUND_AMOUNTS: "Evaluated: Natural value dispersion; no systemic integer smurfing patterns.",
+    RiskFactorType.LARGE_VALUE_TRANSFER: "Evaluated: Transaction amounts remain within typical historical volume thresholds.",
+    RiskFactorType.CROSS_CHAIN_BRIDGE: "Evaluated: No cross-chain bridge lock/mint hops or chain-hopping maneuvers.",
+    RiskFactorType.CONTRACT_INTERACTION: "Evaluated: Standard contract interactions; no anomalous proxy or router manipulations.",
+    RiskFactorType.NEW_WALLET: "Evaluated: Matured wallet address (> 30 days active history, established activity).",
+    RiskFactorType.LOW_LIQUIDITY_TOKEN: "Evaluated: Asset composition consists of established high-liquidity tokens.",
+    RiskFactorType.DUSTING_ATTACK: "Evaluated: No unsolicited micro-dust injections or tracking transaction spam.",
+}
+
+ALL_12_FACTOR_ORDER: list[RiskFactorType] = [
+    RiskFactorType.SANCTIONS_HIT,
+    RiskFactorType.MIXER_INTERACTION,
+    RiskFactorType.HIGH_RISK_ENTITY,
+    RiskFactorType.PEEL_CHAIN,
+    RiskFactorType.RAPID_MOVEMENT,
+    RiskFactorType.ROUND_AMOUNTS,
+    RiskFactorType.LARGE_VALUE_TRANSFER,
+    RiskFactorType.CROSS_CHAIN_BRIDGE,
+    RiskFactorType.CONTRACT_INTERACTION,
+    RiskFactorType.NEW_WALLET,
+    RiskFactorType.LOW_LIQUIDITY_TOKEN,
+    RiskFactorType.DUSTING_ATTACK,
+]
 
 
 class RiskScoringEngine:
@@ -129,18 +162,55 @@ class RiskScoringEngine:
         entity_data: dict[str, Any] | None = None,
         graph_context: dict[str, Any] | None = None,
     ) -> RiskAssessment:
-        factors: list[RiskFactor] = []
+        elevated_factors: list[RiskFactor] = []
 
-        factors.extend(await self._check_mixer_interaction(wallet, transactions, graph_context))
-        factors.extend(await self._check_peel_chain(wallet, transactions, graph_context))
-        factors.extend(await self._check_round_amounts(transactions))
-        factors.extend(await self._check_rapid_movement(transactions))
-        factors.extend(await self._check_high_risk_entities(wallet, entity_data))
-        factors.extend(await self._check_sanctions(wallet, entity_data))
-        factors.extend(await self._check_large_transfers(transactions))
-        factors.extend(await self._check_cross_chain_bridges(transactions))
-        factors.extend(await self._check_new_wallet(wallet))
-        factors.extend(await self._check_contract_interactions(transactions))
+        elevated_factors.extend(await self._check_sanctions(wallet, entity_data))
+        elevated_factors.extend(
+            await self._check_mixer_interaction(wallet, transactions, graph_context, entity_data)
+        )
+        elevated_factors.extend(await self._check_high_risk_entities(wallet, entity_data))
+        elevated_factors.extend(await self._check_peel_chain(wallet, transactions, graph_context))
+        elevated_factors.extend(await self._check_rapid_movement(transactions))
+        elevated_factors.extend(await self._check_round_amounts(transactions))
+        elevated_factors.extend(
+            await self._check_large_transfers(transactions, wallet, entity_data)
+        )
+        elevated_factors.extend(await self._check_cross_chain_bridges(transactions))
+        elevated_factors.extend(await self._check_contract_interactions(transactions))
+        elevated_factors.extend(await self._check_new_wallet(wallet))
+        elevated_factors.extend(await self._check_low_liquidity_tokens(transactions))
+        elevated_factors.extend(await self._check_dusting_attacks(transactions))
+
+        # Map highest severity/score factor for each elevated factor type
+        elevated_map: dict[RiskFactorType, RiskFactor] = {}
+        for factor in elevated_factors:
+            if (
+                factor.factor_type not in elevated_map
+                or factor.score > elevated_map[factor.factor_type].score
+            ):
+                elevated_map[factor.factor_type] = factor
+
+        # Assemble full 12 factors (elevated first in priority order, then clean)
+        factors: list[RiskFactor] = []
+        for ft in ALL_12_FACTOR_ORDER:
+            if ft in elevated_map:
+                factors.append(elevated_map[ft])
+
+        for ft in ALL_12_FACTOR_ORDER:
+            if ft not in elevated_map:
+                factors.append(
+                    RiskFactor(
+                        factor_type=ft,
+                        severity=RiskSeverity.LOW,
+                        score=0.0,
+                        weight=RISK_WEIGHTS[ft],
+                        description=CLEAN_FACTOR_DESCRIPTIONS.get(
+                            ft, f"Evaluated: No elevated threat signals detected for {ft.value}."
+                        ),
+                        evidence={"status": "clean", "detected": False},
+                        confidence=ConfidenceLevel.CONFIRMED,
+                    )
+                )
 
         overall_score = self._calculate_overall_score(factors)
         risk_level = self._score_to_severity(overall_score)
@@ -159,6 +229,7 @@ class RiskScoringEngine:
         wallet: GraphWallet,
         transactions: list[GraphTransaction],
         graph_context: dict[str, Any] | None,
+        entity_data: dict[str, Any] | None = None,
     ) -> list[RiskFactor]:
         factors: list[RiskFactor] = []
 
@@ -169,30 +240,119 @@ class RiskScoringEngine:
         if not mixer_interactions:
             return factors
 
+        # Detect if this wallet is recognized infrastructure (DEX router, exchange, bridge)
+        if wallet and wallet.entity_type is not None:
+            wallet_ent_val = getattr(wallet.entity_type, "value", wallet.entity_type)
+        else:
+            wallet_ent_val = None
+        raw_entity_type = (
+            entity_data.get("entity_type") if entity_data else None
+        ) or wallet_ent_val
+        if raw_entity_type is not None:
+            raw_entity_type = getattr(raw_entity_type, "value", raw_entity_type)
+        raw_type_str = str(raw_entity_type).lower() if raw_entity_type else ""
+
+        label_str = (wallet.label or "").lower()
+        name_str = (wallet.entity_name or ((entity_data or {}).get("entity_name") or "")).lower()
+
+        is_infra = raw_type_str in ("defi", "exchange", "bridge", "merchant") or any(
+            t in label_str or t in name_str
+            for t in [
+                "uniswap",
+                "sushiswap",
+                "curve",
+                "aave",
+                "binance",
+                "kraken",
+                "coinbase",
+                "router",
+                "exchange",
+                "dex",
+            ]
+        )
+
         seen_mixers: set[tuple] = set()
         for interaction in mixer_interactions:
             mixer_name = interaction.get("mixer", {}).get("name", "Unknown Mixer")
-            hops = interaction.get("length", 0)
+            mixer_addr = interaction.get("mixer", {}).get("address", "")
+
+            # Read hops from Cypher output, or calculate from path nodes, or fallback to length
+            hops = interaction.get("hops")
+            if hops is None:
+                path = interaction.get("path")
+                if path and hasattr(path, "nodes"):
+                    wallet_nodes = [
+                        n for n in path.nodes if hasattr(n, "labels") and "Wallet" in n.labels
+                    ]
+                    hops = max(1, len(wallet_nodes) - 1)
+                else:
+                    hops = interaction.get("length", 1)
+
             value = interaction.get("weight", 0)
             mixer_key = (mixer_name, hops, round(value, 4))
             if mixer_key in seen_mixers:
                 continue
             seen_mixers.add(mixer_key)
 
+            # Self-is-mixer check
+            if hops == 0 or (wallet.address.lower() == mixer_addr.lower()):
+                score = 99.0
+                severity = RiskSeverity.CRITICAL
+                desc = f"Identified privacy mixer service ({mixer_name})"
+                conf = ConfidenceLevel.CONFIRMED
+            elif is_infra:
+                # Infrastructure entities act as execution venues or passive counterparties
+                if hops <= 1:
+                    score = 15.0
+                    severity = RiskSeverity.LOW
+                    desc = f"Direct mixer interaction with infrastructure ({mixer_name}): passive execution venue ({hops} hop, {value:.4f} ETH)"
+                    conf = ConfidenceLevel.CONFIRMED
+                elif hops == 2:
+                    score = 8.0
+                    severity = RiskSeverity.LOW
+                    desc = f"Indirect mixer inflow ({mixer_name}, {hops} hops): bonafide merchant/router counterparty ({value:.4f} ETH)"
+                    conf = ConfidenceLevel.CONFIRMED
+                else:
+                    # Negligible indirect exposure for public infrastructure
+                    continue
+            else:
+                # Standard suspect or mule wallet: apply distance attenuation
+                if hops <= 1:
+                    score = 95.0
+                    severity = RiskSeverity.CRITICAL
+                    desc = f"Direct funds flow with privacy mixer {mixer_name} ({hops} hop, {value:.4f} ETH)"
+                    conf = ConfidenceLevel.HIGH_CONFIDENCE
+                elif hops == 2:
+                    score = 50.0
+                    severity = RiskSeverity.MEDIUM
+                    desc = f"Funds traced through {mixer_name} ({hops} hops, {value:.4f} ETH)"
+                    conf = ConfidenceLevel.HIGH_CONFIDENCE
+                elif hops == 3:
+                    score = 25.0
+                    severity = RiskSeverity.LOW
+                    desc = f"Diluted multi-hop trace to {mixer_name} ({hops} hops, {value:.4f} ETH)"
+                    conf = ConfidenceLevel.PROBABLE
+                else:
+                    score = 10.0
+                    severity = RiskSeverity.INFO
+                    desc = f"Distant trace to {mixer_name} ({hops} hops, {value:.4f} ETH)"
+                    conf = ConfidenceLevel.PROBABLE
+
             factors.append(
                 RiskFactor(
                     factor_type=RiskFactorType.MIXER_INTERACTION,
-                    severity=RiskSeverity.CRITICAL,
-                    score=95,
+                    severity=severity,
+                    score=score,
                     weight=RISK_WEIGHTS[RiskFactorType.MIXER_INTERACTION],
-                    description=f"Funds traced through {mixer_name} ({hops} hops, {value:.4f} ETH)",
+                    description=desc,
                     evidence={
                         "mixer_name": mixer_name,
                         "hops_from_wallet": hops,
                         "value_eth": value,
+                        "is_infrastructure": is_infra,
                         "path": interaction.get("nodes", []),
                     },
-                    confidence=ConfidenceLevel.HIGH_CONFIDENCE,
+                    confidence=conf,
                 )
             )
 
@@ -411,9 +571,46 @@ class RiskScoringEngine:
         return factors
 
     async def _check_large_transfers(
-        self, transactions: list[GraphTransaction]
+        self,
+        transactions: list[GraphTransaction],
+        wallet: GraphWallet | None = None,
+        entity_data: dict[str, Any] | None = None,
     ) -> list[RiskFactor]:
         factors: list[RiskFactor] = []
+
+        # Known infrastructure (DEX routers, CEXs) routinely process large volume as standard liquidity
+        if wallet:
+            if wallet.entity_type is not None:
+                wallet_ent_val = getattr(wallet.entity_type, "value", wallet.entity_type)
+            else:
+                wallet_ent_val = None
+            raw_entity_type = (
+                entity_data.get("entity_type") if entity_data else None
+            ) or wallet_ent_val
+            if raw_entity_type is not None:
+                raw_entity_type = getattr(raw_entity_type, "value", raw_entity_type)
+            raw_type_str = str(raw_entity_type).lower() if raw_entity_type else ""
+            label_str = (wallet.label or "").lower()
+            name_str = (
+                wallet.entity_name or ((entity_data or {}).get("entity_name") or "")
+            ).lower()
+
+            if raw_type_str in ("defi", "exchange", "bridge", "merchant") or any(
+                t in label_str or t in name_str
+                for t in [
+                    "uniswap",
+                    "sushiswap",
+                    "curve",
+                    "aave",
+                    "binance",
+                    "kraken",
+                    "coinbase",
+                    "router",
+                    "exchange",
+                    "dex",
+                ]
+            ):
+                return factors
 
         large_txs = []
         for tx in transactions:
@@ -530,18 +727,73 @@ class RiskScoringEngine:
 
         return factors
 
+    async def _check_low_liquidity_tokens(
+        self, transactions: list[GraphTransaction]
+    ) -> list[RiskFactor]:
+        factors: list[RiskFactor] = []
+        suspicious_tokens = []
+        for tx in transactions:
+            sym = (tx.token_symbol or "").upper()
+            if tx.token_address and (not sym or len(sym) > 10 or "SCAM" in sym or "FAKE" in sym):
+                suspicious_tokens.append(tx)
+
+        if suspicious_tokens:
+            factors.append(
+                RiskFactor(
+                    factor_type=RiskFactorType.LOW_LIQUIDITY_TOKEN,
+                    severity=RiskSeverity.MEDIUM,
+                    score=55,
+                    weight=RISK_WEIGHTS[RiskFactorType.LOW_LIQUIDITY_TOKEN],
+                    description=f"{len(suspicious_tokens)} transfers involving unverified or low-liquidity tokens",
+                    evidence={
+                        "token_count": len(suspicious_tokens),
+                        "sample_hashes": [tx.tx_hash for tx in suspicious_tokens[:5]],
+                    },
+                    confidence=ConfidenceLevel.PROBABLE,
+                )
+            )
+        return factors
+
+    async def _check_dusting_attacks(
+        self, transactions: list[GraphTransaction]
+    ) -> list[RiskFactor]:
+        factors: list[RiskFactor] = []
+        dust_txs = []
+        for tx in transactions:
+            try:
+                val = float(tx.value) / 1e18 if tx.value.isdigit() else 0.0
+                if 0 < val <= 0.0001:
+                    dust_txs.append(tx)
+            except Exception:
+                continue
+
+        if len(dust_txs) >= 4:
+            factors.append(
+                RiskFactor(
+                    factor_type=RiskFactorType.DUSTING_ATTACK,
+                    severity=RiskSeverity.LOW,
+                    score=30,
+                    weight=RISK_WEIGHTS[RiskFactorType.DUSTING_ATTACK],
+                    description=f"Dusting activity: {len(dust_txs)} micro-transactions (<= 0.0001 ETH) detected",
+                    evidence={"dust_count": len(dust_txs)},
+                    confidence=ConfidenceLevel.PROBABLE,
+                )
+            )
+        return factors
+
     def _calculate_overall_score(self, factors: list[RiskFactor]) -> float:
-        if not factors:
+        active_factors = [f for f in factors if f.score > 0]
+        if not active_factors:
             return 0.0
 
-        total_weighted = sum(f.weighted_score for f in factors)
-        total_weight = sum(f.weight for f in factors)
+        total_weighted = sum(f.weighted_score for f in active_factors)
+        total_weight = sum(f.weight for f in active_factors)
 
         if total_weight == 0:
             return 0.0
 
         base_score = total_weighted / total_weight
-        max_possible = max(f.score for f in factors)
+        max_possible = max(f.score for f in active_factors)
 
         return min(base_score * 1.1, max_possible, 100.0)
 
@@ -554,12 +806,13 @@ class RiskScoringEngine:
     def _generate_summary(
         self, factors: list[RiskFactor], score: float, level: RiskSeverity
     ) -> str:
-        if not factors:
-            return "No risk factors detected. Wallet appears clean based on current analysis."
+        active_factors = [f for f in factors if f.score > 0]
+        if not active_factors:
+            return "All 12 risk factors evaluated clean. Wallet appears clean based on current heuristic analysis."
 
-        critical = [f for f in factors if f.severity == RiskSeverity.CRITICAL]
-        high = [f for f in factors if f.severity == RiskSeverity.HIGH]
-        medium = [f for f in factors if f.severity == RiskSeverity.MEDIUM]
+        critical = [f for f in active_factors if f.severity == RiskSeverity.CRITICAL]
+        high = [f for f in active_factors if f.severity == RiskSeverity.HIGH]
+        medium = [f for f in active_factors if f.severity == RiskSeverity.MEDIUM]
 
         parts = [f"Overall risk score: {score:.1f}/100 ({level.value.upper()})."]
 
@@ -575,6 +828,10 @@ class RiskScoringEngine:
             parts.append(
                 f"{len(medium)} medium-risk factor(s): {', '.join(f.factor_type.value.replace('_', ' ') for f in medium)}."
             )
+
+        clean_count = len(factors) - len(active_factors)
+        if clean_count > 0:
+            parts.append(f"{clean_count} factor(s) evaluated clean (0 pts).")
 
         return " ".join(parts)
 

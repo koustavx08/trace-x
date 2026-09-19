@@ -101,11 +101,38 @@ export default function ReportsPage() {
                     <TableRow key={r.id} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                       <TableCell className="font-medium text-slate-900 dark:text-slate-100">
                         <div className="flex items-center gap-2">
-                          {r.title?.includes("Section 91") && (
-                            <Badge variant="secondary" className="bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-[10px] font-semibold whitespace-nowrap">
-                              Sec 91 CrPC
-                            </Badge>
-                          )}
+                          {(() => {
+                            const nType = (r.findings as Record<string, any> | undefined)?.notice_type || "";
+                            if (nType === "section_106_bnss_seizure" || r.title?.includes("Asset Seizure")) {
+                              return (
+                                <Badge variant="secondary" className="bg-red-500/10 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800 text-[10px] font-semibold whitespace-nowrap">
+                                  🚨 Sec 106 BNSS Seizure
+                                </Badge>
+                              );
+                            }
+                            if (nType === "section_106_bnss_debit_lien" || r.title?.includes("Total Debit Lien")) {
+                              return (
+                                <Badge variant="secondary" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 text-[10px] font-semibold whitespace-nowrap">
+                                  🛑 Sec 106(3) Debit Lien
+                                </Badge>
+                              );
+                            }
+                            if (nType === "section_94_bnss_targeted_lien" || r.title?.includes("Targeted Debit Lien")) {
+                              return (
+                                <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-[10px] font-semibold whitespace-nowrap">
+                                  ⚖️ Sec 94 Targeted Lien
+                                </Badge>
+                              );
+                            }
+                            if (r.title?.includes("Section 91") || nType === "section_91_crpc") {
+                              return (
+                                <Badge variant="secondary" className="bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-[10px] font-semibold whitespace-nowrap">
+                                  Sec 91 CrPC
+                                </Badge>
+                              );
+                            }
+                            return null;
+                          })()}
                           <span className="truncate max-w-[320px] font-semibold">{r.title}</span>
                         </div>
                       </TableCell>

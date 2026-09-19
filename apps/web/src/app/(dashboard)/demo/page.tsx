@@ -45,6 +45,21 @@ import {
 // list in step after changing a scenario.
 const demoCases = [
   {
+    id: "complex-fraud",
+    case_number: "TRX-20240116-0050",
+    title: "Multi-Layered Fraud Syndicate - 6-Pattern Laundering",
+    crime_type: "money_laundering",
+    description: "A 72-hour synthetic task-scam syndicate moving $1.99M across Ethereum, TRON, and Bitcoin demonstrating all six laundering motifs: smurfing fan-out across 10 mules, a 4-hop peel chain, cross-chain bridge hops to TRON and Bitcoin, Tornado Cash mixer cycle, 5-node cyclic wash-trade, and exchange off-ramps.",
+    status: "in_progress",
+    suspect_wallet: "0x1d17c9956b2743692d631f9131d924048caf1f4e",
+    chains: ["Ethereum", "Tron", "Bitcoin"],
+    tags: ["Smurfing", "Peel Chain", "Cross-chain Bridge", "Tornado Cash", "Cyclic Wash-Trade", "Exchange Off-ramp"],
+    wallet_count: 39,
+    risk_score: 98,
+    vasp: "Binance / Kraken / KuCoin / Huobi / CoinDCX / WazirX",
+    vasp_confidence: "CONFIRMED",
+  },
+  {
     id: "defi-exploit",
     case_number: "TRX-20240115-0042",
     title: "DeFi Protocol Flash Loan Exploit",

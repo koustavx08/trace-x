@@ -121,7 +121,8 @@ class GraphQueries:
         // entity. Comparing the two directly rejected paths well inside the
         // requested depth.
         WHERE length(path) <= $max_hops * 2 + 1
-        RETURN path, weight, mixer
+        RETURN path, weight, mixer,
+               toInteger((size([n IN nodes(path) WHERE 'Wallet' IN labels(n)]) - 1)) AS hops
         ORDER BY weight ASC
         LIMIT 10
         """

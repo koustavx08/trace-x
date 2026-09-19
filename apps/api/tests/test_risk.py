@@ -75,6 +75,62 @@ class TestRiskScoringEngine:
         )
         assert high_risk.overall_score >= low_risk.overall_score
 
+    async def test_assess_wallet_infrastructure_mixer_interaction_hop_attenuation(self):
+        wallet = GraphWallet(
+            address="0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45",
+            chain="Ethereum",
+            label="Uniswap V3",
+            entity_name="Uniswap V3",
+            entity_type="defi",
+        )
+        graph_context = {
+            "mixer_interactions": [
+                {
+                    "mixer": {"name": "Tornado Cash 100 ETH pool", "address": "0xa160..."},
+                    "hops": 2,
+                    "weight": 5.0,
+                }
+            ]
+        }
+        assessment = await risk_scoring_engine.assess_wallet(
+            wallet=wallet,
+            transactions=[],
+            entity_data={"entity_name": "Uniswap V3", "entity_type": "defi"},
+            graph_context=graph_context,
+        )
+        assert assessment.overall_score == 8.0
+        assert assessment.risk_level.value == "low"
+        mixer_factors = [
+            f for f in assessment.factors if f.factor_type.value == "mixer_interaction"
+        ]
+        assert len(mixer_factors) == 1
+        assert mixer_factors[0].score == 8.0
+        assert "2 hops" in mixer_factors[0].description
+        assert "bonafide merchant" in mixer_factors[0].description
+
+    async def test_assess_wallet_direct_mixer_interaction(self):
+        wallet = GraphWallet(
+            address="0xsuspectmule",
+            chain="Ethereum",
+            label="Exploit Operator",
+        )
+        graph_context = {
+            "mixer_interactions": [
+                {
+                    "mixer": {"name": "Tornado Cash 100 ETH pool", "address": "0xa160..."},
+                    "hops": 1,
+                    "weight": 10.0,
+                }
+            ]
+        }
+        assessment = await risk_scoring_engine.assess_wallet(
+            wallet=wallet,
+            transactions=[],
+            graph_context=graph_context,
+        )
+        assert assessment.overall_score >= 95.0
+        assert assessment.risk_level.value == "critical"
+
 
 # ---------------------------------------------------------------------------
 # /risk/wallets/{id}/assess -- real DB wallet lookup, pure scoring logic

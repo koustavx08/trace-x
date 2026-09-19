@@ -27,7 +27,7 @@ describe("DashboardLayout (named export)", () => {
       </DashboardLayout>
     );
 
-    expect(screen.getByText("TRACE-X")).toBeInTheDocument();
+    expect(screen.getAllByText("TRACE-X")[0]).toBeInTheDocument();
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
     expect(screen.getByText("Cases")).toBeInTheDocument();
     expect(screen.getByText("page content")).toBeInTheDocument();

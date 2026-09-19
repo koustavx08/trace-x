@@ -3,16 +3,19 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.analytics import attribution_engine, risk_scoring_engine
 from src.core import NotFoundError, get_session
-from src.graph.models import ConfidenceLevel, GraphTransaction, GraphWallet
+from src.core.logging import get_logger
+from src.graph.models import ConfidenceLevel, EntityType, GraphTransaction, GraphWallet
 from src.graph.queries import graph_queries
+from src.graph.repository import GraphRepository
 from src.models import Case, InvestigationRun, Report, Transaction, Wallet
 from src.reports import ReportFormat, ReportTemplate, report_generator
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/risk", tags=["risk"])
 
 
@@ -46,6 +49,9 @@ class RiskAssessmentResponse(BaseModel):
     summary: str
     methodology: str
     assessed_at: str
+    total_weighted_score: float | None = None
+    active_factors_count: int | None = None
+    clean_factors_count: int | None = None
 
 
 class AttributionResponse(BaseModel):
@@ -79,25 +85,14 @@ class ReportGenerateResponse(BaseModel):
     generated_at: str
 
 
-@router.post(
-    "/wallets/{wallet_id}/assess",
-    response_model=RiskAssessmentResponse,
-    summary="Assess wallet risk",
-    description="Assess the risk level of a wallet address based on transaction history and graph analysis. Returns a risk_score (prediction score 0-100) with risk level classification.",
-)
-@router.get(
-    "/wallets/{wallet_id}/assess",
-    response_model=RiskAssessmentResponse,
-    summary="Assess wallet risk (GET)",
-    description="Assess the risk level of a wallet address based on transaction history and graph analysis. Returns a risk_score (prediction score 0-100) with risk level classification.",
-)
-async def assess_wallet_risk(
-    wallet_id: str,
-    session: AsyncSession = Depends(get_session),
-):
-    wallet = await _resolve_wallet(session, wallet_id)
-
-    result = await session.execute(select(Transaction).where(Transaction.wallet_id == wallet.id))
+async def _assess_and_sync_wallet(session: AsyncSession, wallet: Wallet):
+    result = await session.execute(
+        select(Transaction).where(
+            (Transaction.wallet_id == wallet.id)
+            | (func.lower(Transaction.from_address) == wallet.address.lower())
+            | (func.lower(Transaction.to_address) == wallet.address.lower())
+        )
+    )
     transactions = result.scalars().all()
 
     graph_transactions = [
@@ -118,15 +113,24 @@ async def assess_wallet_risk(
         )
         for tx in transactions
     ]
+
+    entity_type_enum = None
+    if wallet.entity_type:
+        try:
+            entity_type_enum = EntityType(wallet.entity_type)
+        except ValueError:
+            entity_type_enum = None
+
     graph_wallet = GraphWallet(
         address=wallet.address,
         chain=wallet.chain,
         label=wallet.label,
-        risk_score=float(wallet.risk_score),
+        risk_score=float(wallet.risk_score or 0.0),
         first_seen=wallet.created_at,
         last_seen=wallet.updated_at,
         tx_count=len(graph_transactions),
         entity_name=wallet.entity_name,
+        entity_type=entity_type_enum,
         entity_confidence=ConfidenceLevel(wallet.entity_confidence)
         if wallet.entity_confidence
         else ConfidenceLevel.UNKNOWN,
@@ -143,11 +147,11 @@ async def assess_wallet_risk(
             chain=wallet.chain,
             min_hops=3,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("graph_queries_context_failed", address=wallet.address, error=str(e))
 
     entity_data = None
-    if wallet.entity_name:
+    if wallet.entity_name or wallet.entity_type:
         entity_data = {
             "entity_name": wallet.entity_name,
             "entity_type": wallet.entity_type,
@@ -161,6 +165,62 @@ async def assess_wallet_risk(
         graph_context=graph_context,
     )
 
+    # Persist to PostgreSQL across all cases referencing this wallet address
+    factors_summary = [
+        {
+            "type": f.factor_type.value,
+            "severity": f.severity.value,
+            "score": f.score,
+            "description": f.description,
+        }
+        for f in assessment.factors
+    ]
+    wallet.risk_score = assessment.overall_score
+    curr_meta = dict(wallet.wallet_metadata or {})
+    curr_meta["risk_factors"] = factors_summary
+    wallet.wallet_metadata = curr_meta
+
+    await session.execute(
+        update(Wallet)
+        .where(func.lower(Wallet.address) == wallet.address.lower())
+        .values(
+            risk_score=assessment.overall_score,
+        )
+    )
+    await session.commit()
+
+    # Persist to Neo4j graph node
+    try:
+        graph_repo = GraphRepository()
+        await graph_repo.update_wallet_risk_score(
+            address=wallet.address,
+            chain=wallet.chain,
+            risk_score=assessment.overall_score,
+        )
+    except Exception as e:
+        logger.warning("neo4j_risk_sync_failed", address=wallet.address, error=str(e))
+
+    return assessment
+
+
+@router.post(
+    "/wallets/{wallet_id}/assess",
+    response_model=RiskAssessmentResponse,
+    summary="Assess wallet risk",
+    description="Assess the risk level of a wallet address based on transaction history and graph analysis. Synchronizes the risk score across PostgreSQL and Neo4j.",
+)
+@router.get(
+    "/wallets/{wallet_id}/assess",
+    response_model=RiskAssessmentResponse,
+    summary="Assess wallet risk (GET)",
+    description="Assess the risk level of a wallet address based on transaction history and graph analysis. Synchronizes the risk score across PostgreSQL and Neo4j.",
+)
+async def assess_wallet_risk(
+    wallet_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    wallet = await _resolve_wallet(session, wallet_id)
+    assessment = await _assess_and_sync_wallet(session, wallet)
     return RiskAssessmentResponse(**assessment.to_dict())
 
 
@@ -380,4 +440,76 @@ async def get_case_risk_summary(
             {"address": w.address, "risk_score": w.risk_score, "label": w.label}
             for w in sorted(wallets, key=lambda x: float(x.risk_score or 0), reverse=True)[:5]
         ],
+    }
+
+
+@router.post(
+    "/cases/{case_id}/sync-risk",
+    summary="Synchronize and recalibrate risk scores for all wallets in a case",
+    description="Assesses all wallets associated with a case against the calibrated 12-factor engine and synchronizes PostgreSQL and Neo4j.",
+)
+async def sync_case_risk(
+    case_id: UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    case = await session.get(Case, case_id)
+    if not case:
+        raise NotFoundError("Case", str(case_id))
+
+    result = await session.execute(select(Wallet).where(Wallet.case_id == case_id))
+    wallets = result.scalars().all()
+
+    synced_wallets = []
+    for w in wallets:
+        try:
+            assessment = await _assess_and_sync_wallet(session, w)
+            synced_wallets.append(
+                {
+                    "address": w.address,
+                    "label": w.label,
+                    "risk_score": assessment.overall_score,
+                    "risk_level": assessment.risk_level.value,
+                }
+            )
+        except Exception as e:
+            logger.warning("wallet_risk_sync_failed", address=w.address, error=str(e))
+
+    summary = await get_case_risk_summary(case_id, session)
+    return {
+        "status": "success",
+        "case_id": str(case_id),
+        "synced_count": len(synced_wallets),
+        "wallets": synced_wallets,
+        "risk_summary": summary,
+    }
+
+
+@router.post(
+    "/sync-all",
+    summary="Synchronize and recalibrate risk scores for all wallets",
+    description="Batch assesses all wallets in the database and synchronizes PostgreSQL and Neo4j.",
+)
+async def sync_all_wallets(
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(select(Wallet))
+    wallets = result.scalars().all()
+
+    synced = 0
+    distinct_addresses = set()
+    for w in wallets:
+        addr = w.address.lower()
+        if addr in distinct_addresses:
+            continue
+        distinct_addresses.add(addr)
+        try:
+            await _assess_and_sync_wallet(session, w)
+            synced += 1
+        except Exception as e:
+            logger.warning("wallet_risk_sync_failed", address=w.address, error=str(e))
+
+    return {
+        "status": "success",
+        "distinct_wallets_synced": synced,
+        "total_wallet_rows": len(wallets),
     }

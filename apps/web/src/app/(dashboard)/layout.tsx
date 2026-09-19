@@ -15,7 +15,6 @@ import {
   Shield,
   GitBranch,
   BarChart3,
-  Fingerprint,
   Trophy,
   Bell,
   Sparkles,
@@ -32,7 +31,6 @@ const navigation = [
   { name: "Analyze", href: "/analyze", icon: Search },
   { name: "Graph", href: "/graph", icon: GitBranch },
   { name: "Risk", href: "/risk", icon: BarChart3 },
-  { name: "Forensics", href: "/forensics", icon: Fingerprint },
   { name: "Demo", href: "/demo", icon: Trophy },
   { name: "Reports", href: "/reports", icon: FileText },
   { name: "Settings", href: "/settings", icon: Settings },
@@ -234,7 +232,7 @@ export default function DashboardLayout({
                     isLight ? "text-emerald-800" : "text-[#cf0]"
                   }`}
                 >
-                  SIH 2026 • TRACE-X
+                  TRACE-X
                 </p>
               </div>
               <p
