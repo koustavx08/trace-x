@@ -22,8 +22,24 @@ class ApiClient {
 
     this.client.interceptors.response.use(
       (response) => response,
-      (error: AxiosError) => {
-        if (error.response?.status === 401) {
+      async (error: AxiosError) => {
+        const originalRequest = error.config as any;
+        const isAuthEndpoint =
+          originalRequest?.url?.includes("/auth/login") ||
+          originalRequest?.url?.includes("/auth/refresh");
+
+        if (error.response?.status === 401 && !originalRequest?._retry && !isAuthEndpoint) {
+          originalRequest._retry = true;
+          try {
+            await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true });
+            return this.client(originalRequest);
+          } catch {
+            void useAuthStore.getState().logout();
+            if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+              window.location.href = "/login";
+            }
+          }
+        } else if (error.response?.status === 401 && isAuthEndpoint) {
           void useAuthStore.getState().logout();
           if (typeof window !== "undefined" && window.location.pathname !== "/login") {
             window.location.href = "/login";

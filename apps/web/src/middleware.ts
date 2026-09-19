@@ -38,7 +38,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const hasAuthCookie = request.cookies.has(ACCESS_COOKIE_NAME);
+  const hasAuthCookie =
+    request.cookies.has(ACCESS_COOKIE_NAME) ||
+    request.cookies.has("refresh_token") ||
+    request.cookies.has("tracex_auth");
 
   if (!hasAuthCookie) {
     const loginUrl = new URL("/login", request.url);

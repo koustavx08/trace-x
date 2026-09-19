@@ -69,6 +69,10 @@ export const useAuthStore = create<AuthState>()(
           created_at: new Date().toISOString(),
         };
 
+        if (typeof document !== "undefined") {
+          document.cookie = "tracex_auth=1; Path=/; Max-Age=604800; SameSite=Lax";
+        }
+
         try {
           await axios.post(`${API_URL}/auth/login`, credentials, {
             withCredentials: true,
@@ -94,6 +98,10 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
+        if (typeof document !== "undefined") {
+          document.cookie = "tracex_auth=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+          document.cookie = "access_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+        }
         try {
           await axios.post(`${API_URL}/auth/logout`, null, { withCredentials: true });
         } catch {
