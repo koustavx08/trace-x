@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
     AsyncSession,
     async_sessionmaker,
 )
@@ -11,11 +12,11 @@ from .config import get_settings
 
 settings = get_settings()
 
-engine = None
-async_session_factory = None
+engine: AsyncEngine | None = None
+async_session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
-def init_db_engine():
+def init_db_engine() -> None:
     """Initialize the database engine. Must be called before running the app."""
     import asyncpg  # noqa: F401 - must be imported before SQLAlchemy create_async_engine
     from sqlalchemy.ext.asyncio import create_async_engine
@@ -44,7 +45,7 @@ class Base(DeclarativeBase):
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     if async_session_factory is None:
         init_db_engine()
-    assert async_session_factory is not None
+    assert async_session_factory is not None  # noqa: S101
     async with async_session_factory() as session:
         try:
             yield session
@@ -66,7 +67,7 @@ get_session_context = asynccontextmanager(get_session)
 async def init_db() -> None:
     if engine is None:
         init_db_engine()
-    assert engine is not None
+    assert engine is not None  # noqa: S101
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
