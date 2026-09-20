@@ -1,6 +1,6 @@
 [project]
 name = "trace-x-api"
-version = "0.1.0"
+version = "1.1.0"
 description = "TRACE-X Backend API"
 readme = "README.md"
 requires-python = ">=3.11"
